@@ -237,6 +237,8 @@ public class SigningWorkspace {
                 brand, divider(), uploadButton, docChip, headerSpacer, headerSecurityLabel);
         headerBar.setAlignment(Pos.CENTER_LEFT);
         headerBar.getStyleClass().add("app-header");
+        // Make header bar draggable to move window
+        makeDraggable(headerBar, stage);
 
         // ============ 2. DOCUMENT TOOLBAR (visible only with a document) ============
         prevButton = button("\u25C2", "Previous page (Page Up)");
@@ -477,6 +479,23 @@ public class SigningWorkspace {
         divider.getStyleClass().add("toolbar-divider");
         return divider;
     }
+
+    private void makeDraggable(Node header, Stage stage) {
+        final Delta dragDelta = new Delta();
+        header.setOnMousePressed(e -> {
+            dragDelta.x = stage.getX() - e.getScreenX();
+            dragDelta.y = stage.getY() - e.getScreenY();
+            header.setCursor(Cursor.MOVE);
+        });
+        header.setOnMouseDragged(e -> {
+            stage.setX(e.getScreenX() + dragDelta.x);
+            stage.setY(e.getScreenY() + dragDelta.y);
+        });
+        header.setOnMouseReleased(e -> header.setCursor(Cursor.DEFAULT));
+        header.setOnMouseExited(e -> header.setCursor(Cursor.DEFAULT));
+    }
+
+    private static class Delta { double x, y; }
 
     private void setupKeyboard(Scene scene) {
         scene.addEventHandler(KeyEvent.KEY_PRESSED, e -> {

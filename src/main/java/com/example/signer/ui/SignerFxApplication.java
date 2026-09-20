@@ -19,6 +19,8 @@ import javafx.application.Platform;
 import javafx.concurrent.Task;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Cursor;
+import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
@@ -151,6 +153,7 @@ public class SignerFxApplication extends Application {
         header.setAlignment(Pos.CENTER_LEFT);
         header.setPadding(new Insets(12, 20, 12, 20));
         header.getStyleClass().add("app-header");
+        makeDraggable(header, stage);
 
         // content -------------------------------------------------------------
         VBox content = new VBox(14);
@@ -368,6 +371,23 @@ public class SignerFxApplication extends Application {
         label.setWrapText(true);
         return label;
     }
+
+    private void makeDraggable(Node header, Stage stage) {
+        final Delta dragDelta = new Delta();
+        header.setOnMousePressed(e -> {
+            dragDelta.x = stage.getX() - e.getScreenX();
+            dragDelta.y = stage.getY() - e.getScreenY();
+            header.setCursor(Cursor.MOVE);
+        });
+        header.setOnMouseDragged(e -> {
+            stage.setX(e.getScreenX() + dragDelta.x);
+            stage.setY(e.getScreenY() + dragDelta.y);
+        });
+        header.setOnMouseReleased(e -> header.setCursor(Cursor.DEFAULT));
+        header.setOnMouseExited(e -> header.setCursor(Cursor.DEFAULT));
+    }
+
+    private static class Delta { double x, y; }
 
     private void setBusy(boolean busy) {
         choosePdfButton.setDisable(busy);
