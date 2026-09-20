@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: pdf-signer-desktop
+  main:
+    banner-mode: off
+    web-application-type: none
+
+logging:
+  level:
+    root: INFO
+    com.example.signer: DEBUG
+  file:
+    name: C:/Users/Mnl/AppData/Local/Temp/signer-app.log
+
+signature:
+  pkcs11:
+    # Enable to use a real PKCS#11 device (SoftHSM2 / smartcard) instead of the mock token.
+    # When disabled (default), the mock token provider is active.
+    enabled: ${SIGNATURE_PKCS11_ENABLED:false}
+    # Path configured via environment for the target platform (dll / so / dylib).
+    library: ${PKCS11_LIBRARY:}
+    slot-list-index: ${PKCS11_SLOT_INDEX:0}

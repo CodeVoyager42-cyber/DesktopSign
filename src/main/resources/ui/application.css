@@ -1,0 +1,825 @@
+/* ==========================================================================
+   PDF Digital Signer — Professional Design System
+   ==========================================================================
+   A restrained, enterprise-grade stylesheet for a security-focused desktop
+   PDF signing application.  All colors, spacing, and typography are
+   centralized via looked-up colors on .root.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1.  DESIGN TOKENS
+   -------------------------------------------------------------------------- */
+.root {
+    /* ---- palette ---- */
+    -bg:                #F7F8FA;
+    -surface:           #FFFFFF;
+    -surface-hover:     #F3F4F6;
+    -surface-subtle:    #F9FAFB;
+    -border:            #E5E7EB;
+    -border-light:      #F3F4F6;
+    -border-focus:      #4F46E5;
+    -text-primary:      #111827;
+    -text-secondary:    #6B7280;
+    -text-muted:        #9CA3AF;
+    -text-disabled:     #D1D5DB;
+
+    /* ---- action colours ---- */
+    -primary:           #4F46E5;
+    -primary-hover:     #4338CA;
+    -primary-active:    #3730A3;
+    -primary-light:     #EEF2FF;
+    -primary-disabled:  #A5B4FC;
+    -primary-text:      #FFFFFF;
+
+    -secondary-bg:      #FFFFFF;
+    -secondary-border:  #D1D5DB;
+    -secondary-text:    #374151;
+    -secondary-hover-bg:#F9FAFB;
+    -secondary-hover-border:#9CA3AF;
+
+    -danger:            #DC2626;
+    -danger-hover:      #B91C1C;
+    -danger-light:      #FEF2F2;
+    -danger-text:       #FFFFFF;
+
+    /* ---- semantic ---- */
+    -success:           #059669;
+    -success-light:     #ECFDF5;
+    -warning:           #D97706;
+    -warning-light:     #FFFBEB;
+    -error:             #DC2626;
+    -error-light:       #FEF2F2;
+    -info:              #2563EB;
+    -info-light:        #EFF6FF;
+
+    /* ---- radii ---- */
+    -radius-sm:         4px;
+    -radius-md:         6px;
+    -radius-lg:         8px;
+    -radius-xl:         12px;
+    -radius-full:       9999px;
+
+    /* ---- shadows ---- */
+    -shadow-sm:         dropshadow(gaussian, rgba(0,0,0,0.06), 4, 0, 0, 2);
+    -shadow-md:         dropshadow(gaussian, rgba(0,0,0,0.08), 8, 0, 0, 2);
+    -shadow-lg:         dropshadow(gaussian, rgba(0,0,0,0.10), 16, 0, 0, 4);
+
+    /* ---- typography ---- */
+    -font-family:       "Segoe UI", "SF Pro Display", -apple-system, sans-serif;
+    -font-mono:         "Cascadia Code", "Fira Code", "Consolas", monospace;
+    -font-size-xs:      11px;
+    -font-size-sm:      12px;
+    -font-size-base:    13px;
+    -font-size-md:      14px;
+    -font-size-lg:      16px;
+    -font-size-xl:      20px;
+    -font-size-2xl:     24px;
+    -font-weight-normal:400;
+    -font-weight-medium:500;
+    -font-weight-semibold:600;
+    -font-weight-bold:  700;
+
+    /* ---- spacing (base = 4px) ---- */
+    -spacing-1:         4px;
+    -spacing-2:         8px;
+    -spacing-3:         12px;
+    -spacing-4:         16px;
+    -spacing-5:         20px;
+    -spacing-6:         24px;
+    -spacing-8:         32px;
+    -spacing-10:        40px;
+    -spacing-12:        48px;
+
+    /* ---- core app chrome ---- */
+    -fx-base:           -surface;
+    -fx-background:     -bg;
+    -fx-control-inner-background: -surface;
+    -fx-text-background-color: -text-primary;
+    -fx-font-family:    -font-family;
+    -fx-font-size:      -font-size-base;
+    -fx-focus-color:    -border-focus;
+    -fx-faint-focus-color: transparent;
+}
+
+/* ==========================================================================
+   2.  TYPOGRAPHY
+   ========================================================================== */
+
+/* ---- application chrome ---- */
+.app-title {
+    -fx-font-size:      -font-size-xl;
+    -fx-font-weight:    -font-weight-bold;
+    -fx-text-fill:      -text-primary;
+    -fx-padding:        0 0 2px 0;
+}
+
+.app-subtitle {
+    -fx-font-size:      -font-size-sm;
+    -fx-text-fill:      -text-secondary;
+    -fx-padding:        0;
+}
+
+/* ---- sections ---- */
+.section-title {
+    -fx-font-size:      -font-size-md;
+    -fx-font-weight:    -font-weight-semibold;
+    -fx-text-fill:      -text-primary;
+}
+
+.section-hint {
+    -fx-font-size:      -font-size-xs;
+    -fx-text-fill:      -text-secondary;
+    -fx-line-spacing:   2px;
+}
+
+.muted-text {
+    -fx-font-size:      -font-size-xs;
+    -fx-text-fill:      -text-muted;
+}
+
+.mono-text {
+    -fx-font-family:    -font-mono;
+    -fx-font-size:      -font-size-xs;
+    -fx-text-fill:      -text-secondary;
+}
+
+/* ==========================================================================
+   3.  LAYOUT SURFACES
+   ========================================================================== */
+
+.content-pane {
+    -fx-background-color: -bg;
+    -fx-padding:        0;
+}
+
+/* ---- card ---- */
+.card {
+    -fx-background-color: -surface;
+    -fx-background-radius: -radius-lg;
+    -fx-padding:        16px 20px;
+    -fx-effect:         -shadow-sm;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px;
+    -fx-border-radius:  -radius-lg;
+}
+
+.card--active {
+    -fx-border-color:   -border-focus;
+    -fx-background-color: -primary-light;
+    -fx-border-width:   2px;
+}
+
+/* ==========================================================================
+   4.  BUTTONS
+   ========================================================================== */
+
+.button {
+    -fx-cursor:         hand;
+    -fx-background-radius: -radius-md;
+    -fx-padding:        8px 18px;
+    -fx-font-size:      -font-size-base;
+    -fx-font-weight:    -font-weight-medium;
+    -fx-label-padding:  0;
+    -fx-content-display: LEFT;
+}
+
+/* ---- primary ---- */
+.btn-primary {
+    -fx-background-color: -primary;
+    -fx-text-fill:      -primary-text;
+    -fx-border:         none;
+}
+.btn-primary:hover {
+    -fx-background-color: -primary-hover;
+}
+.btn-primary:pressed {
+    -fx-background-color: -primary-active;
+}
+.btn-primary:disabled {
+    -fx-background-color: -primary-disabled;
+    -fx-text-fill:      rgba(255,255,255,0.7);
+    -fx-opacity:        1.0;
+}
+.btn-primary:focused {
+    -fx-background-color: -primary-hover;
+    -fx-effect:         dropshadow(gaussian, -border-focus, 0, 3, 0, 0);
+}
+
+/* ---- secondary ---- */
+.btn-secondary {
+    -fx-background-color: -secondary-bg;
+    -fx-text-fill:      -secondary-text;
+    -fx-border-color:   -secondary-border;
+    -fx-border-width:   1px;
+}
+.btn-secondary:hover {
+    -fx-background-color: -secondary-hover-bg;
+    -fx-border-color:   -secondary-hover-border;
+}
+.btn-secondary:pressed {
+    -fx-background-color: -surface-hover;
+}
+.btn-secondary:disabled {
+    -fx-opacity:        0.45;
+}
+.btn-secondary:focused {
+    -fx-border-color:   -border-focus;
+}
+
+/* ---- danger ---- */
+.btn-danger {
+    -fx-background-color: -danger;
+    -fx-text-fill:      -danger-text;
+    -fx-border:         none;
+}
+.btn-danger:hover {
+    -fx-background-color: -danger-hover;
+}
+.btn-danger:pressed {
+    -fx-background-color: #991B1B;
+}
+.btn-danger:disabled {
+    -fx-opacity:        0.5;
+}
+.btn-danger:focused {
+    -fx-effect:         dropshadow(gaussian, -danger, 0, 3, 0, 0);
+}
+
+/* ---- ghost (text-only button, no border) ---- */
+.btn-ghost {
+    -fx-background-color: transparent;
+    -fx-text-fill:      -text-secondary;
+    -fx-border:         none;
+    -fx-padding:        6px 12px;
+}
+.btn-ghost:hover {
+    -fx-background-color: -surface-hover;
+    -fx-text-fill:      -text-primary;
+}
+.btn-ghost:pressed {
+    -fx-background-color: -border-light;
+}
+
+/* ---- small (compact) button variant ---- */
+.btn-sm {
+    -fx-padding:        5px 12px;
+    -fx-font-size:      -font-size-sm;
+}
+
+/* ==========================================================================
+   5.  INPUTS
+   ========================================================================== */
+
+.text-field,
+.password-field,
+.combo-box,
+.combo-box .list-cell {
+    -fx-background-radius: -radius-md;
+    -fx-border-color:   -border;
+    -fx-border-radius:  -radius-md;
+    -fx-font-size:      -font-size-base;
+}
+
+.text-field,
+.password-field {
+    -fx-padding:        8px 12px;
+    -fx-background-color: -surface;
+    -fx-text-fill:      -text-primary;
+    -fx-prompt-text-fill: -text-muted;
+}
+
+.text-field:focused,
+.password-field:focused {
+    -fx-border-color:   -border-focus;
+    -fx-background-color: -surface;
+}
+
+.combo-box {
+    -fx-background-color: -surface;
+    -fx-padding:        4px 8px;
+}
+
+.combo-box:focused {
+    -fx-border-color:   -border-focus;
+}
+
+/* ---- custom combo box arrow ---- */
+.combo-box .arrow-button {
+    -fx-background-color: transparent;
+}
+.combo-box .arrow {
+    -fx-background-color: -text-secondary;
+}
+
+/* ---- check-box ---- */
+.check-box {
+    -fx-text-fill:      -text-primary;
+    -fx-font-size:      -font-size-base;
+}
+.check-box .box {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-radius:  -radius-sm;
+    -fx-padding:        2px;
+}
+.check-box:selected .box {
+    -fx-background-color: -primary;
+    -fx-border-color:   -primary;
+}
+
+/* ==========================================================================
+   6.  STATUS INDICATORS
+   ========================================================================== */
+
+/* ---- status pill ---- */
+.status-pill {
+    -fx-background-color: -border;
+    -fx-background-radius: -radius-full;
+    -fx-padding:        4px 14px;
+    -fx-text-fill:      -text-secondary;
+    -fx-font-weight:    -font-weight-semibold;
+    -fx-font-size:      -font-size-xs;
+    -fx-alignment:      CENTER;
+}
+
+.status-pill--active {
+    -fx-background-color: -success-light;
+    -fx-text-fill:      -success;
+}
+
+.status-pill--pending {
+    -fx-background-color: -warning-light;
+    -fx-text-fill:      -warning;
+}
+
+.status-pill--error {
+    -fx-background-color: -error-light;
+    -fx-text-fill:      -error;
+}
+
+/* ---- inline status dot ---- */
+.status-dot {
+    -fx-background-radius: -radius-full;
+    -fx-min-width:       8px;
+    -fx-min-height:      8px;
+    -fx-max-width:       8px;
+    -fx-max-height:      8px;
+}
+.status-dot--active {
+    -fx-background-color: -success;
+}
+.status-dot--pending {
+    -fx-background-color: -warning;
+}
+.status-dot--error {
+    -fx-background-color: -error;
+}
+.status-dot--inactive {
+    -fx-background-color: -text-disabled;
+}
+
+/* ==========================================================================
+   7.  STATUS / FOOTER BAR
+   ========================================================================== */
+
+.status-bar {
+    -fx-padding:        8px 20px;
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px 0 0 0;
+    -fx-min-height:     36px;
+}
+
+.status-text {
+    -fx-text-fill:      -text-secondary;
+    -fx-font-size:      -font-size-sm;
+}
+
+.status-text--error {
+    -fx-text-fill:      -error;
+    -fx-font-weight:    -font-weight-semibold;
+}
+
+.status-text--success {
+    -fx-text-fill:      -success;
+    -fx-font-weight:    -font-weight-semibold;
+}
+
+/* ==========================================================================
+   8.  WIZARD STEP INDICATOR
+   ========================================================================== */
+
+.step-indicator {
+    -fx-spacing:        4px;
+    -fx-alignment:      CENTER_LEFT;
+}
+
+.step-number {
+    -fx-background-radius: -radius-full;
+    -fx-min-width:      24px;
+    -fx-min-height:     24px;
+    -fx-max-width:      24px;
+    -fx-max-height:     24px;
+    -fx-alignment:      CENTER;
+    -fx-font-size:      -font-size-xs;
+    -fx-font-weight:    -font-weight-bold;
+    -fx-background-color: -border;
+    -fx-text-fill:      -text-secondary;
+}
+
+.step-number--active {
+    -fx-background-color: -primary;
+    -fx-text-fill:      -primary-text;
+}
+
+.step-number--done {
+    -fx-background-color: -success;
+    -fx-text-fill:      -primary-text;
+}
+
+.step-label {
+    -fx-font-size:      -font-size-xs;
+    -fx-text-fill:      -text-secondary;
+}
+
+/* ==========================================================================
+   9.  EMPTY STATE
+   ========================================================================== */
+
+.empty-state {
+    -fx-alignment:      CENTER;
+    -fx-spacing:        16px;
+    -fx-padding:        40px 48px;
+}
+
+.empty-state-icon {
+    -fx-font-size:      36px;
+    -fx-text-fill:      -text-muted;
+}
+
+.empty-state-title {
+    -fx-font-size:      -font-size-lg;
+    -fx-font-weight:    -font-weight-semibold;
+    -fx-text-fill:      -text-primary;
+}
+
+.empty-state-hint {
+    -fx-font-size:      -font-size-sm;
+    -fx-text-fill:      -text-secondary;
+    -fx-text-alignment: CENTER;
+    -fx-max-width:      440px;
+    -fx-line-spacing:   3px;
+}
+
+/* ==========================================================================
+   10. TOOLBAR (workspace)
+   ========================================================================== */
+
+.toolbar {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   0 0 1px 0;
+    -fx-spacing:        6px;
+    -fx-padding:        8px 14px;
+    -fx-min-height:     40px;
+}
+
+.toolbar-divider {
+    -fx-pref-width:     1px;
+    -fx-min-width:      1px;
+    -fx-max-width:      1px;
+    -fx-pref-height:    22px;
+    -fx-background-color: -border;
+}
+
+/* ---- nav button (workspace toolbar) ---- */
+.nav-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill:      -text-secondary;
+    -fx-border-color:   -border;
+    -fx-border-radius:  -radius-md;
+    -fx-padding:        5px 12px;
+    -fx-font-size:      -font-size-sm;
+    -fx-cursor:         hand;
+}
+.nav-btn:hover {
+    -fx-background-color: -surface-hover;
+    -fx-text-fill:      -text-primary;
+    -fx-border-color:   -secondary-hover-border;
+}
+.nav-btn:disabled {
+    -fx-opacity:        0.35;
+}
+.nav-btn:selected,
+.nav-btn:focused {
+    -fx-border-color:   -border-focus;
+    -fx-text-fill:      -primary;
+    -fx-background-color: -primary-light;
+}
+
+.page-label {
+    -fx-text-fill:      -text-primary;
+    -fx-font-weight:    -font-weight-semibold;
+    -fx-font-size:      -font-size-sm;
+    -fx-min-width:      100px;
+    -fx-alignment:      CENTER;
+}
+
+.zoom-label {
+    -fx-text-fill:      -text-secondary;
+    -fx-font-size:      -font-size-sm;
+    -fx-min-width:      42px;
+    -fx-alignment:      CENTER;
+}
+
+/* ---- box info label ---- */
+.box-info {
+    -fx-text-fill:      -text-secondary;
+    -fx-font-size:      -font-size-xs;
+    -fx-pref-width:     180px;
+    -fx-min-width:      120px;
+}
+
+/* ==========================================================================
+   10b. APP HEADER (workspace)
+   ========================================================================== */
+
+.app-header {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   0 0 1px 0;
+    -fx-padding:        0 16px;
+    -fx-min-height:     56px;
+    -fx-alignment:      CENTER_LEFT;
+}
+
+.app-brand {
+    -fx-spacing:        10px;
+    -fx-alignment:      CENTER_LEFT;
+}
+
+.app-logo {
+    -fx-background-color: -primary;
+    -fx-text-fill:      -primary-text;
+    -fx-font-size:      14px;
+    -fx-font-weight:    -font-weight-bold;
+    -fx-min-width:      28px;
+    -fx-max-width:      28px;
+    -fx-min-height:     28px;
+    -fx-max-height:     28px;
+    -fx-background-radius: -radius-md;
+    -fx-alignment:      CENTER;
+}
+
+.app-name {
+    -fx-font-size:      15px;
+    -fx-font-weight:    -font-weight-bold;
+    -fx-text-fill:      -text-primary;
+}
+
+.app-tagline {
+    -fx-font-size:      -font-size-xs;
+    -fx-text-fill:      -text-secondary;
+}
+
+/* ---- document chip ---- */
+.doc-chip {
+    -fx-background-color: -surface-subtle;
+    -fx-background-radius: -radius-md;
+    -fx-border-color:   -border;
+    -fx-border-radius:  -radius-md;
+    -fx-padding:        4px 12px;
+    -fx-spacing:        8px;
+    -fx-alignment:      CENTER_LEFT;
+}
+
+.doc-dot {
+    -fx-text-fill:      -success;
+    -fx-font-size:      10px;
+}
+
+.doc-title {
+    -fx-font-size:      -font-size-base;
+    -fx-font-weight:    -font-weight-semibold;
+    -fx-text-fill:      -text-primary;
+}
+
+.doc-meta {
+    -fx-font-size:      -font-size-xs;
+    -fx-text-fill:      -text-secondary;
+}
+
+/* ---- header security label ---- */
+.security-label {
+    -fx-font-size:      -font-size-sm;
+    -fx-font-weight:    -font-weight-semibold;
+}
+
+/* ==========================================================================
+   10c. DOCUMENT TOOLBAR (workspace)
+   ========================================================================== */
+
+.doc-toolbar {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   0 0 1px 0;
+    -fx-spacing:        6px;
+    -fx-padding:        6px 16px;
+    -fx-min-height:     38px;
+    -fx-alignment:      CENTER_LEFT;
+}
+
+/* ==========================================================================
+   10d. SECURITY BAR (workspace)
+   ========================================================================== */
+
+.security-bar {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px 0 0 0;
+    -fx-spacing:        10px;
+    -fx-padding:        10px 16px;
+    -fx-alignment:      CENTER_LEFT;
+}
+
+.security-title {
+    -fx-font-size:      -font-size-xs;
+    -fx-font-weight:    -font-weight-bold;
+    -fx-text-fill:      -text-secondary;
+}
+
+/* ==========================================================================
+   10e. ACTION BAR (workspace)
+   ========================================================================== */
+
+.action-bar {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px 0 0 0;
+    -fx-spacing:        10px;
+    -fx-padding:        12px 16px;
+    -fx-min-height:     60px;
+    -fx-alignment:      CENTER_LEFT;
+}
+
+/* ---- signature placement instruction banner ---- */
+.placement-banner {
+    -fx-background-color: -primary-light;
+    -fx-text-fill:      -primary;
+    -fx-font-size:      -font-size-sm;
+    -fx-font-weight:    -font-weight-semibold;
+    -fx-padding:        8px 18px;
+    -fx-background-radius: -radius-full;
+    -fx-effect:         -shadow-sm;
+}
+
+.empty-state-drag {
+    -fx-font-size:      -font-size-xs;
+    -fx-text-fill:      -text-muted;
+}
+
+/* ==========================================================================
+   11. DOCUMENT VIEWER (workspace canvas)
+   ========================================================================== */
+
+.workspace-canvas {
+    -fx-background-color: #DDE3EC;
+}
+
+/* ---- page area ---- */
+.page-layer {
+    -fx-background-color: -surface;
+    -fx-effect:         -shadow-md;
+}
+
+/* ---- signature rectangle (dashed, professional) ---- */
+.signature-box {
+    -fx-fill:           rgba(79, 70, 229, 0.10);
+    -fx-stroke:         -primary;
+    -fx-stroke-width:   1.5;
+    -fx-stroke-dash-array: 6 4;
+    -fx-arc-width:      3;
+    -fx-arc-height:     3;
+}
+
+/* ---- in-box signature label ---- */
+.signature-label {
+    -fx-background-color: -primary-light;
+    -fx-background-radius: -radius-sm;
+    -fx-text-fill:      -primary;
+    -fx-font-size:      -font-size-xs;
+    -fx-font-weight:    -font-weight-bold;
+    -fx-padding:        3px 8px;
+    -fx-text-alignment: CENTER;
+    -fx-alignment:      CENTER;
+}
+
+.signature-label--success {
+    -fx-background-color: -success-light;
+    -fx-text-fill:      -success;
+}
+
+/* ---- signature badge ---- */
+.badge {
+    -fx-background-color: -primary;
+    -fx-background-radius: -radius-sm;
+    -fx-padding:        2px 10px;
+    -fx-text-fill:      -primary-text;
+    -fx-font-size:      -font-size-xs;
+    -fx-font-weight:    -font-weight-semibold;
+    -fx-effect:         -shadow-sm;
+}
+
+.badge--success {
+    -fx-background-color: -success;
+}
+
+/* ---- busy spinner ---- */
+.busy-spinner {
+    -fx-progress-color: -primary;
+}
+.busy-spinner .percentage {
+    -fx-fill:           null;
+}
+
+/* ==========================================================================
+   12. PROGRESS BAR
+   ========================================================================== */
+
+.progress-bar {
+    -fx-background-radius: -radius-full;
+    -fx-min-height:     4px;
+    -fx-max-height:     4px;
+}
+.progress-bar .track {
+    -fx-background-color: -border;
+    -fx-background-radius: -radius-full;
+    -fx-min-height:     4px;
+    -fx-max-height:     4px;
+}
+.progress-bar .bar {
+    -fx-background-color: -primary;
+    -fx-background-radius: -radius-full;
+    -fx-min-height:     4px;
+    -fx-max-height:     4px;
+}
+
+/* ==========================================================================
+   13. SCROLL PANE (main window)
+   ========================================================================== */
+
+.content-scroll {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding:        0;
+    -fx-border-color:   transparent;
+}
+
+.content-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.content-scroll .corner {
+    -fx-background-color: transparent;
+}
+
+.scroll-pane {
+    -fx-background-color: transparent;
+}
+
+/* ==========================================================================
+   14. MISC / UTILITIES
+   ========================================================================== */
+
+/* subtle separator line */
+.separator {
+    -fx-background-color: -border;
+    -fx-pref-height:    1px;
+    -fx-max-height:     1px;
+}
+
+/* ---- drag-and-drop upload feedback ---- */
+.drop-target {
+    -fx-background-color: -primary-light;
+    -fx-border-color:   -border-focus;
+    -fx-border-width:   2px;
+    -fx-border-style:   segments(6, 6);
+    -fx-border-insets:  6px;
+    -fx-border-radius:  -radius-lg;
+}
+
+/* focus ring for any focusable element */
+.focus-ring:focused {
+    -fx-effect:         dropshadow(gaussian, -border-focus, 0, 2, 0, 0);
+}
+
+/* tooltip styling */
+.tooltip {
+    -fx-background-color: #1F2937;
+    -fx-text-fill:      #F9FAFB;
+    -fx-background-radius: -radius-md;
+    -fx-padding:        6px 12px;
+    -fx-font-size:      -font-size-xs;
+    -fx-font-weight:    -font-weight-normal;
+    -fx-effect:         -shadow-md;
+}
