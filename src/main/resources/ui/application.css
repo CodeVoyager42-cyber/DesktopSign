@@ -169,6 +169,35 @@
     -fx-border-width:   2px;
 }
 
+/* Responsive card padding */
+@media screen and (max-width: 800px) {
+    .card {
+        -fx-padding: 12px 14px;
+    }
+    .section-title {
+        -fx-font-size: -font-size-sm;
+    }
+    .section-hint {
+        -fx-font-size: -font-size-xs;
+    }
+    .button {
+        -fx-padding: 6px 14px;
+        -fx-font-size: -font-size-sm;
+    }
+}
+
+/* FlowPane responsive wrapping */
+.flow-pane {
+    -fx-hgap: 8;
+    -fx-vgap: 8;
+}
+
+/* Status bar responsive */
+.status-bar {
+    -fx-padding: 6px 12px;
+    -fx-min-height: 32px;
+}
+
 /* ==========================================================================
    4.  BUTTONS
    ========================================================================== */
@@ -616,30 +645,39 @@
 }
 
 /* ==========================================================================
-   10c. DOCUMENT TOOLBAR (workspace)
+   10c. DOCUMENT TOOLBAR (workspace) - ToolBar
    ========================================================================== */
 
 .doc-toolbar {
     -fx-background-color: -surface;
     -fx-border-color:   -border;
     -fx-border-width:   0 0 1px 0;
-    -fx-spacing:        6px;
-    -fx-padding:        6px 16px;
+    -fx-padding:        6px 12px;
     -fx-min-height:     38px;
-    -fx-alignment:      CENTER_LEFT;
+}
+
+.doc-toolbar > .container {
+    -fx-spacing: 6px;
+}
+
+.doc-toolbar .nav-btn {
+    -fx-padding: 4px 10px;
+    -fx-font-size: -font-size-sm;
 }
 
 /* ==========================================================================
-   10d. SECURITY BAR (workspace)
+   10d. SECURITY BAR (workspace) - ToolBar
    ========================================================================== */
 
 .security-bar {
     -fx-background-color: -surface;
     -fx-border-color:   -border;
     -fx-border-width:   1px 0 0 0;
-    -fx-spacing:        10px;
-    -fx-padding:        10px 16px;
-    -fx-alignment:      CENTER_LEFT;
+    -fx-padding:        8px 12px;
+}
+
+.security-bar > .container {
+    -fx-spacing: 10px;
 }
 
 .security-title {
@@ -648,18 +686,33 @@
     -fx-text-fill:      -text-secondary;
 }
 
+.security-bar .combo-box {
+    -fx-pref-width: 200px;
+    -fx-min-width: 150px;
+}
+
 /* ==========================================================================
-   10e. ACTION BAR (workspace)
+   10e. ACTION BAR (workspace) - ToolBar
    ========================================================================== */
 
 .action-bar {
     -fx-background-color: -surface;
     -fx-border-color:   -border;
     -fx-border-width:   1px 0 0 0;
-    -fx-spacing:        10px;
-    -fx-padding:        12px 16px;
-    -fx-min-height:     60px;
-    -fx-alignment:      CENTER_LEFT;
+    -fx-padding:        8px 12px;
+    -fx-min-height:     52px;
+}
+
+.action-bar > .container {
+    -fx-spacing: 10px;
+}
+
+.action-bar .status-text {
+    -fx-min-width: 150px;
+}
+
+.action-bar .box-info {
+    -fx-min-width: 80px;
 }
 
 /* ---- signature placement instruction banner ---- */

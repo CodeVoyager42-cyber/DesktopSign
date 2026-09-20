@@ -267,6 +267,7 @@ public class SignerFxApplication extends Application {
         workspaceButton.setOnAction(e -> openWorkspace());
         FlowPane actionsFlow = new FlowPane(10, 10, signButton, verifyButton, saveButton, logoutButton, workspaceButton);
         actionsFlow.setAlignment(Pos.CENTER_LEFT);
+        actionsFlow.getStyleClass().add("flow-pane");
 
         // --- progress / status -----------------------------------------------------
         progressBar = new ProgressBar(0);
@@ -327,8 +328,8 @@ public class SignerFxApplication extends Application {
         setupDropTarget(scene, root);
         stage.setTitle("PDF Digital Signer");
         stage.setScene(scene);
-        stage.setMinWidth(760);
-        stage.setMinHeight(560);
+        stage.setMinWidth(720);
+        stage.setMinHeight(500);
         stage.show();
 
         // When the window regains focus, re-sync token UI state so a token that was

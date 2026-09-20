@@ -25,7 +25,9 @@ import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Separator;
 import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToolBar;
 import javafx.scene.control.Tooltip;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.Dragboard;
@@ -114,8 +116,8 @@ public class SigningWorkspace {
     private VBox emptyOverlay;
     private StackPane centerPane;
     private HBox docChip;
-    private HBox docToolbar;
-    private HBox securityBar;
+    private ToolBar docToolbar;
+    private ToolBar securityBar;
     private Label docTitleLabel;
     private Label docMetaLabel;
     private Label headerSecurityLabel;
@@ -269,12 +271,15 @@ public class SigningWorkspace {
         fitPageButton.setTooltip(new Tooltip("Fit the whole page into the window"));
         fitPageButton.setOnAction(e -> toggleFitPage());
 
-        docToolbar = new HBox(6,
-                prevButton, pageLabel, nextButton, divider(),
-                zoomOutButton, zoomLabel, zoomInButton, divider(),
-                fitWidthButton, fitPageButton);
-        docToolbar.setAlignment(Pos.CENTER_LEFT);
+        ToolBar docToolbar = new ToolBar();
         docToolbar.getStyleClass().add("doc-toolbar");
+        docToolbar.getItems().addAll(
+                prevButton, pageLabel, nextButton,
+                new Separator(),
+                zoomOutButton, zoomLabel, zoomInButton,
+                new Separator(),
+                fitWidthButton, fitPageButton
+        );
         docToolbar.setManaged(false);
         docToolbar.setVisible(false);
 
@@ -338,7 +343,7 @@ public class SigningWorkspace {
         StackPane.setAlignment(placementBanner, Pos.TOP_CENTER);
         StackPane.setMargin(placementBanner, new Insets(12, 0, 0, 0));
 
-        // ============ 4. SECURITY BAR ============
+        // ============ 4. SECURITY BAR (ToolBar with overflow) ============
         Label securityTitle = new Label("SECURITY");
         securityTitle.getStyleClass().add("security-title");
 
@@ -353,18 +358,25 @@ public class SigningWorkspace {
         pinField = new PasswordField();
         pinField.setPromptText("Device PIN");
         pinField.setPrefWidth(170);
+        pinField.setMinWidth(120);
         pinField.setOnAction(e -> authenticate());
 
         authenticateButton = button("Unlock Device", "Authenticate with the security device PIN (Enter)");
         authenticateButton.getStyleClass().add("btn-secondary");
         authenticateButton.setOnAction(e -> authenticate());
 
-        securityBar = new HBox(10,
-                securityTitle, authPill, certCombo, pinField, authenticateButton);
-        securityBar.setAlignment(Pos.CENTER_LEFT);
+        ToolBar securityBar = new ToolBar();
         securityBar.getStyleClass().add("security-bar");
+        securityBar.getItems().addAll(
+                securityTitle,
+                authPill,
+                certCombo,
+                pinField,
+                authenticateButton
+        );
+        HBox.setHgrow(certCombo, Priority.ALWAYS);
 
-        // ============ 5. ACTION BAR ============
+        // ============ 5. ACTION BAR (ToolBar with overflow) ============
         busySpinner = new ProgressIndicator();
         busySpinner.setPrefSize(16, 16);
         busySpinner.setVisible(false);
@@ -374,13 +386,13 @@ public class SigningWorkspace {
         statusLabel = new Label("Ready");
         statusLabel.getStyleClass().add("status-text");
         statusLabel.setWrapText(true);
-        statusLabel.setMaxWidth(420);
+        statusLabel.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(statusLabel, Priority.ALWAYS);
 
         boxInfoLabel = new Label("No signature box");
         boxInfoLabel.getStyleClass().add("box-info");
         boxInfoLabel.setPrefWidth(180);
-        boxInfoLabel.setMinWidth(120);
+        boxInfoLabel.setMinWidth(100);
 
         clearPlacementButton = button("Reset", "Remove the signature box");
         clearPlacementButton.getStyleClass().add("btn-ghost");
@@ -398,11 +410,20 @@ public class SigningWorkspace {
         downloadButton.getStyleClass().add("btn-secondary");
         downloadButton.setOnAction(e -> saveSignedPdf());
 
-        HBox actionBar = new HBox(10,
-                busySpinner, statusLabel, boxInfoLabel,
-                divider(), clearPlacementButton, placeButton, signButton, downloadButton);
-        actionBar.setAlignment(Pos.CENTER_LEFT);
+        ToolBar actionBar = new ToolBar();
         actionBar.getStyleClass().add("action-bar");
+        actionBar.getItems().addAll(
+                busySpinner,
+                statusLabel,
+                boxInfoLabel,
+                new Separator(),
+                clearPlacementButton,
+                placeButton,
+                signButton,
+                downloadButton
+        );
+        // Make status label grow to fill available space
+        HBox.setHgrow(statusLabel, Priority.ALWAYS);
 
         // ============ ROOT ============
         BorderPane root = new BorderPane();
@@ -410,7 +431,7 @@ public class SigningWorkspace {
         root.setCenter(centerPane);
         root.setBottom(new VBox(securityBar, actionBar));
 
-        Scene scene = new Scene(root, 1180, 810);
+        Scene scene = new Scene(root, 1100, 750);
         scene.getStylesheets().add(
                 getClass().getResource("/ui/application.css").toExternalForm());
         setupKeyboard(scene);
@@ -419,8 +440,8 @@ public class SigningWorkspace {
         stage = new Stage();
         stage.setTitle("PDF Signing Workspace");
         stage.setScene(scene);
-        stage.setMinWidth(860);
-        stage.setMinHeight(560);
+        stage.setMinWidth(720);
+        stage.setMinHeight(500);
         stage.setOnCloseRequest(e -> log.info("Workspace closed"));
     }
 
