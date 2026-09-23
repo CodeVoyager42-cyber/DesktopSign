@@ -1,0 +1,121 @@
+package com.example.signer.ui.support;
+
+import com.example.signer.token.SigningCertificate;
+import com.example.signer.token.TokenService;
+import com.example.signer.token.TokenState;
+
+import javafx.concurrent.Task;
+import javafx.scene.Cursor;
+import javafx.scene.Node;
+import javafx.scene.control.TextField;
+import javafx.scene.input.MouseEvent;
+import javafx.stage.Stage;
+
+import java.util.List;
+import java.util.function.Supplier;
+
+/**
+ * Shared helpers for the UI layer: task failure messages, safe token access,
+ * token-state classification and PIN buffer extraction.
+ *
+ * <p>Consolidates helpers that were previously duplicated (and drifting)
+ * across {@code SignerFxApplication}, {@code SigningWorkspace} and
+ * {@code MultiSignerWorkspaceFlow}. Purely static and UI-framework aware;
+ * contains no business logic.</p>
+ */
+public final class UiSupport {
+
+    private UiSupport() {
+    }
+
+    /**
+     * One-line, never-null description of why {@code task} failed, suitable
+     * for a status bar: the exception message when present, otherwise the
+     * exception class name.
+     */
+    public static String failureMessage(Task<?> task) {
+        Throwable t = task == null ? null : task.getException();
+        if (t == null) {
+            return "unknown error";
+        }
+        return t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
+    }
+
+    /**
+     * The token's certificates, or an empty list when the token is not in an
+     * active state (querying outside those states would throw).
+     */
+    public static List<SigningCertificate> safeCertificates(TokenService tokenService) {
+        try {
+            return tokenService.getCertificates();
+        } catch (IllegalStateException e) {
+            return List.of();
+        }
+    }
+
+    /** True for the three states in which the token session is unlocked. */
+    public static boolean isAuthenticatedState(TokenState state) {
+        return state == TokenState.AUTHENTICATED
+                || state == TokenState.SIGNATURE_COMPLETE
+                || state == TokenState.SIGNATURE_FAILED;
+    }
+
+    /** True once a token is connected (any state but NO_TOKEN/TOKEN_REMOVED). */
+    public static boolean isTokenPresent(TokenState state) {
+        return state != null && state != TokenState.NO_TOKEN
+                && state != TokenState.TOKEN_REMOVED;
+    }
+
+    /**
+     * Copies the field's characters into a fresh {@code char[]} without ever
+     * materialising them as a {@link String}, so no immutable copy of the PIN
+     * survives until an unpredictable garbage collection. Callers remain
+     * responsible for wiping the returned array (TokenService does so after
+     * consuming it).
+     */
+    public static char[] pinChars(TextField field) {
+        if (field == null) {
+            return null;
+        }
+        CharSequence characters = field.getCharacters();
+        if (characters == null || characters.length() == 0) {
+            return null;
+        }
+        char[] pin = new char[characters.length()];
+        for (int i = 0; i < characters.length(); i++) {
+            pin[i] = characters.charAt(i);
+        }
+        return pin;
+    }
+
+    /**
+     * Makes {@code header} a window-drag handle for the stage produced by
+     * {@code stageSupplier} (the shared behaviour behind the app header and
+     * the workspace title bars). The supplier is evaluated at event time so
+     * callers may install the handler before the stage field is assigned.
+     */
+    public static void makeDraggable(Node header, Supplier<Stage> stageSupplier) {
+        final double[] delta = new double[2];
+        header.addEventHandler(MouseEvent.MOUSE_PRESSED, e -> {
+            Stage stage = stageSupplier.get();
+            if (stage == null) {
+                return;
+            }
+            delta[0] = stage.getX() - e.getScreenX();
+            delta[1] = stage.getY() - e.getScreenY();
+            header.setCursor(Cursor.MOVE);
+        });
+        header.addEventHandler(MouseEvent.MOUSE_DRAGGED, e -> {
+            Stage stage = stageSupplier.get();
+            if (stage == null) {
+                return;
+            }
+            stage.setX(e.getScreenX() + delta[0]);
+            stage.setY(e.getScreenY() + delta[1]);
+        });
+        header.addEventHandler(MouseEvent.MOUSE_RELEASED, e ->
+                header.setCursor(Cursor.DEFAULT));
+        header.addEventHandler(MouseEvent.MOUSE_EXITED, e ->
+                header.setCursor(Cursor.DEFAULT));
+    }
+}

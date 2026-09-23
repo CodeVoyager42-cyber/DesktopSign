@@ -7,6 +7,7 @@ import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.interactive.form.PDAcroForm;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.SignatureInterface;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.SignatureOptions;
@@ -43,6 +44,8 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Calendar;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -66,14 +69,19 @@ public class DefaultPdfSigningService implements PdfSigningService {
 
     private static final Logger log = LoggerFactory.getLogger(DefaultPdfSigningService.class);
 
+    /** PKCS#1 rsassa-pkcs1-v1_5 with SHA-256 (RFC 8017). */
     private static final String OID_SHA256_WITH_RSA = "1.2.840.113549.1.1.11";
 
-    private final SigningService signingService;
+    /** ANSI X9.62 / SEC 2 ecdsa-with-SHA256 (RFC 5758). */
+    private static final String OID_SHA256_WITH_ECDSA = "1.2.840.10045.4.3.2";
+
+    /** SubFilter for the embedded CMS signature dictionaries. */
+    public static final String SUBFILTER_ADBE_PKCS7_DETACHED =
+            PDSignature.SUBFILTER_ADBE_PKCS7_DETACHED.getName();
+
     private final TokenService tokenService;
 
-    public DefaultPdfSigningService(SigningService signingService,
-                                    TokenService tokenService) {
-        this.signingService = signingService;
+    public DefaultPdfSigningService(TokenService tokenService) {
         this.tokenService = tokenService;
     }
 
@@ -91,6 +99,16 @@ public class DefaultPdfSigningService implements PdfSigningService {
                                  SigningAlgorithm algorithm,
                                  Path outputPdf,
                                  SignaturePlacement placement) throws Exception {
+        return signPdf(inputPdf, keyAlias, algorithm, outputPdf, placement, null);
+    }
+
+    @Override
+    public SigningResult signPdf(Path inputPdf,
+                                 String keyAlias,
+                                 SigningAlgorithm algorithm,
+                                 Path outputPdf,
+                                 SignaturePlacement placement,
+                                 SignatureAppearance appearance) throws Exception {
 
         X509Certificate signerCert = resolveCertificate(keyAlias);
         SigningResult[] captured = new SigningResult[1];
@@ -102,7 +120,7 @@ public class DefaultPdfSigningService implements PdfSigningService {
                     byte[] data = content.readAllBytes();
 
                     TokenContentSigner tokenSigner =
-                            new TokenContentSigner(signingService, keyAlias, algorithm);
+                            new TokenContentSigner(tokenService, keyAlias, algorithm);
 
                     BcDigestCalculatorProvider digestCalc = new BcDigestCalculatorProvider();
 
@@ -138,9 +156,18 @@ public class DefaultPdfSigningService implements PdfSigningService {
             PDSignature signature = new PDSignature();
             signature.setFilter(PDSignature.FILTER_ADOBE_PPKLITE);
             signature.setSubFilter(PDSignature.SUBFILTER_ADBE_PKCS7_DETACHED);
-            signature.setName(keyAlias);
+            signature.setName(signerCert.getSubjectX500Principal().getName());
             signature.setSignDate(Calendar.getInstance());
-            signature.setReason("Document signed with the PDF Digital Signer");
+            if (appearance != null && appearance.reason() != null
+                    && !appearance.reason().isBlank()) {
+                signature.setReason(appearance.reason().trim());
+            } else {
+                signature.setReason("Document signed with the PDF Digital Signer");
+            }
+            if (appearance != null && appearance.location() != null
+                    && !appearance.location().isBlank()) {
+                signature.setLocation(appearance.location().trim());
+            }
 
             SignatureOptions options = null;
             try {
@@ -149,7 +176,7 @@ public class DefaultPdfSigningService implements PdfSigningService {
                 } else {
                     options = new SignatureOptions();
                     attachVisibleSignature(doc, signature, options,
-                            placement, signerCert, algorithm);
+                            placement, signerCert, algorithm, appearance);
                     doc.addSignature(signature, signer, options);
                 }
 
@@ -177,7 +204,8 @@ public class DefaultPdfSigningService implements PdfSigningService {
                                         SignatureOptions options,
                                         SignaturePlacement placement,
                                         X509Certificate signerCert,
-                                        SigningAlgorithm algorithm) throws IOException {
+                                        SigningAlgorithm algorithm,
+                                        SignatureAppearance appearance) throws IOException {
         int pageIndex = placement.pageIndex();
         if (pageIndex >= doc.getNumberOfPages()) {
             throw new IOException("Placement page " + (pageIndex + 1)
@@ -185,8 +213,15 @@ public class DefaultPdfSigningService implements PdfSigningService {
         }
 
         PDPage page = doc.getPage(pageIndex);
-        PDRectangle box = page.getCropBox() != null ? page.getCropBox() : page.getMediaBox();
-        float pageHeight = box.getHeight();
+        PDRectangle cropBox = page.getCropBox() != null ? page.getCropBox() : page.getMediaBox();
+        PDRectangle mediaBox = page.getMediaBox();
+        // The workspace measures the placement from the visible (crop) box,
+        // while PDFBox's designer anchors its top-left coordinates to the
+        // media box. Translate between the two so the stamp lands exactly
+        // where the user drew it, even for scanned pages whose crop box is
+        // offset inside the media box.
+        float offsetX = cropBox.getLowerLeftX() - mediaBox.getLowerLeftX();
+        float offsetY = cropBox.getLowerLeftY() - mediaBox.getLowerLeftY();
 
         if (page.getRotation() != 0) {
             log.warn("Page {} is rotated by {} degrees; visible signature placement "
@@ -195,13 +230,15 @@ public class DefaultPdfSigningService implements PdfSigningService {
         }
 
         // Designer coordinates: xAxis/yAxis give the TOP-LEFT corner, yAxis
-        // measured downwards from the top of the page.
-        float xAxis = placement.x();
-        float yAxis = Math.max(0f, pageHeight - (placement.y() + placement.height()));
+        // measured downwards from the top of the media box.
+        float xAxis = offsetX + placement.x();
+        float yAxis = Math.max(0f, mediaBox.getHeight() - offsetY
+                - (placement.y() + placement.height()));
 
         String signerName = displayName(signerCert);
         BufferedImage stamp = buildSignatureStamp(
-                placement.width(), placement.height(), signerName, algorithm);
+                placement.width(), placement.height(), signerName, algorithm,
+                appearance);
 
         PDVisibleSignDesigner designer =
                 new PDVisibleSignDesigner(doc, stamp, pageIndex + 1);
@@ -209,7 +246,7 @@ public class DefaultPdfSigningService implements PdfSigningService {
                 .yAxis(yAxis)
                 .width(placement.width())
                 .height(placement.height())
-                .signatureFieldName("Signature1");
+                .signatureFieldName(nextSignatureFieldName(doc));
 
         PDVisibleSigProperties visibleProps = new PDVisibleSigProperties()
                 .signerName(signerName)
@@ -227,69 +264,34 @@ public class DefaultPdfSigningService implements PdfSigningService {
     }
 
     /**
-     * Draws the screen-printed signature stamp (white box, gold border, signer
-     * details) with an aspect ratio matching the requested placement box. All
-     * text is baked into the raster, so fonts cannot be missing on the target
-     * viewer.
+     * Computes a signature field name that does not collide with any existing
+     * form field, so a document can be signed repeatedly (multi-signature).
+     */
+    static String nextSignatureFieldName(PDDocument doc) {
+        Set<String> used = new HashSet<>();
+        PDAcroForm acroForm = doc.getDocumentCatalog().getAcroForm();
+        if (acroForm != null) {
+            acroForm.getFields().forEach(field -> used.add(field.getPartialName()));
+        }
+        int i = 1;
+        while (used.contains("Signature" + i)) {
+            i++;
+        }
+        return "Signature" + i;
+    }
+
+    /**
+     * Draws the visible signature stamp — delegated to the shared
+     * {@link SignatureStampRenderer} so the UI preview renders exactly the
+     * stamp that is embedded.
      */
     private BufferedImage buildSignatureStamp(float widthPts,
                                               float heightPts,
                                               String signerName,
-                                              SigningAlgorithm algorithm) {
-        int wPx = 360;
-        int hPx = Math.max(72, Math.round(wPx * heightPts / widthPts));
-        BufferedImage image = new BufferedImage(wPx, hPx, BufferedImage.TYPE_INT_RGB);
-        Graphics2D g = image.createGraphics();
-        try {
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
-                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
-            g.setColor(Color.WHITE);
-            g.fillRect(0, 0, wPx, hPx);
-            g.setColor(new Color(0xBF, 0x9B, 0x1B));
-            int border = Math.max(2, wPx / 80);
-            g.fillRect(0, 0, wPx, hPx);
-            g.setColor(Color.WHITE);
-            g.fillRect(border, border, wPx - 2 * border, hPx - 2 * border);
-
-            String signedAt = DateTimeFormatter
-                    .ofPattern("dd/MM/yyyy HH:mm")
-                    .withZone(ZoneOffset.UTC)
-                    .format(java.time.Instant.now());
-            String[] lines = {
-                    "DIGITALLY SIGNED BY",
-                    signerName,
-                    signedAt + " UTC",
-                    algorithm.getJcaName() + " via PKCS#11"
-            };
-
-            int fontSize = Math.max(6, Math.min(wPx / 26, hPx / (lines.length + 2)));
-            g.setColor(new Color(0x2B, 0x2B, 0x2B));
-            Font font;
-            for (; fontSize > 6; fontSize--) {
-                font = new Font(Font.SANS_SERIF, Font.BOLD, fontSize);
-                g.setFont(font);
-                int maxWidth = Arrays.stream(lines)
-                        .mapToInt(g.getFontMetrics()::stringWidth)
-                        .max().orElse(0);
-                if (maxWidth <= wPx - 4 * border) {
-                    break;
-                }
-            }
-            g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, Math.max(6, fontSize)));
-
-            int lineHeight = g.getFontMetrics().getHeight();
-            int y = lineHeight + (hPx - lines.length * lineHeight) / 2;
-            for (String line : lines) {
-                int textWidth = g.getFontMetrics().stringWidth(line);
-                g.drawString(line, (wPx - textWidth) / 2, y);
-                y += lineHeight;
-            }
-        } finally {
-            g.dispose();
-        }
-        return image;
+                                              SigningAlgorithm algorithm,
+                                              SignatureAppearance appearance) {
+        return SignatureStampRenderer.render(
+                widthPts, heightPts, signerName, algorithm, appearance);
     }
 
     /**
@@ -312,24 +314,29 @@ public class DefaultPdfSigningService implements PdfSigningService {
     }
 
     /**
-     * {@link ContentSigner} backed by a PKCS#11 token (or mock).
+     * {@link ContentSigner} backed by a PKCS#11 token (or mock): feeds the
+     * CMS signed attributes to {@link TokenService#sign} so the private key
+     * operation happens inside the token.
      */
     private static class TokenContentSigner implements ContentSigner {
 
         private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        private final SigningService signingService;
+        private final TokenService tokenService;
         private final String keyAlias;
         private final SigningAlgorithm algorithm;
         private final AlgorithmIdentifier algorithmId;
 
-        TokenContentSigner(SigningService signingService,
+        TokenContentSigner(TokenService tokenService,
                            String keyAlias,
                            SigningAlgorithm algorithm) {
-            this.signingService = signingService;
+            this.tokenService = tokenService;
             this.keyAlias = keyAlias;
             this.algorithm = algorithm;
+            String oid = algorithm == SigningAlgorithm.ECDSA_SHA256
+                    ? OID_SHA256_WITH_ECDSA
+                    : OID_SHA256_WITH_RSA;
             this.algorithmId = new AlgorithmIdentifier(
-                    new ASN1ObjectIdentifier(OID_SHA256_WITH_RSA),
+                    new ASN1ObjectIdentifier(oid),
                     DERNull.INSTANCE);
         }
 
@@ -342,7 +349,7 @@ public class DefaultPdfSigningService implements PdfSigningService {
         public byte[] getSignature() {
             byte[] signedAttrs = buffer.toByteArray();
             buffer.reset();
-            SigningResult result = signingService.sign(
+            SigningResult result = tokenService.sign(
                     new SigningRequest(signedAttrs, keyAlias, algorithm));
             return result.signature();
         }

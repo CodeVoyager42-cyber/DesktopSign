@@ -3,6 +3,7 @@ package com.example.signer.token;
 import com.example.signer.exception.ErrorCode;
 import com.example.signer.signing.SigningRequest;
 import com.example.signer.signing.SigningResult;
+import com.example.signer.token.mock.MockSigningToken;
 import com.example.signer.token.mock.MockTokenSimulator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -54,8 +55,11 @@ class TokenServiceFlowTests {
         tokenService.detect();
         assertThat(tokenService.getState()).isEqualTo(TokenState.CERTIFICATE_AVAILABLE);
 
-        assertThat(tokenService.getCertificates()).hasSize(1);
-        SigningCertificate certificate = tokenService.getCertificates().get(0);
+        assertThat(tokenService.getCertificates()).hasSize(2);
+        SigningCertificate certificate = tokenService.getCertificates().stream()
+                .filter(c -> MockSigningToken.DEFAULT_ALIAS.equals(c.getAlias()))
+                .findFirst()
+                .orElseThrow();
         assertThat(certificate.getAlias()).isEqualTo("mock-signing-key");
         assertThat(certificate.getSubject()).contains("Mock Signer");
         assertThat(certificate.getKeySize()).isEqualTo(2048);
@@ -182,7 +186,7 @@ class TokenServiceFlowTests {
         simulator.insertToken();
         tokenService.detect();
         assertThat(tokenService.getState()).isEqualTo(TokenState.CERTIFICATE_AVAILABLE);
-        assertThat(tokenService.getCertificates()).hasSize(1);
+        assertThat(tokenService.getCertificates()).hasSize(2);
     }
 
     @Test

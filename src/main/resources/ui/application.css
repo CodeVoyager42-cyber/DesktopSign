@@ -2,40 +2,45 @@
    PDF Digital Signer — Professional Design System
    ==========================================================================
    A restrained, enterprise-grade stylesheet for a security-focused desktop
-   PDF signing application.  All colors, spacing, and typography are
-   centralized via looked-up colors on .root.
+   PDF signing application.  Colors and shadows are centralized via
+   looked-up values on .root.
+
+   NOTE: JavaFX only resolves looked-up values for paint/Effect-typed
+   properties.  Font sizes, font weights, and radii MUST be written as
+   literals at each use site — the -font-* and -radius-* tokens on .root
+   are the design reference only and are NOT resolved in declarations.
    ========================================================================== */
 
 /* --------------------------------------------------------------------------
    1.  DESIGN TOKENS
    -------------------------------------------------------------------------- */
 .root {
-    /* ---- palette ---- */
-    -bg:                #F7F8FA;
-    -surface:           #FFFFFF;
-    -surface-hover:     #F3F4F6;
-    -surface-subtle:    #F9FAFB;
-    -border:            #E5E7EB;
-    -border-light:      #F3F4F6;
-    -border-focus:      #4F46E5;
-    -text-primary:      #111827;
-    -text-secondary:    #6B7280;
-    -text-muted:        #9CA3AF;
-    -text-disabled:     #D1D5DB;
+    /* ---- palette (shadcn/ui zinc, light mode) ---- */
+    -bg:                #fafafa;
+    -surface:           #ffffff;
+    -surface-hover:     #f4f4f5;
+    -surface-subtle:    #fafafa;
+    -border:            #e4e4e7;
+    -border-light:      #f4f4f5;
+    -border-focus:      #18181b;
+    -text-primary:      #09090b;
+    -text-secondary:    #71717a;
+    -text-muted:        #a1a1aa;
+    -text-disabled:     #d4d4d8;
 
     /* ---- action colours ---- */
-    -primary:           #4F46E5;
-    -primary-hover:     #4338CA;
-    -primary-active:    #3730A3;
-    -primary-light:     #EEF2FF;
-    -primary-disabled:  #A5B4FC;
-    -primary-text:      #FFFFFF;
+    -primary:           #18181b;
+    -primary-hover:     #27272a;
+    -primary-active:    #3f3f46;
+    -primary-light:     #f4f4f5;
+    -primary-disabled:  #a1a1aa;
+    -primary-text:      #fafafa;
 
-    -secondary-bg:      #FFFFFF;
-    -secondary-border:  #D1D5DB;
-    -secondary-text:    #374151;
-    -secondary-hover-bg:#F9FAFB;
-    -secondary-hover-border:#9CA3AF;
+    -secondary-bg:      #f4f4f5;
+    -secondary-border:  #e4e4e7;
+    -secondary-text:    #18181b;
+    -secondary-hover-bg:#e4e4e7;
+    -secondary-hover-border:#d4d4d8;
 
     -danger:            #DC2626;
     -danger-hover:      #B91C1C;
@@ -43,7 +48,7 @@
     -danger-text:       #FFFFFF;
 
     /* ---- semantic ---- */
-    -success:           #059669;
+    -success:           #16a34a;
     -success-light:     #ECFDF5;
     -warning:           #D97706;
     -warning-light:     #FFFBEB;
@@ -60,12 +65,12 @@
     -radius-full:       9999px;
 
     /* ---- shadows ---- */
-    -shadow-sm:         dropshadow(gaussian, rgba(0,0,0,0.06), 4, 0, 0, 2);
-    -shadow-md:         dropshadow(gaussian, rgba(0,0,0,0.08), 8, 0, 0, 2);
-    -shadow-lg:         dropshadow(gaussian, rgba(0,0,0,0.10), 16, 0, 0, 4);
+    -shadow-sm:         dropshadow(gaussian, rgba(0,0,0,0.05), 3, 0, 0, 1);
+    -shadow-md:         dropshadow(gaussian, rgba(0,0,0,0.06), 8, 0, 0, 2);
+    -shadow-lg:         dropshadow(gaussian, rgba(0,0,0,0.08), 16, 0, 0, 4);
 
     /* ---- typography ---- */
-    -font-family:       "Segoe UI", "SF Pro Display", -apple-system, sans-serif;
+    -font-family:       "Inter", "Segoe UI", "SF Pro Display", -apple-system, sans-serif;
     -font-mono:         "Cascadia Code", "Fira Code", "Consolas", monospace;
     -font-size-xs:      11px;
     -font-size-sm:      12px;
@@ -96,7 +101,7 @@
     -fx-control-inner-background: -surface;
     -fx-text-background-color: -text-primary;
     -fx-font-family:    -font-family;
-    -fx-font-size:      -font-size-base;
+    -fx-font-size:      13px;
     -fx-focus-color:    -border-focus;
     -fx-faint-focus-color: transparent;
 }
@@ -107,39 +112,39 @@
 
 /* ---- application chrome ---- */
 .app-title {
-    -fx-font-size:      -font-size-xl;
-    -fx-font-weight:    -font-weight-bold;
+    -fx-font-size:      20px;
+    -fx-font-weight:    700;
     -fx-text-fill:      -text-primary;
     -fx-padding:        0 0 2px 0;
 }
 
 .app-subtitle {
-    -fx-font-size:      -font-size-sm;
+    -fx-font-size:      12px;
     -fx-text-fill:      -text-secondary;
     -fx-padding:        0;
 }
 
 /* ---- sections ---- */
 .section-title {
-    -fx-font-size:      -font-size-md;
-    -fx-font-weight:    -font-weight-semibold;
+    -fx-font-size:      14px;
+    -fx-font-weight:    600;
     -fx-text-fill:      -text-primary;
 }
 
 .section-hint {
-    -fx-font-size:      -font-size-xs;
+    -fx-font-size:      11px;
     -fx-text-fill:      -text-secondary;
     -fx-line-spacing:   2px;
 }
 
 .muted-text {
-    -fx-font-size:      -font-size-xs;
+    -fx-font-size:      11px;
     -fx-text-fill:      -text-muted;
 }
 
 .mono-text {
     -fx-font-family:    -font-mono;
-    -fx-font-size:      -font-size-xs;
+    -fx-font-size:      11px;
     -fx-text-fill:      -text-secondary;
 }
 
@@ -155,12 +160,12 @@
 /* ---- card ---- */
 .card {
     -fx-background-color: -surface;
-    -fx-background-radius: -radius-lg;
+    -fx-background-radius: 8px;
     -fx-padding:        16px 20px;
     -fx-effect:         -shadow-sm;
     -fx-border-color:   -border;
     -fx-border-width:   1px;
-    -fx-border-radius:  -radius-lg;
+    -fx-border-radius:  8px;
 }
 
 .card--active {
@@ -175,14 +180,14 @@
         -fx-padding: 12px 14px;
     }
     .section-title {
-        -fx-font-size: -font-size-sm;
+        -fx-font-size: 12px;
     }
     .section-hint {
-        -fx-font-size: -font-size-xs;
+        -fx-font-size: 11px;
     }
     .button {
         -fx-padding: 6px 14px;
-        -fx-font-size: -font-size-sm;
+        -fx-font-size: 12px;
     }
 }
 
@@ -204,10 +209,10 @@
 
 .button {
     -fx-cursor:         hand;
-    -fx-background-radius: -radius-md;
+    -fx-background-radius: 8px;
     -fx-padding:        8px 18px;
-    -fx-font-size:      -font-size-base;
-    -fx-font-weight:    -font-weight-medium;
+    -fx-font-size:      13px;
+    -fx-font-weight:    500;
     -fx-label-padding:  0;
     -fx-content-display: LEFT;
 }
@@ -231,7 +236,7 @@
 }
 .btn-primary:focused {
     -fx-background-color: -primary-hover;
-    -fx-effect:         dropshadow(gaussian, -border-focus, 0, 3, 0, 0);
+    -fx-effect:         dropshadow(gaussian, rgba(9,9,11,0.25), 6, 0, 0, 0);
 }
 
 /* ---- secondary ---- */
@@ -247,6 +252,13 @@
 }
 .btn-secondary:pressed {
     -fx-background-color: -surface-hover;
+}
+
+/* persistent active state for mode buttons (Place Signature…) */
+.btn-secondary.pressed {
+    -fx-background-color: -primary-light;
+    -fx-border-color:   -border-focus;
+    -fx-text-fill:      -primary;
 }
 .btn-secondary:disabled {
     -fx-opacity:        0.45;
@@ -271,7 +283,7 @@
     -fx-opacity:        0.5;
 }
 .btn-danger:focused {
-    -fx-effect:         dropshadow(gaussian, -danger, 0, 3, 0, 0);
+    -fx-effect:         dropshadow(gaussian, rgba(220,38,38,0.25), 6, 0, 0, 0);
 }
 
 /* ---- ghost (text-only button, no border) ---- */
@@ -292,7 +304,7 @@
 /* ---- small (compact) button variant ---- */
 .btn-sm {
     -fx-padding:        5px 12px;
-    -fx-font-size:      -font-size-sm;
+    -fx-font-size:      12px;
 }
 
 /* ==========================================================================
@@ -303,10 +315,10 @@
 .password-field,
 .combo-box,
 .combo-box .list-cell {
-    -fx-background-radius: -radius-md;
+    -fx-background-radius: 6px;
     -fx-border-color:   -border;
-    -fx-border-radius:  -radius-md;
-    -fx-font-size:      -font-size-base;
+    -fx-border-radius:  6px;
+    -fx-font-size:      13px;
 }
 
 .text-field,
@@ -343,12 +355,12 @@
 /* ---- check-box ---- */
 .check-box {
     -fx-text-fill:      -text-primary;
-    -fx-font-size:      -font-size-base;
+    -fx-font-size:      13px;
 }
 .check-box .box {
     -fx-background-color: -surface;
     -fx-border-color:   -border;
-    -fx-border-radius:  -radius-sm;
+    -fx-border-radius:  4px;
     -fx-padding:        2px;
 }
 .check-box:selected .box {
@@ -363,11 +375,11 @@
 /* ---- status pill ---- */
 .status-pill {
     -fx-background-color: -border;
-    -fx-background-radius: -radius-full;
+    -fx-background-radius: 9999px;
     -fx-padding:        4px 14px;
     -fx-text-fill:      -text-secondary;
-    -fx-font-weight:    -font-weight-semibold;
-    -fx-font-size:      -font-size-xs;
+    -fx-font-weight:    600;
+    -fx-font-size:      11px;
     -fx-alignment:      CENTER;
 }
 
@@ -388,7 +400,7 @@
 
 /* ---- inline status dot ---- */
 .status-dot {
-    -fx-background-radius: -radius-full;
+    -fx-background-radius: 9999px;
     -fx-min-width:       8px;
     -fx-min-height:      8px;
     -fx-max-width:       8px;
@@ -421,17 +433,17 @@
 
 .status-text {
     -fx-text-fill:      -text-secondary;
-    -fx-font-size:      -font-size-sm;
+    -fx-font-size:      12px;
 }
 
 .status-text--error {
     -fx-text-fill:      -error;
-    -fx-font-weight:    -font-weight-semibold;
+    -fx-font-weight:    600;
 }
 
 .status-text--success {
     -fx-text-fill:      -success;
-    -fx-font-weight:    -font-weight-semibold;
+    -fx-font-weight:    600;
 }
 
 /* ==========================================================================
@@ -444,14 +456,14 @@
 }
 
 .step-number {
-    -fx-background-radius: -radius-full;
+    -fx-background-radius: 9999px;
     -fx-min-width:      24px;
     -fx-min-height:     24px;
     -fx-max-width:      24px;
     -fx-max-height:     24px;
     -fx-alignment:      CENTER;
-    -fx-font-size:      -font-size-xs;
-    -fx-font-weight:    -font-weight-bold;
+    -fx-font-size:      11px;
+    -fx-font-weight:    700;
     -fx-background-color: -border;
     -fx-text-fill:      -text-secondary;
 }
@@ -467,7 +479,7 @@
 }
 
 .step-label {
-    -fx-font-size:      -font-size-xs;
+    -fx-font-size:      11px;
     -fx-text-fill:      -text-secondary;
 }
 
@@ -479,21 +491,28 @@
     -fx-alignment:      CENTER;
     -fx-spacing:        16px;
     -fx-padding:        40px 48px;
+    -fx-background-color: -surface;
+    -fx-background-radius: 16px;
+    -fx-border-color:   -border;
+    -fx-border-width:   2px;
+    -fx-border-radius:  16px;
+    -fx-border-style:   segments(8, 6);
+    -fx-effect:         -shadow-sm;
 }
 
 .empty-state-icon {
-    -fx-font-size:      36px;
+    -fx-font-size:      44px;
     -fx-text-fill:      -text-muted;
 }
 
 .empty-state-title {
-    -fx-font-size:      -font-size-lg;
-    -fx-font-weight:    -font-weight-semibold;
+    -fx-font-size:      16px;
+    -fx-font-weight:    600;
     -fx-text-fill:      -text-primary;
 }
 
 .empty-state-hint {
-    -fx-font-size:      -font-size-sm;
+    -fx-font-size:      12px;
     -fx-text-fill:      -text-secondary;
     -fx-text-alignment: CENTER;
     -fx-max-width:      440px;
@@ -526,10 +545,45 @@
     -fx-background-color: transparent;
     -fx-text-fill:      -text-secondary;
     -fx-border-color:   -border;
-    -fx-border-radius:  -radius-md;
-    -fx-padding:        5px 12px;
-    -fx-font-size:      -font-size-sm;
+    -fx-border-radius:  6px;
+    -fx-padding:        5px 8px;
+    -fx-font-size:      12px;
     -fx-cursor:         hand;
+}
+
+/* bundled icon font (Ikonli FontIcons) inside buttons */
+.nav-btn > .font-icon,
+.button > .font-icon {
+    -fx-icon-color:     -text-secondary;
+    -fx-icon-size:      13px;
+}
+
+.btn-primary > .font-icon {
+    -fx-icon-color:     -primary-text;
+}
+
+.btn-secondary:hover > .font-icon,
+.nav-btn:hover > .font-icon {
+    -fx-icon-color:     -text-primary;
+}
+
+.theme-toggle > .font-icon {
+    -fx-icon-color:     -text-secondary;
+    -fx-icon-size:      14px;
+}
+
+.theme-toggle:hover > .font-icon {
+    -fx-icon-color:     -text-primary;
+}
+
+.app-logo > .font-icon {
+    -fx-icon-color:     -primary-text;
+    -fx-icon-size:      14px;
+}
+
+.empty-state-icon > .font-icon {
+    -fx-icon-color:     -text-muted;
+    -fx-icon-size:      42px;
 }
 .nav-btn:hover {
     -fx-background-color: -surface-hover;
@@ -548,25 +602,23 @@
 
 .page-label {
     -fx-text-fill:      -text-primary;
-    -fx-font-weight:    -font-weight-semibold;
-    -fx-font-size:      -font-size-sm;
+    -fx-font-weight:    600;
+    -fx-font-size:      12px;
     -fx-min-width:      100px;
     -fx-alignment:      CENTER;
 }
 
 .zoom-label {
     -fx-text-fill:      -text-secondary;
-    -fx-font-size:      -font-size-sm;
+    -fx-font-size:      12px;
     -fx-min-width:      42px;
     -fx-alignment:      CENTER;
 }
 
-/* ---- box info label ---- */
+/* ---- box info label (telemetry hidden in a tooltip; see workspace) ---- */
 .box-info {
-    -fx-text-fill:      -text-secondary;
-    -fx-font-size:      -font-size-xs;
-    -fx-pref-width:     180px;
-    -fx-min-width:      120px;
+    -fx-text-fill:      -text-muted;
+    -fx-font-size:      11px;
 }
 
 /* ==========================================================================
@@ -591,32 +643,32 @@
     -fx-background-color: -primary;
     -fx-text-fill:      -primary-text;
     -fx-font-size:      14px;
-    -fx-font-weight:    -font-weight-bold;
+    -fx-font-weight:    700;
     -fx-min-width:      28px;
     -fx-max-width:      28px;
     -fx-min-height:     28px;
     -fx-max-height:     28px;
-    -fx-background-radius: -radius-md;
+    -fx-background-radius: 6px;
     -fx-alignment:      CENTER;
 }
 
 .app-name {
     -fx-font-size:      15px;
-    -fx-font-weight:    -font-weight-bold;
+    -fx-font-weight:    700;
     -fx-text-fill:      -text-primary;
 }
 
 .app-tagline {
-    -fx-font-size:      -font-size-xs;
+    -fx-font-size:      11px;
     -fx-text-fill:      -text-secondary;
 }
 
 /* ---- document chip ---- */
 .doc-chip {
     -fx-background-color: -surface-subtle;
-    -fx-background-radius: -radius-md;
+    -fx-background-radius: 6px;
     -fx-border-color:   -border;
-    -fx-border-radius:  -radius-md;
+    -fx-border-radius:  6px;
     -fx-padding:        4px 12px;
     -fx-spacing:        8px;
     -fx-alignment:      CENTER_LEFT;
@@ -628,20 +680,20 @@
 }
 
 .doc-title {
-    -fx-font-size:      -font-size-base;
-    -fx-font-weight:    -font-weight-semibold;
+    -fx-font-size:      13px;
+    -fx-font-weight:    600;
     -fx-text-fill:      -text-primary;
 }
 
 .doc-meta {
-    -fx-font-size:      -font-size-xs;
+    -fx-font-size:      11px;
     -fx-text-fill:      -text-secondary;
 }
 
 /* ---- header security label ---- */
 .security-label {
-    -fx-font-size:      -font-size-sm;
-    -fx-font-weight:    -font-weight-semibold;
+    -fx-font-size:      12px;
+    -fx-font-weight:    600;
 }
 
 /* ==========================================================================
@@ -662,7 +714,7 @@
 
 .doc-toolbar .nav-btn {
     -fx-padding: 4px 10px;
-    -fx-font-size: -font-size-sm;
+    -fx-font-size: 12px;
 }
 
 /* ==========================================================================
@@ -680,19 +732,106 @@
     -fx-spacing: 10px;
 }
 
-.security-title {
-    -fx-font-size:      -font-size-xs;
-    -fx-font-weight:    -font-weight-bold;
+/* ==========================================================================
+   10e. ACTION BAR (workspace) - ToolBar
+   ========================================================================== */
+
+/* ---- guided workflow rail (left side of the workspace) ---- */
+/* Scrollable rail wrapper: carries the rail's visual chrome so the inner
+   VBox can scroll without clipping its cards. */
+.workflow-rail-scroll {
+    -fx-background-color: -surface-subtle;
+    -fx-border-color:   -border;
+    -fx-border-width:   0 1px 0 0;
+    -fx-padding:        0;
+}
+
+.workflow-rail-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.workflow-rail {
+    -fx-background-color: transparent;
+    -fx-border-color:   transparent;
+    -fx-padding:        14px;
+    -fx-spacing:        12px;
+}
+
+.step-body {
+    -fx-background-color: -surface;
+    -fx-background-radius: 10px;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px;
+    -fx-border-radius:  10px;
+    -fx-padding:        12px;
+    -fx-spacing:        6px;
+    -fx-effect:         -shadow-sm;
+}
+
+.step-head {
+    -fx-alignment:      CENTER_LEFT;
+}
+
+.step-num {
+    -fx-min-width:      20px;
+    -fx-max-width:      20px;
+    -fx-min-height:     20px;
+    -fx-max-height:     20px;
+    -fx-alignment:      CENTER;
+    -fx-background-color: -primary;
+    -fx-text-fill:      -primary-text;
+    -fx-background-radius: 10px;
+    -fx-font-size:      11px;
+    -fx-font-weight:    700;
+}
+
+.step-title {
+    -fx-font-size:      13px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+.step-check {
+    -fx-icon-color:     -success;
+    -fx-icon-size:      13px;
+}
+
+.step-hint {
+    -fx-font-size:      11px;
     -fx-text-fill:      -text-secondary;
 }
 
-.security-bar .combo-box {
-    -fx-pref-width: 200px;
-    -fx-min-width: 150px;
+.step-empty {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-muted;
+}
+
+/* future steps dim until the previous step is complete */
+.step-dim {
+    -fx-opacity:        0.55;
+}
+
+/* ---- status strip (single bottom line) ---- */
+.status-strip {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px 0 0 0;
+    -fx-padding:        6px 14px;
+    -fx-min-height:     34px;
+}
+
+/* ---- floating viewer toolbar over the canvas ---- */
+.viewer-toolbar {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px;
+    -fx-border-radius:  10px;
+    -fx-padding:        4px 8px;
+    -fx-effect:         -shadow-md;
 }
 
 /* ==========================================================================
-   10e. ACTION BAR (workspace) - ToolBar
+   10e2. LEGACY ACTION BAR (kept for the simple UI)
    ========================================================================== */
 
 .action-bar {
@@ -703,31 +842,124 @@
     -fx-min-height:     52px;
 }
 
-.action-bar > .container {
-    -fx-spacing: 10px;
-}
-
 .action-bar .status-text {
     -fx-min-width: 150px;
 }
 
-.action-bar .box-info {
-    -fx-min-width: 80px;
-}
-
 /* ---- signature placement instruction banner ---- */
 .placement-banner {
-    -fx-background-color: -primary-light;
-    -fx-text-fill:      -primary;
-    -fx-font-size:      -font-size-sm;
-    -fx-font-weight:    -font-weight-semibold;
+    -fx-background-color: -surface;
+    -fx-text-fill:      -text-primary;
+    -fx-font-size:      12px;
+    -fx-font-weight:    600;
     -fx-padding:        8px 18px;
-    -fx-background-radius: -radius-full;
-    -fx-effect:         -shadow-sm;
+    -fx-background-radius: 9999px;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px;
+    -fx-border-radius:  9999px;
+    -fx-effect:         -shadow-md;
+}
+
+/* ==========================================================================
+   10f. SIGNATURE CHAIN PANEL (workspace, collapsible TitledPane)
+   ========================================================================== */
+
+.chain-pane {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px 0 0 0;
+}
+
+.chain-pane > .title {
+    -fx-background-color: -surface-subtle;
+    -fx-border-color:   transparent;
+    -fx-padding:        6px 12px;
+    -fx-font-size:      11px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-secondary;
+}
+
+.chain-pane > .title > .text {
+    -fx-fill:           -text-secondary;
+}
+
+.chain-pane > .content {
+    -fx-background-color: -surface;
+    -fx-border-color:   transparent;
+    -fx-padding:        0;
+}
+
+.chain-pane--invalid > .title {
+    -fx-background-color: -error-light;
+}
+
+.chain-pane--invalid > .title > .text {
+    -fx-fill:           -error;
+}
+
+.chain-rows {
+    -fx-spacing:        4px;
+}
+
+.chain-empty {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-muted;
+    -fx-padding:        2px 0 6px 0;
+}
+
+.chain-row {
+    -fx-background-color: -surface-subtle;
+    -fx-background-radius: 6px;
+    -fx-border-color:   -border-light;
+    -fx-border-radius:  6px;
+    -fx-padding:        6px 10px;
+}
+
+.chain-index {
+    -fx-font-family:    -font-mono;
+    -fx-font-size:      11px;
+    -fx-font-weight:    700;
+    -fx-text-fill:      -text-muted;
+    -fx-min-width:      24px;
+}
+
+.chain-signer {
+    -fx-font-size:      12px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+.chain-algorithm {
+    -fx-font-family:    -font-mono;
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.chain-time {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-muted;
+}
+
+.chain-badge {
+    -fx-background-radius: 9999px;
+    -fx-padding:        2px 10px;
+    -fx-font-size:      11px;
+    -fx-font-weight:    700;
+    -fx-alignment:      CENTER;
+}
+
+.chain-badge--valid {
+    -fx-background-color: -success-light;
+    -fx-text-fill:      -success;
+}
+
+.chain-badge--invalid {
+    -fx-background-color: -error-light;
+    -fx-text-fill:      -error;
 }
 
 .empty-state-drag {
-    -fx-font-size:      -font-size-xs;
+    -fx-font-size:      11px;
     -fx-text-fill:      -text-muted;
 }
 
@@ -736,7 +968,7 @@
    ========================================================================== */
 
 .workspace-canvas {
-    -fx-background-color: #DDE3EC;
+    -fx-background-color: #d4d4d8;
 }
 
 /* ---- page area ---- */
@@ -745,10 +977,12 @@
     -fx-effect:         -shadow-md;
 }
 
-/* ---- signature rectangle (dashed, professional) ---- */
+/* ---- signature rectangle (dashed, professional) ----
+   Fixed indigo ink: it is drawn over the always-light PDF page, so theme
+   tokens that invert in dark mode must not be used here. */
 .signature-box {
     -fx-fill:           rgba(79, 70, 229, 0.10);
-    -fx-stroke:         -primary;
+    -fx-stroke:         #4f46e5;
     -fx-stroke-width:   1.5;
     -fx-stroke-dash-array: 6 4;
     -fx-arc-width:      3;
@@ -757,29 +991,29 @@
 
 /* ---- in-box signature label ---- */
 .signature-label {
-    -fx-background-color: -primary-light;
-    -fx-background-radius: -radius-sm;
-    -fx-text-fill:      -primary;
-    -fx-font-size:      -font-size-xs;
-    -fx-font-weight:    -font-weight-bold;
+    -fx-background-color: #eef2ff;
+    -fx-background-radius: 4px;
+    -fx-text-fill:      #3730a3;
+    -fx-font-size:      11px;
+    -fx-font-weight:    700;
     -fx-padding:        3px 8px;
     -fx-text-alignment: CENTER;
     -fx-alignment:      CENTER;
 }
 
 .signature-label--success {
-    -fx-background-color: -success-light;
-    -fx-text-fill:      -success;
+    -fx-background-color: #ecfdf5;
+    -fx-text-fill:      #059669;
 }
 
 /* ---- signature badge ---- */
 .badge {
     -fx-background-color: -primary;
-    -fx-background-radius: -radius-sm;
+    -fx-background-radius: 4px;
     -fx-padding:        2px 10px;
     -fx-text-fill:      -primary-text;
-    -fx-font-size:      -font-size-xs;
-    -fx-font-weight:    -font-weight-semibold;
+    -fx-font-size:      11px;
+    -fx-font-weight:    600;
     -fx-effect:         -shadow-sm;
 }
 
@@ -800,19 +1034,19 @@
    ========================================================================== */
 
 .progress-bar {
-    -fx-background-radius: -radius-full;
+    -fx-background-radius: 9999px;
     -fx-min-height:     4px;
     -fx-max-height:     4px;
 }
 .progress-bar .track {
     -fx-background-color: -border;
-    -fx-background-radius: -radius-full;
+    -fx-background-radius: 9999px;
     -fx-min-height:     4px;
     -fx-max-height:     4px;
 }
 .progress-bar .bar {
     -fx-background-color: -primary;
-    -fx-background-radius: -radius-full;
+    -fx-background-radius: 9999px;
     -fx-min-height:     4px;
     -fx-max-height:     4px;
 }
@@ -841,6 +1075,63 @@
 }
 
 /* ==========================================================================
+   15. LOGIN GATE (start-up authentication)
+   ========================================================================== */
+
+.login-backdrop {
+    -fx-background-color: -bg;
+}
+
+.login-card {
+    -fx-background-color: -surface;
+    -fx-background-radius: 12px;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px;
+    -fx-border-radius:  12px;
+    -fx-padding:        28px;
+    -fx-spacing:        10px;
+    -fx-effect:         -shadow-lg;
+    -fx-max-width:      340px;
+}
+
+.login-brand {
+    -fx-font-size:      18px;
+    -fx-font-weight:    700;
+    -fx-text-fill:      -text-primary;
+}
+
+.login-tagline {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.login-prompt {
+    -fx-font-size:      13px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-secondary;
+    -fx-padding:        6px 0 2px 0;
+}
+
+.login-field {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-radius:  8px;
+    -fx-background-radius: 8px;
+    -fx-padding:        8px 12px;
+    -fx-font-size:      13px;
+}
+
+.login-field:focused {
+    -fx-border-color:   -border-focus;
+}
+
+.login-error {
+    -fx-text-fill:      -error;
+    -fx-font-size:      12px;
+    -fx-font-weight:    600;
+}
+
+/* ==========================================================================
    14. MISC / UTILITIES
    ========================================================================== */
 
@@ -852,13 +1143,13 @@
 }
 
 /* ---- drag-and-drop upload feedback ---- */
+/* strong drop-zone affordance: accent dashed outline around the canvas */
 .drop-target {
-    -fx-background-color: -primary-light;
-    -fx-border-color:   -border-focus;
-    -fx-border-width:   2px;
-    -fx-border-style:   segments(6, 6);
-    -fx-border-insets:  6px;
-    -fx-border-radius:  -radius-lg;
+    -fx-border-color:   #6366f1;
+    -fx-border-width:   3px;
+    -fx-border-style:   segments(10, 8);
+    -fx-border-insets:  10px;
+    -fx-border-radius:  16px;
 }
 
 /* focus ring for any focusable element */
@@ -866,13 +1157,339 @@
     -fx-effect:         dropshadow(gaussian, -border-focus, 0, 2, 0, 0);
 }
 
+/* ---- theme toggle (header) ----
+   Glyph is set from code; style mirrors the nav buttons so it reads as part
+   of the header furniture in both themes. */
+.theme-toggle {
+    -fx-background-color: transparent;
+    -fx-text-fill:      -text-secondary;
+    -fx-border:         none;
+    -fx-padding:        6px 10px;
+    -fx-font-size:      14px;
+}
+.theme-toggle:hover {
+    -fx-background-color: -surface-hover;
+    -fx-text-fill:      -text-primary;
+    -fx-background-radius: 8px;
+}
+
 /* tooltip styling */
 .tooltip {
-    -fx-background-color: #1F2937;
-    -fx-text-fill:      #F9FAFB;
-    -fx-background-radius: -radius-md;
+    -fx-background-color: #18181b;
+    -fx-text-fill:      #fafafa;
+    -fx-background-radius: 6px;
     -fx-padding:        6px 12px;
-    -fx-font-size:      -font-size-xs;
-    -fx-font-weight:    -font-weight-normal;
+    -fx-font-size:      11px;
+    -fx-font-weight:    400;
     -fx-effect:         -shadow-md;
 }
+/* ==========================================================================
+   16. WORKFLOW SELECTION SCREEN  (choose 1 / 2 / 3 signers)
+   ========================================================================== */
+
+.workflow-root {
+    -fx-background-color: -bg;
+}
+
+.workflow-header {
+    -fx-padding: 0;
+}
+
+.workflow-heading {
+    -fx-alignment: center-left;
+}
+
+.workflow-title {
+    -fx-font-size:      20px;
+    -fx-font-weight:    700;
+    -fx-text-fill:      -text-primary;
+}
+
+.workflow-subtitle {
+    -fx-font-size:      13px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.workflow-cards {
+    -fx-alignment: center;
+}
+
+/* ---- selectable card --------------------------------------------------- */
+
+.workflow-card {
+    -fx-background-color: -surface;
+    -fx-background-radius: 12px;
+    -fx-border-color:     -border;
+    -fx-border-radius:    12px;
+    -fx-border-width:     1px;
+    -fx-effect:           -shadow-sm;
+    -fx-cursor:           hand;
+}
+
+.workflow-card:hover {
+    -fx-border-color: -secondary-hover-border;
+    -fx-effect:       -shadow-md;
+}
+
+.workflow-card:selected,
+.workflow-card--selected {
+    -fx-border-color:     -border-focus;
+    -fx-border-width:     2px;
+    -fx-background-color: -surface-hover;
+    -fx-effect:           -shadow-md;
+}
+
+.workflow-card-icon {
+    -fx-icon-color: -text-secondary;
+    -fx-icon-size:  26px;
+}
+
+.workflow-card--selected .workflow-card-icon {
+    -fx-icon-color: -border-focus;
+}
+
+.workflow-card-title {
+    -fx-font-size:      15px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+.workflow-card-description {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.workflow-card-meta {
+    -fx-font-size:      11px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-secondary;
+}
+
+.workflow-card-check {
+    -fx-icon-color: -success;
+    -fx-icon-size:  15px;
+}
+
+.workflow-footer {
+    -fx-padding: 4px 0 0 0;
+}
+
+/* ==========================================================================
+   17. MULTI-SIGNER WORKFLOW SCREEN  (sequential signers, per-signer cards)
+   ========================================================================== */
+
+.multi-root {
+    -fx-background-color: -bg;
+}
+
+.multi-headline {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.multi-instruction {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+    -fx-padding:        0 0 0 2px;
+}
+
+.multi-scroll {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.multi-signer-card {
+    -fx-background-color: -surface;
+    -fx-background-radius: 10px;
+    -fx-border-color:     -border;
+    -fx-border-radius:    10px;
+    -fx-border-width:     1px;
+    -fx-padding:          14px 16px;
+}
+
+.multi-signer-card--current {
+    -fx-border-color:   -border-focus;
+    -fx-border-width:   1.5px;
+    -fx-effect:         -shadow-md;
+}
+
+.multi-card-icon {
+    -fx-icon-color: -text-secondary;
+    -fx-icon-size:  16px;
+}
+
+.multi-card-title {
+    -fx-font-size:      14px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+.multi-status-icon {
+    -fx-icon-size:      14px;
+    -fx-icon-color:     -text-secondary;
+}
+
+.multi-status-icon--ok {
+    -fx-icon-color:     -success;
+}
+
+.multi-status-icon--warn {
+    -fx-icon-color:     -warning;
+}
+
+.multi-token-status {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.multi-field-label {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.multi-name-field {
+    -fx-font-size:      12px;
+}
+
+.multi-pin-field {
+    -fx-font-size:      13px;
+}
+
+.multi-status {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+}
+
+/* ==========================================================================
+   18. MULTI-SIGNER WORKSPACE (per-signer signing flow)
+   ========================================================================== */
+
+.mws-root { -fx-background-color: -bg; }
+.mws-doc-chip {
+    -fx-background-color: -surface;
+    -fx-background-radius: 6;
+    -fx-border-color: -border;
+    -fx-border-radius: 6;
+    -fx-padding: 3 10 3 10;
+    -fx-text-fill: -text-primary;
+}
+.mws-strip { -fx-alignment: center-left; }
+.mws-chip {
+    -fx-background-radius: 12;
+    -fx-padding: 3 12 3 12;
+    -fx-font-size: 11px;
+    -fx-text-fill: -text-primary;
+}
+.mws-chip {
+  /* Ellipsized names stay centered inside a bounded chip. */
+  -fx-alignment: center-left;
+}
+.mws-chip--pending { -fx-background-color: -surface; -fx-border-color: -border; -fx-border-radius: 12; -fx-opacity: 0.7; }
+.mws-chip--active { -fx-background-color: -info-light; -fx-text-fill: -info; -fx-font-weight: bold; }
+.mws-chip--done { -fx-background-color: -success-light; -fx-text-fill: -success; }
+.mws-chip--failed { -fx-background-color: -error-light; -fx-text-fill: -danger; }
+.mws-strip-arrow { -fx-icon-color: -text-muted; -fx-icon-size: 9; }
+
+.mws-strip-row {
+    -fx-padding: 2 16 6 16;
+    -fx-background-color: -bg;
+}
+
+.mws-toolbar { -fx-background-color: -surface; -fx-background-radius: 8; -fx-border-color: -border; -fx-border-radius: 8; }
+.mws-place-hint {
+  /* Floating pill above the page while a signature is being drawn. */
+  -fx-background-color: -surface;
+  -fx-border-color: -border;
+  -fx-background-radius: 8;
+  -fx-border-radius: 8;
+  -fx-padding: 6 12 6 12;
+  -fx-text-fill: -text-primary;
+  -fx-font-size: 12px;
+  -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.15), 6, 0.1, 0, 2);
+}
+.mws-busy { -fx-progress-color: -info; }
+.mws-page-label { -fx-text-fill: -text-muted; -fx-font-size: 12px; -fx-min-width: 90; -fx-alignment: center; }
+.mws-zoom-label { -fx-text-fill: -text-muted; -fx-font-size: 12px; -fx-min-width: 48; -fx-alignment: center; }
+
+.mws-viewer-column { -fx-min-width: 0; }
+.mws-viewer { -fx-background-color: -bg; }
+.mws-page-layer { -fx-background-color: white; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.18), 8, 0.1, 0, 2); }
+
+.mws-pending-box {
+    -fx-stroke: -info;
+    -fx-stroke-width: 1.6;
+    -fx-stroke-type: inside;
+    -fx-fill: rgba(79, 70, 229, 0.08);
+    -fx-arc-width: 6;
+    -fx-arc-height: 6;
+}
+.mws-previous-box {
+    -fx-stroke: -success;
+    -fx-stroke-width: 1.2;
+    -fx-stroke-type: inside;
+    -fx-fill: rgba(22, 163, 74, 0.07);
+    -fx-arc-width: 6;
+    -fx-arc-height: 6;
+}
+
+.mws-thumbnail-pane {
+    -fx-background-color: transparent;
+    -fx-padding: 4;
+    -fx-min-width: 128;
+    -fx-pref-width: 128;
+    -fx-max-width: 128;
+}
+.mws-thumbnail-caption { -fx-text-fill: -text-muted; -fx-font-size: 10px; -fx-padding: 2 4 6 4; }
+.mws-thumbnail {
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 6 4 6 4;
+    -fx-alignment: center;
+    -fx-text-fill: -text-muted;
+    -fx-font-size: 10px;
+    -fx-cursor: hand;
+}
+.mws-thumbnail-image { -fx-cursor: hand; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.12), 3, 0.05, 0, 1); }
+.mws-thumbnail-image--current { -fx-effect: dropshadow(gaussian, -info, 6, 0.3, 0, 0); }
+
+.mws-panel-root { -fx-max-width: 340; }
+.mws-panel-scroll { -fx-background-color: transparent; }
+.mws-panel { -fx-background-color: transparent; -fx-padding: 0; }
+.mws-panel-title { -fx-font-size: 15px; -fx-font-weight: bold; -fx-text-fill: -text-primary; }
+.mws-panel .titled-pane > .title {
+    -fx-background-color: -surface;
+    -fx-border-color: transparent transparent -border transparent;
+    -fx-font-size: 12px;
+}
+.mws-panel .titled-pane > .content { -fx-background-color: -surface; -fx-border-color: -border; }
+.mws-preview { -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 4, 0.05, 0, 1); }
+.mws-overlap-warning { -fx-text-fill: -warning; -fx-font-size: 11px; }
+
+.mws-identity-box {
+    -fx-background-color: -info-light;
+    -fx-background-radius: 8px;
+    -fx-padding: 8px;
+}
+
+.mws-identity-name {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-primary;
+}
+
+.mws-row-key { -fx-text-fill: -text-muted; -fx-font-size: 11px; -fx-min-width: 110; }
+.mws-row-value { -fx-text-fill: -text-primary; -fx-font-size: 11px; }
+
+.mws-checkpoint { -fx-background-color: -surface; }
+.mws-checkpoint-preview { -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.15), 6, 0.1, 0, 2); }
+.mws-checkpoint-summary .label { -fx-font-size: 12px; }
+.mws-checkpoint-warning { -fx-text-fill: -text-muted; -fx-font-size: 11px; }
+.mws-checkpoint-confirm { -fx-font-size: 12px; }
+
+.mws-completion { -fx-background-color: -surface; -fx-background-radius: 12; -fx-border-color: -success; -fx-border-width: 1; -fx-border-radius: 12; -fx-max-width: 520; -fx-alignment: top-center; }
+.mws-completion-title { -fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: -success; }
+.mws-completion-doc { -fx-font-size: 14px; -fx-text-fill: -text-primary; }
+.mws-completion-pane { -fx-background-color: -bg; -fx-padding: 40; -fx-alignment: top-center; }
+.mws-dialog { -fx-background-color: -bg; -fx-padding: 12; }

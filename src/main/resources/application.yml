@@ -10,9 +10,19 @@ logging:
     root: INFO
     com.example.signer: DEBUG
   file:
-    name: C:/Users/Mnl/AppData/Local/Temp/signer-app.log
+    # Portable default: user temp directory. Override with SIGNER_LOG_FILE.
+    name: ${SIGNER_LOG_FILE:${java.io.tmpdir}/signer-app.log}
 
 signature:
+  login:
+    # Start-up gate credentials. Change these for any real deployment —
+    # they are defaults for development convenience only.
+    username: ${SIGNATURE_LOGIN_USERNAME:ISICOD}
+    password: ${SIGNATURE_LOGIN_PASSWORD:ISICOD}
+  verification:
+    # Refuse to verify PDFs larger than this (bytes). Verification streams
+    # the file in 64 KiB chunks, but huge scans still take minutes to hash.
+    max-file-bytes: ${SIGNATURE_VERIFICATION_MAX_FILE_BYTES:536870912}
   pkcs11:
     # Enable to use a real PKCS#11 device (SoftHSM2 / smartcard) instead of the mock token.
     # When disabled (default), the mock token provider is active.

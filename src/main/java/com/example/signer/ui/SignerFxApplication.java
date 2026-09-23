@@ -1,6 +1,7 @@
 package com.example.signer.ui;
 
 import com.example.signer.SignerApplication;
+import com.example.signer.config.LoginProperties;
 import com.example.signer.pdf.PdfDocumentInfo;
 import com.example.signer.pdf.PdfDocumentService;
 import com.example.signer.signing.PdfSigningService;
@@ -13,7 +14,9 @@ import com.example.signer.token.TokenState;
 import com.example.signer.verification.PdfVerificationService;
 import com.example.signer.verification.SignatureVerificationResult;
 import com.example.signer.pdf.PdfRenderService;
+import com.example.signer.ui.support.UiSupport;
 import com.example.signer.ui.workspace.SigningWorkspace;
+import com.example.signer.workflow.SigningMode;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.concurrent.Task;
@@ -26,6 +29,9 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+
+import org.kordamp.ikonli.fontawesome5.FontAwesomeSolid;
+import org.kordamp.ikonli.javafx.FontIcon;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.ScrollPane;
@@ -127,6 +133,13 @@ public class SignerFxApplication extends Application {
 
     @Override
     public void init() {
+        // Any exception escaping an event handler / Task callback used to die
+        // with an unnamed console trace (easy to lose); log it properly so
+        // every failure is attributable.
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
+                log.error("Uncaught exception on thread {}", thread.getName(), throwable));
+        Thread.currentThread().setUncaughtExceptionHandler((thread, throwable) ->
+                log.error("Uncaught exception during startup", throwable));
         log.info("Initializing Spring application context");
         context = new SpringApplicationBuilder(SignerApplication.class)
                 .headless(false)
@@ -141,7 +154,8 @@ public class SignerFxApplication extends Application {
         this.stage = stage;
 
         // header -------------------------------------------------------------
-        Label appLogo = new Label("\u2713");
+        Label appLogo = new Label();
+        appLogo.setGraphic(new FontIcon(FontAwesomeSolid.FILE_SIGNATURE));
         appLogo.getStyleClass().setAll("app-logo");
         appTitle = new Label("SignFlow");
         appTitle.getStyleClass().add("app-name");
@@ -149,11 +163,13 @@ public class SignerFxApplication extends Application {
         appSubtitle.getStyleClass().add("app-tagline");
         HBox brand = new HBox(12, appLogo, new VBox(2, appTitle, appSubtitle));
         brand.setAlignment(Pos.CENTER_LEFT);
-        HBox header = new HBox(brand);
+        Region headerSpacer = new Region();
+        HBox.setHgrow(headerSpacer, Priority.ALWAYS);
+        HBox header = new HBox(brand, headerSpacer, ThemeManager.instance().createToggleButton());
         header.setAlignment(Pos.CENTER_LEFT);
         header.setPadding(new Insets(12, 20, 12, 20));
         header.getStyleClass().add("app-header");
-        makeDraggable(header, stage);
+        UiSupport.makeDraggable(header, () -> stage);
 
         // content -------------------------------------------------------------
         VBox content = new VBox(14);
@@ -298,8 +314,7 @@ public class SignerFxApplication extends Application {
         root.getStyleClass().add("content-pane");
 
         Scene scene = new Scene(root, 900, 700);
-        scene.getStylesheets().add(
-                getClass().getResource("/ui/application.css").toExternalForm());
+        ThemeManager.instance().attach(scene);
         scene.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ESCAPE
                     && context != null && context.isActive()
@@ -333,6 +348,32 @@ public class SignerFxApplication extends Application {
         stage.setScene(scene);
         stage.setMinWidth(720);
         stage.setMinHeight(500);
+
+        // ---- start-up authentication gate -------------------------------
+        LoginProperties login = context.getBean(LoginProperties.class);
+        boolean authenticated = new LoginDialog(login).showAndWait();
+        if (!authenticated) {
+            log.info("Sign-in cancelled — exiting");
+            Platform.exit();
+            return;
+        }
+        log.info("User signed in");
+
+        // ---- workflow selection gate (new: choose 1/2/3 signers) --------
+        SigningMode mode = new WorkflowSelectionDialog().showAndWait(stage);
+        if (mode == null) {
+            log.info("Workflow selection cancelled — exiting");
+            Platform.exit();
+            return;
+        }
+        log.info("Signing workflow selected: {}", mode);
+
+        if (mode.isMultiSigner()) {
+            openMultiSignerWorkflow(mode);
+            Platform.exit();
+            return;
+        }
+
         stage.show();
 
         // When the window regains focus, re-sync token UI state so a token that was
@@ -371,23 +412,6 @@ public class SignerFxApplication extends Application {
         label.setWrapText(true);
         return label;
     }
-
-    private void makeDraggable(Node header, Stage stage) {
-        final Delta dragDelta = new Delta();
-        header.setOnMousePressed(e -> {
-            dragDelta.x = stage.getX() - e.getScreenX();
-            dragDelta.y = stage.getY() - e.getScreenY();
-            header.setCursor(Cursor.MOVE);
-        });
-        header.setOnMouseDragged(e -> {
-            stage.setX(e.getScreenX() + dragDelta.x);
-            stage.setY(e.getScreenY() + dragDelta.y);
-        });
-        header.setOnMouseReleased(e -> header.setCursor(Cursor.DEFAULT));
-        header.setOnMouseExited(e -> header.setCursor(Cursor.DEFAULT));
-    }
-
-    private static class Delta { double x, y; }
 
     private void setBusy(boolean busy) {
         choosePdfButton.setDisable(busy);
@@ -445,13 +469,6 @@ public class SignerFxApplication extends Application {
         });
     }
 
-    private static List<SigningCertificate> safeCertificates(TokenService tokenService) {
-        try {
-            return tokenService.getCertificates();
-        } catch (IllegalStateException e) {
-            return List.of();
-        }
-    }
 
     /**
      * Signing is only possible once the token is authenticated and a PDF has
@@ -462,9 +479,7 @@ public class SignerFxApplication extends Application {
         TokenState state = context == null || !context.isActive()
                 ? null
                 : context.getBean(TokenService.class).getState();
-        boolean authed = state == TokenState.AUTHENTICATED
-                || state == TokenState.SIGNATURE_COMPLETE
-                || state == TokenState.SIGNATURE_FAILED;
+        boolean authed = UiSupport.isAuthenticatedState(state);
         authenticateButton.setDisable(authed);
         authenticateButton.setText(authed ? "Unlocked" : "Unlock Device");
         pinField.setDisable(authed);
@@ -558,7 +573,7 @@ public class SignerFxApplication extends Application {
         });
         task.setOnFailed(e -> {
             pdfLoadInProgress = false;
-            setError("Could not read PDF: " + failureMessage(task));
+            setError("Could not read PDF: " + UiSupport.failureMessage(task));
         });
         new Thread(task, "pdf-describe").start();
     }
@@ -624,7 +639,7 @@ public class SignerFxApplication extends Application {
         task.setOnFailed(e -> {
             setBusy(false);
             refreshTokenUi();
-            setError("Token detection failed: " + failureMessage(task));
+            setError("Token detection failed: " + UiSupport.failureMessage(task));
         });
         new Thread(task, "token-detect").start();
     }
@@ -659,7 +674,7 @@ public class SignerFxApplication extends Application {
                     ? "No token"
                     : info.label() + "  ·  " + info.manufacturer() + "  ·  " + info.model());
 
-            List<SigningCertificate> certs = safeCertificates(tokenService);
+            List<SigningCertificate> certs = UiSupport.safeCertificates(tokenService);
             List<String> labels = certs.stream()
                     .map(c -> c.getSubject() + "  [" + c.getAlias() + "]")
                     .toList();
@@ -686,7 +701,7 @@ public class SignerFxApplication extends Application {
             certInfoLabel.setText(" ");
             return;
         }
-        List<SigningCertificate> certs = safeCertificates(tokenService);
+        List<SigningCertificate> certs = UiSupport.safeCertificates(tokenService);
         if (index >= certs.size()) {
             return;
         }
@@ -719,8 +734,7 @@ public class SignerFxApplication extends Application {
             setError("Device not ready (state " + state + ") — detect the token first.");
             return;
         }
-        char[] pin = pinField.getCharacters() == null ? null
-                : pinField.getCharacters().toString().toCharArray();
+        char[] pin = UiSupport.pinChars(pinField);
         if (pin == null || pin.length == 0) {
             log.info("Unlock clicked but PIN field is empty");
             setError("Enter the device PIN first");
@@ -760,10 +774,10 @@ public class SignerFxApplication extends Application {
         task.setOnFailed(e -> {
             setBusy(false);
             refreshTokenUi();
-            setError("Authentication failed: " + failureMessage(task));
+            setError("Authentication failed: " + UiSupport.failureMessage(task));
             log.warn("Authentication failed", task.getException());
             showAlert(Alert.AlertType.ERROR, "Authentication failed",
-                    failureMessage(task));
+                    UiSupport.failureMessage(task));
         });
         new Thread(task, "token-auth").start();
     }
@@ -786,7 +800,7 @@ public class SignerFxApplication extends Application {
         task.setOnFailed(e -> {
             setBusy(false);
             refreshTokenUi();
-            setError("Cancel failed: " + failureMessage(task));
+            setError("Cancel failed: " + UiSupport.failureMessage(task));
         });
         new Thread(task, "token-cancel").start();
     }
@@ -809,7 +823,7 @@ public class SignerFxApplication extends Application {
         task.setOnFailed(e -> {
             setBusy(false);
             refreshTokenUi();
-            setError("Logout failed: " + failureMessage(task));
+            setError("Logout failed: " + UiSupport.failureMessage(task));
         });
         new Thread(task, "token-logout").start();
     }
@@ -859,7 +873,7 @@ public class SignerFxApplication extends Application {
         task.setOnFailed(e -> {
             setBusy(false);
             refreshTokenUi();
-            setError("Signing failed: " + failureMessage(task));
+            setError("Signing failed: " + UiSupport.failureMessage(task));
             log.warn("PDF signing failed", task.getException());
         });
         new Thread(task, "pdf-sign").start();
@@ -898,12 +912,35 @@ public class SignerFxApplication extends Application {
                 setError("Signature invalid: " + vr.message());
                 log.warn("Signature verification failed: {}", vr.message());
             }
+            showSignatureChain(vr);
         });
         task.setOnFailed(e -> {
             setBusy(false);
-            setError("Verification failed: " + failureMessage(task));
+            setError("Verification failed: " + UiSupport.failureMessage(task));
         });
         new Thread(task, "token-verify").start();
+    }
+
+    /**
+     * Logs the per-signature chain detail (signer, algorithm, signing time,
+     * validity) so every signature in the revision chain is visible with its
+     * own status, not just the most recent one.
+     */
+    private static void showSignatureChain(SignatureVerificationResult result) {
+        List<SignatureVerificationResult.SignatureDetail> chain = result.signatures();
+        if (chain.isEmpty()) {
+            return;
+        }
+        log.info("Signature chain ({}):", chain.size());
+        for (SignatureVerificationResult.SignatureDetail detail : chain) {
+            log.info("  [{}] {} — {} — signed {} — {} ({})",
+                    detail.index() + 1,
+                    detail.signerSubject(),
+                    detail.algorithm() != null ? detail.algorithm() : "unknown",
+                    detail.signedAtKnown() ? detail.signedAt() : "time unknown",
+                    detail.valid() ? "VALID" : "INVALID",
+                    detail.message());
+        }
     }
 
     private void saveSignedPdf() {
@@ -958,6 +995,32 @@ public class SignerFxApplication extends Application {
         workspace.show(stage);
     }
 
+    /**
+     * Opens the per-signer signing workspace for the chosen mode: every
+     * signer reviews the current revision in the PDF viewer, places their
+     * own signature, previews it, authenticates their token and signs.
+     */
+    private void openMultiSignerWorkflow(SigningMode mode) {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Choose the PDF for the "
+                + mode.signerCount() + "-signer workflow");
+        chooser.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("PDF documents", "*.pdf"));
+        java.io.File file = chooser.showOpenDialog(stage);
+        if (file == null) {
+            log.info("Multi-signer workflow cancelled at document selection");
+            return;
+        }
+        new com.example.signer.ui.workspace.MultiSignerWorkspaceFlow(
+                mode,
+                file.toPath(),
+                context.getBean(com.example.signer.workflow.WorkflowSigningEngine.class),
+                context.getBean(com.example.signer.token.TokenService.class),
+                context.getBean(PdfRenderService.class),
+                context.getBean(com.example.signer.pdf.PdfDocumentService.class))
+                .showAndWait(stage);
+    }
+
     // --------------------------------------------------------------------------------
     // background token polling (kept from the original placeholder)
     // --------------------------------------------------------------------------------
@@ -986,10 +1049,6 @@ public class SignerFxApplication extends Application {
         new Thread(task, "token-detect-background").start();
     }
 
-    private static String failureMessage(Task<?> task) {
-        Throwable t = task.getException();
-        return t == null ? "unknown error" : (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
-    }
 
     @Override
     public void stop() {

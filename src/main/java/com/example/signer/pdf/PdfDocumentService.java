@@ -19,4 +19,14 @@ public interface PdfDocumentService {
      *         {@code PDF_INVALID} when the source cannot be used
      */
     PdfDocumentInfo describe(Path source);
+
+    /**
+     * Performs the full pre-sign analysis (§45): file facts plus deep PDFBox
+     * metadata, page count, PDF version and the existing-signature situation.
+     *
+     * @throws com.example.signer.exception.SignerException with
+     *         {@code PDF_INVALID} when the file is missing or unreadable as
+     *         a PDF
+     */
+    DocumentAnalysis analyze(Path source);
 }

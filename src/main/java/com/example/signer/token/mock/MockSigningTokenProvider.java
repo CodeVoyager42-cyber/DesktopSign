@@ -10,7 +10,7 @@ import java.util.Optional;
 /**
  * Provides the in-memory mock token when it is "inserted".
  *
- * <p>Dev-only sender of {@link SigningTokenProvider}. Active only while
+ * <p>Dev-only implementation of {@link SigningTokenProvider}. Active only while
  * PKCS#11 is disabled ({@code signature.pkcs11.enabled=false}, the default),
  * so exactly one {@link SigningTokenProvider} exists in the context.
  */

@@ -92,7 +92,7 @@ class DefaultPdfSigningServiceTests {
             List<PDSignature> signatures = doc.getSignatureDictionaries();
             assertThat(signatures).hasSize(1);
             assertThat(signatures.get(0).getSubFilter())
-                    .isEqualTo("adbe.pkcs7.detached");
+                    .isEqualTo(DefaultPdfSigningService.SUBFILTER_ADBE_PKCS7_DETACHED);
         }
 
         // ── copy to target/ for manual Adobe Acrobat check ──
@@ -111,6 +111,43 @@ class DefaultPdfSigningServiceTests {
         // ── cleanup ──
         Files.deleteIfExists(input);
         Files.deleteIfExists(output);
+        Files.deleteIfExists(dir);
+    }
+
+    /**
+     * Signs the same document a second time: a new, non-colliding signature
+     * field must be created and the resulting file must still be structurally
+     * valid with both signature dictionaries present.
+     */
+    @Test
+    void signingTwiceCreatesDistinctSignatureFields() throws Exception {
+        simulator.insertToken();
+        tokenService.detect();
+        tokenService.startAuthentication();
+        tokenService.authenticate(MockSigningToken.defaultPin());
+
+        Path dir = Files.createTempDirectory("pdf-resign-test");
+        Path input = dir.resolve("plain.pdf");
+        try (PDDocument doc = new PDDocument()) {
+            doc.addPage(new PDPage());
+            doc.save(input.toFile());
+        }
+
+        Path once = dir.resolve("signed-once.pdf");
+        pdfSigningService.signPdf(input, MockSigningToken.DEFAULT_ALIAS,
+                SigningAlgorithm.RSA_SHA256, once);
+
+        Path twice = dir.resolve("signed-twice.pdf");
+        pdfSigningService.signPdf(once, MockSigningToken.DEFAULT_ALIAS,
+                SigningAlgorithm.RSA_SHA256, twice);
+
+        try (PDDocument doc = Loader.loadPDF(twice.toFile())) {
+            assertThat(doc.getSignatureDictionaries()).hasSize(2);
+        }
+
+        Files.deleteIfExists(input);
+        Files.deleteIfExists(once);
+        Files.deleteIfExists(twice);
         Files.deleteIfExists(dir);
     }
 

@@ -21,8 +21,12 @@ import java.math.BigInteger;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.SecureRandom;
+import java.security.PrivateKey;
 import java.security.Signature;
 import java.security.cert.X509Certificate;
+import java.security.interfaces.ECPublicKey;
+import java.security.interfaces.RSAPublicKey;
+import java.security.spec.ECGenParameterSpec;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
@@ -49,8 +53,15 @@ public class MockSigningToken implements SigningToken {
 
     public static final String DEFAULT_ALIAS = "mock-signing-key";
 
+    /** Second development alias backed by an EC P-256 key (ECDSA). */
+    public static final String EC_ALIAS = "mock-ec-signing-key";
+
     private static final int MAX_PIN_ATTEMPTS = 3;
     private static final int RSA_KEY_SIZE = 2048;
+    private static final int EC_KEY_SIZE = 256;
+
+    private static final String RSA_SUBJECT = "CN=Mock Signer, O=Signer Dev, C=FR";
+    private static final String EC_SUBJECT = "CN=Mock EC Signer, O=Signer Dev, C=FR";
 
     private final AtomicBoolean present = new AtomicBoolean(true);
 
@@ -61,7 +72,8 @@ public class MockSigningToken implements SigningToken {
     private volatile TokenInfo tokenInfo;
     private volatile List<SigningCertificate> certificates;
     private final Object initMonitor = new Object();
-    private KeyPair keyPair;
+    private KeyPair rsaKeyPair;
+    private KeyPair ecKeyPair;
 
     /**
      * Returns a fresh copy of the development-only default PIN.
@@ -140,17 +152,26 @@ public class MockSigningToken implements SigningToken {
             throw new TokenException(ErrorCode.TOKEN_LOGIN_FAILED,
                     "Token is not authenticated");
         }
-        if (!DEFAULT_ALIAS.equals(keyAlias)) {
+        PrivateKey privateKey;
+        if (DEFAULT_ALIAS.equals(keyAlias)) {
+            if (algorithm != SigningAlgorithm.RSA_SHA256) {
+                throw new TokenException(ErrorCode.UNSUPPORTED_ALGORITHM,
+                        "Algorithm not supported by the RSA mock key: " + algorithm);
+            }
+            privateKey = rsaKeyPair.getPrivate();
+        } else if (EC_ALIAS.equals(keyAlias)) {
+            if (algorithm != SigningAlgorithm.ECDSA_SHA256) {
+                throw new TokenException(ErrorCode.UNSUPPORTED_ALGORITHM,
+                        "Algorithm not supported by the EC mock key: " + algorithm);
+            }
+            privateKey = ecKeyPair.getPrivate();
+        } else {
             throw new TokenException(ErrorCode.PRIVATE_KEY_NOT_AVAILABLE,
                     "No signing key available for alias: " + keyAlias);
         }
-        if (algorithm != SigningAlgorithm.RSA_SHA256) {
-            throw new TokenException(ErrorCode.UNSUPPORTED_ALGORITHM,
-                    "Algorithm not supported by mock token: " + algorithm);
-        }
         try {
             Signature signature = Signature.getInstance(algorithm.getJcaName());
-            signature.initSign(keyPair.getPrivate());
+            signature.initSign(privateKey);
             signature.update(data);
             return signature.sign();
         } catch (Exception e) {
@@ -188,8 +209,12 @@ public class MockSigningToken implements SigningToken {
                 return;
             }
             try {
-                keyPair = generateKeyPair();
-                X509Certificate certificate = generateSelfSignedCertificate(keyPair);
+                rsaKeyPair = generateRsaKeyPair();
+                ecKeyPair = generateEcKeyPair();
+                X509Certificate rsaCertificate =
+                        generateSelfSignedCertificate(rsaKeyPair, RSA_SUBJECT);
+                X509Certificate ecCertificate =
+                        generateSelfSignedCertificate(ecKeyPair, EC_SUBJECT);
                 tokenInfo = new TokenInfo(
                         "Mock PKCS#11 Token",
                         "Signer Dev",
@@ -197,9 +222,10 @@ public class MockSigningToken implements SigningToken {
                         "MOCK-" + Integer.toUnsignedString(
                                 new SecureRandom().nextInt(), 16).toUpperCase());
                 certificates = List.of(
-                        new SigningCertificate(DEFAULT_ALIAS, certificate));
-                log.info("Mock token initialized with one RSA-{} signing certificate",
-                        RSA_KEY_SIZE);
+                        new SigningCertificate(DEFAULT_ALIAS, rsaCertificate),
+                        new SigningCertificate(EC_ALIAS, ecCertificate));
+                log.info("Mock token initialized with RSA-{} and EC-{} signing certificates",
+                        RSA_KEY_SIZE, EC_KEY_SIZE);
             } catch (Exception e) {
                 log.error("Failed to initialize mock token", e);
                 throw new TokenException(ErrorCode.TOKEN_SESSION_FAILED,
@@ -214,15 +240,22 @@ public class MockSigningToken implements SigningToken {
         failedPinAttempts = 0;
     }
 
-    private KeyPair generateKeyPair() throws Exception {
+    private KeyPair generateRsaKeyPair() throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(RSA_KEY_SIZE);
         return generator.generateKeyPair();
     }
 
-    private X509Certificate generateSelfSignedCertificate(KeyPair keyPair) throws Exception {
+    private KeyPair generateEcKeyPair() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
+        generator.initialize(new ECGenParameterSpec("secp256r1"));
+        return generator.generateKeyPair();
+    }
+
+    private X509Certificate generateSelfSignedCertificate(KeyPair keyPair,
+                                                          String subjectDn) throws Exception {
         long now = System.currentTimeMillis();
-        X500Name subject = new X500Name("CN=Mock Signer, O=Signer Dev, C=FR");
+        X500Name subject = new X500Name(subjectDn);
         JcaX509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
                 subject,
                 new BigInteger(160, new SecureRandom()),
@@ -234,8 +267,11 @@ public class MockSigningToken implements SigningToken {
                 new KeyUsage(KeyUsage.digitalSignature));
         builder.addExtension(Extension.basicConstraints, true,
                 new BasicConstraints(false));
+        String signerAlgorithm = "EC".equals(keyPair.getPublic().getAlgorithm())
+                ? "SHA256withECDSA"
+                : "SHA256withRSA";
         var holder = builder.build(
-                new JcaContentSignerBuilder("SHA256withRSA").build(keyPair.getPrivate()));
+                new JcaContentSignerBuilder(signerAlgorithm).build(keyPair.getPrivate()));
         return new JcaX509CertificateConverter().getCertificate(holder);
     }
 }

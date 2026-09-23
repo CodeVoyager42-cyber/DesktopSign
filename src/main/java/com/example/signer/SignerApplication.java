@@ -1,5 +1,6 @@
 package com.example.signer;
 
+import com.example.signer.config.LoginProperties;
 import com.example.signer.config.Pkcs11Properties;
 import com.example.signer.ui.SignerFxApplication;
 import javafx.application.Application;
@@ -15,7 +16,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
  * desktop UI.
  */
 @SpringBootApplication
-@EnableConfigurationProperties({Pkcs11Properties.class})
+@EnableConfigurationProperties({Pkcs11Properties.class, LoginProperties.class})
 public class SignerApplication {
 
     public static void main(String[] args) {

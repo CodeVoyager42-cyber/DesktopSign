@@ -26,9 +26,13 @@ import javafx.scene.control.PasswordField;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
+import javafx.scene.control.TitledPane;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToolBar;
 import javafx.scene.control.Tooltip;
+
+import org.kordamp.ikonli.fontawesome5.FontAwesomeSolid;
+import org.kordamp.ikonli.javafx.FontIcon;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.KeyCode;
@@ -40,6 +44,9 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+
+import com.example.signer.ui.ThemeManager;
+import com.example.signer.ui.support.UiSupport;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.shape.Rectangle;
@@ -117,11 +124,28 @@ public class SigningWorkspace {
     private StackPane centerPane;
     private HBox docChip;
     private ToolBar docToolbar;
-    private ToolBar securityBar;
     private Label docTitleLabel;
     private Label docMetaLabel;
     private Label headerSecurityLabel;
     private Label placementBanner;
+    private javafx.scene.control.Button railToggleButton;
+    private javafx.scene.Parent railWrapper;
+    private boolean railVisible = true;
+    private boolean railManuallyToggled;
+
+    // ---- guided workflow rail ----
+    private VBox workflowRail;
+    private VBox step1Body;
+    private VBox step2Body;
+    private VBox step3Body;
+    private VBox step3Buttons;
+    private Label step1Title;
+    private Label step2Title;
+    private Label step3Title;
+    private FontIcon step1Done;
+    private FontIcon step2Done;
+    private FontIcon step3Done;
+    private Label step1Empty;
 
     private Button uploadButton;
     private Button prevButton;
@@ -134,17 +158,22 @@ public class SigningWorkspace {
     private Button clearPlacementButton;
     private Button signButton;
     private Button downloadButton;
+    private Button verifyAnyButton;
     private Button authenticateButton;
     private ComboBox<String> certCombo;
     private PasswordField pinField;
     private Label pageLabel;
     private Label zoomLabel;
-    private Label authPill;
     private Label boxInfoLabel;
     private Label statusLabel;
     private ProgressIndicator busySpinner;
     private Label signatureBadge;
     private boolean signedVerified;
+
+    // ---- signature chain panel ----
+    private TitledPane chainPane;
+    private VBox chainRows;
+    private Label chainEmptyLabel;
 
     // ---- render coalescing (prevents render storms freezing the app) ----
     private boolean renderInFlight;
@@ -198,7 +227,8 @@ public class SigningWorkspace {
 
     private void buildUi(Stage owner) {
         // ============ 1. HEADER ============
-        Label appLogo = new Label("\u2713");
+        Label appLogo = new Label();
+        appLogo.setGraphic(new FontIcon(FontAwesomeSolid.FILE_SIGNATURE));
         appLogo.getStyleClass().setAll("app-logo");
         Label appName = new Label("SignFlow");
         appName.getStyleClass().add("app-name");
@@ -208,7 +238,7 @@ public class SigningWorkspace {
         brand.setAlignment(Pos.CENTER_LEFT);
         brand.getStyleClass().add("app-brand");
 
-        uploadButton = button("Open PDF", "Open an existing PDF (Ctrl+O)");
+        uploadButton = button("Open PDF", "Open an existing PDF (Ctrl+O)", FontAwesomeSolid.FILE_ALT);
         uploadButton.getStyleClass().add("btn-secondary");
         uploadButton.setOnAction(e -> uploadPdf());
 
@@ -217,7 +247,7 @@ public class SigningWorkspace {
         docDot.getStyleClass().add("doc-dot");
         docTitleLabel = new Label("document.pdf");
         docTitleLabel.getStyleClass().add("doc-title");
-        docTitleLabel.setMaxWidth(320);
+        docTitleLabel.setMaxWidth(150);
         docTitleLabel.setTextOverrun(javafx.scene.control.OverrunStyle.ELLIPSIS);
         docMetaLabel = new Label("0 pages");
         docMetaLabel.getStyleClass().add("doc-meta");
@@ -230,33 +260,42 @@ public class SigningWorkspace {
         headerSecurityLabel = new Label("\u25CF No token");
         headerSecurityLabel.getStyleClass().setAll("security-label", "status-pill--error");
 
+        // Security controls are created later: they live inside step 2 of the
+        // guided workflow rail rather than in the header.
+
+        Button themeToggle = ThemeManager.instance().createToggleButton();
+
+        // Collapse/expand the guided rail: gives the document the full width
+        // on narrow windows (the rail is essential, the viewer needs room).
+        railToggleButton = new Button("", new FontIcon(FontAwesomeSolid.BARS));
+        railToggleButton.getStyleClass().add("nav-btn");
+        railToggleButton.setTooltip(new Tooltip("Show or hide the workflow steps panel"));
+        railToggleButton.setOnAction(e -> setRailVisible(!railVisible, true));
+
         Region headerSpacer = new Region();
         HBox.setHgrow(headerSpacer, Priority.ALWAYS);
 
         HBox headerBar = new HBox(12,
-                brand, divider(), uploadButton, docChip, headerSpacer, headerSecurityLabel);
+                brand, headerSpacer, uploadButton, headerSecurityLabel,
+                railToggleButton, themeToggle);
         headerBar.setAlignment(Pos.CENTER_LEFT);
         headerBar.getStyleClass().add("app-header");
         // Make header bar draggable to move window
         makeDraggable(headerBar, stage);
 
         // ============ 2. DOCUMENT TOOLBAR (visible only with a document) ============
-        prevButton = button("\u25C2", "Previous page (Page Up)");
-        prevButton.getStyleClass().add("nav-btn");
+        prevButton = navIcon(FontAwesomeSolid.CHEVRON_LEFT, "Previous page (Page Up)");
         prevButton.setOnAction(e -> goToPage(currentPage - 1));
 
         pageLabel = new Label("No document");
         pageLabel.getStyleClass().add("page-label");
 
-        nextButton = button("\u25B8", "Next page (Page Down)");
-        nextButton.getStyleClass().add("nav-btn");
+        nextButton = navIcon(FontAwesomeSolid.CHEVRON_RIGHT, "Next page (Page Down)");
         nextButton.setOnAction(e -> goToPage(currentPage + 1));
 
-        zoomOutButton = button("\u2212", "Zoom out (Ctrl+\u2212)");
-        zoomOutButton.getStyleClass().add("nav-btn");
+        zoomOutButton = navIcon(FontAwesomeSolid.MINUS, "Zoom out (Ctrl+\u2212)");
         zoomOutButton.setOnAction(e -> setZoom(zoom - 0.25));
-        zoomInButton = button("+", "Zoom in (Ctrl++)");
-        zoomInButton.getStyleClass().add("nav-btn");
+        zoomInButton = navIcon(FontAwesomeSolid.PLUS, "Zoom in (Ctrl++)");
         zoomInButton.setOnAction(e -> setZoom(zoom + 0.25));
         zoomLabel = new Label("100%");
         zoomLabel.getStyleClass().add("zoom-label");
@@ -273,8 +312,8 @@ public class SigningWorkspace {
         fitPageButton.setTooltip(new Tooltip("Fit the whole page into the window"));
         fitPageButton.setOnAction(e -> toggleFitPage());
 
-        ToolBar docToolbar = new ToolBar();
-        docToolbar.getStyleClass().add("doc-toolbar");
+        docToolbar = new ToolBar();
+        docToolbar.getStyleClass().add("viewer-toolbar");
         docToolbar.getItems().addAll(
                 prevButton, pageLabel, nextButton,
                 new Separator(),
@@ -336,108 +375,151 @@ public class SigningWorkspace {
 
         emptyOverlay = buildEmptyOverlay();
 
-        placementBanner = new Label("Click and drag on the document to place your signature.");
+        placementBanner = new Label("Drag on the page to draw the signature box\u2026");
         placementBanner.getStyleClass().add("placement-banner");
         placementBanner.setVisible(false);
 
-        centerPane = new StackPane(scrollPane, emptyOverlay, placementBanner);
+        centerPane = new StackPane(scrollPane, emptyOverlay, docToolbar, placementBanner);
         centerPane.getStyleClass().add("workspace-canvas");
+        StackPane.setAlignment(docToolbar, Pos.TOP_CENTER);
+        StackPane.setMargin(docToolbar, new Insets(12, 0, 0, 0));
         StackPane.setAlignment(placementBanner, Pos.TOP_CENTER);
-        StackPane.setMargin(placementBanner, new Insets(12, 0, 0, 0));
+        StackPane.setMargin(placementBanner, new Insets(64, 0, 0, 0));
 
-        // ============ 4. SECURITY BAR (ToolBar with overflow) ============
-        Label securityTitle = new Label("SECURITY");
-        securityTitle.getStyleClass().add("security-title");
-
-        authPill = new Label("No token");
-        authPill.getStyleClass().add("status-pill");
-
-        certCombo = new ComboBox<>();
-        certCombo.setPromptText("Signing certificate");
-        certCombo.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(certCombo, Priority.ALWAYS);
-
-        pinField = new PasswordField();
-        pinField.setPromptText("Device PIN");
-        pinField.setPrefWidth(170);
-        pinField.setMinWidth(120);
-        pinField.setOnAction(e -> authenticate());
-
-        authenticateButton = button("Unlock Device", "Authenticate with the security device PIN (Enter)");
-        authenticateButton.getStyleClass().add("btn-secondary");
-        authenticateButton.setOnAction(e -> authenticate());
-
-        ToolBar securityBar = new ToolBar();
-        securityBar.getStyleClass().add("security-bar");
-        securityBar.getItems().addAll(
-                securityTitle,
-                authPill,
-                certCombo,
-                pinField,
-                authenticateButton
-        );
-        HBox.setHgrow(certCombo, Priority.ALWAYS);
-
-        // ============ 5. ACTION BAR (ToolBar with overflow) ============
+        // ============ 5. GUIDED WORKFLOW (left rail: 3 steps) ============
         busySpinner = new ProgressIndicator();
         busySpinner.setPrefSize(16, 16);
         busySpinner.setVisible(false);
         busySpinner.setManaged(false);
         busySpinner.getStyleClass().add("busy-spinner");
 
+        // --- step 1: the document ---
+        step1Done = new FontIcon(FontAwesomeSolid.CHECK);
+        step1Done.getStyleClass().add("step-check");
+        step1Done.setVisible(false);
+        step1Title = new Label("Open your PDF");
+        step1Title.getStyleClass().add("step-title");
+        HBox step1Head = new HBox(8, stepBadge("1"), step1Title, step1Done);
+        step1Head.getStyleClass().add("step-head");
+        Label step1Hint = new Label("Choose a file, or drop one anywhere in this window.");
+        step1Hint.getStyleClass().add("step-hint");
+        step1Hint.setWrapText(true);
+        step1Empty = new Label("No document open");
+        step1Empty.getStyleClass().add("step-empty");
+        step1Body = new VBox(8, step1Head, step1Hint, step1Empty, docChip);
+        step1Body.getStyleClass().add("step-body");
+
+        // --- step 2: unlock the signing device ---
+        step2Done = new FontIcon(FontAwesomeSolid.CHECK);
+        step2Done.getStyleClass().add("step-check");
+        step2Done.setVisible(false);
+        step2Title = new Label("Unlock your device");
+        step2Title.getStyleClass().add("step-title");
+        HBox step2Head = new HBox(8, stepBadge("2"), step2Title, step2Done);
+        step2Head.getStyleClass().add("step-head");
+        Label step2Hint = new Label("Connect your USB signer and enter its PIN.");
+        step2Hint.getStyleClass().add("step-hint");
+        step2Hint.setWrapText(true);
+        certCombo = new ComboBox<>();
+        certCombo.setPromptText("Signing certificate");
+        certCombo.setMaxWidth(Double.MAX_VALUE);
+        pinField = new PasswordField();
+        pinField.setPromptText("Device PIN");
+        pinField.setOnAction(e -> authenticate());
+        authenticateButton = button("Unlock Device", "Authenticate with the security device PIN (Enter)",
+                FontAwesomeSolid.UNLOCK_ALT);
+        authenticateButton.getStyleClass().add("btn-secondary");
+        authenticateButton.setMaxWidth(Double.MAX_VALUE);
+        authenticateButton.setOnAction(e -> authenticate());
+        VBox step2Controls = new VBox(8, certCombo, pinField, authenticateButton);
+        step2Body = new VBox(8, step2Head, step2Hint, step2Controls);
+        step2Body.getStyleClass().add("step-body");
+
+        // --- step 3: sign ---
+        step3Done = new FontIcon(FontAwesomeSolid.CHECK);
+        step3Done.getStyleClass().add("step-check");
+        step3Done.setVisible(false);
+        step3Title = new Label("Sign & save");
+        step3Title.getStyleClass().add("step-title");
+        HBox step3Head = new HBox(8, stepBadge("3"), step3Title, step3Done);
+        step3Head.getStyleClass().add("step-head");
+        Label step3Hint = new Label("Place the box, sign, then save the signed copy.");
+        step3Hint.getStyleClass().add("step-hint");
+        step3Hint.setWrapText(true);
+        placeButton = button("1 · Place Signature", "Draw a signature box on the page", FontAwesomeSolid.PEN_FANCY);
+        placeButton.getStyleClass().add("btn-secondary");
+        placeButton.setMaxWidth(Double.MAX_VALUE);
+        placeButton.setOnAction(e -> togglePlacingMode());
+        clearPlacementButton = button("Reset", "Remove the signature box", FontAwesomeSolid.ERASER);
+        clearPlacementButton.getStyleClass().add("btn-ghost");
+        clearPlacementButton.setOnAction(e -> clearPlacement());
+        signButton = button("2 · Sign Document", "Embed a digital signature at the drawn box", FontAwesomeSolid.FILE_SIGNATURE);
+        signButton.getStyleClass().add("btn-primary");
+        signButton.setMaxWidth(Double.MAX_VALUE);
+        signButton.setOnAction(e -> sign());
+        downloadButton = button("3 · Save Signed PDF", "Save the signed copy to a file (Ctrl+S)", FontAwesomeSolid.DOWNLOAD);
+        downloadButton.getStyleClass().add("btn-secondary");
+        downloadButton.setMaxWidth(Double.MAX_VALUE);
+        downloadButton.setOnAction(e -> saveSignedPdf());
+        step3Buttons = new VBox(6, placeButton, clearPlacementButton, signButton, downloadButton);
+        step3Body = new VBox(8, step3Head, step3Hint, step3Buttons);
+        step3Body.getStyleClass().add("step-body");
+
+        workflowRail = new VBox(12, step1Body, step2Body, step3Body);
+        workflowRail.getStyleClass().add("workflow-rail");
+        workflowRail.setPrefWidth(250);
+        workflowRail.setMinWidth(220);
+        // The rail must scroll internally: three step cards exceed the minimum
+        // window height, and without this the Sign/Save actions clip away —
+        // the screen then looks incomplete.
+        ScrollPane railScroll = new ScrollPane(workflowRail);
+        railScroll.setFitToWidth(true);
+        railScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        railScroll.getStyleClass().add("workflow-rail-scroll");
+        railWrapper = railScroll;
+
+        // --- status strip (single line, replaces the old action bar) ---
         statusLabel = new Label("Ready");
         statusLabel.getStyleClass().add("status-text");
         statusLabel.setWrapText(true);
         statusLabel.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(statusLabel, Priority.ALWAYS);
-
-        boxInfoLabel = new Label("No signature box");
+        verifyAnyButton = button("Verify PDF\u2026",
+                "Verify the signature chain of any PDF file (Ctrl+R)", FontAwesomeSolid.SEARCH);
+        verifyAnyButton.getStyleClass().add("btn-secondary");
+        verifyAnyButton.setOnAction(e -> verifyAnyPdf());
+        boxInfoLabel = new Label("");
         boxInfoLabel.getStyleClass().add("box-info");
-        boxInfoLabel.setPrefWidth(180);
-        boxInfoLabel.setMinWidth(100);
+        boxInfoLabel.setManaged(false);
+        HBox statusStrip = new HBox(10, busySpinner, statusLabel, boxInfoLabel, verifyAnyButton);
+        statusStrip.getStyleClass().add("status-strip");
 
-        clearPlacementButton = button("Reset", "Remove the signature box");
-        clearPlacementButton.getStyleClass().add("btn-ghost");
-        clearPlacementButton.setOnAction(e -> clearPlacement());
-
-        placeButton = button("Place Signature", "Draw a signature box on the page");
-        placeButton.getStyleClass().add("btn-secondary");
-        placeButton.setOnAction(e -> togglePlacingMode());
-
-        signButton = button("Sign Document", "Embed a digital signature at the drawn box");
-        signButton.getStyleClass().add("btn-primary");
-        signButton.setOnAction(e -> sign());
-
-        downloadButton = button("Download Signed PDF", "Save the signed copy to a file (Ctrl+S)");
-        downloadButton.getStyleClass().add("btn-secondary");
-        downloadButton.setOnAction(e -> saveSignedPdf());
-
-        ToolBar actionBar = new ToolBar();
-        actionBar.getStyleClass().add("action-bar");
-        actionBar.getItems().addAll(
-                busySpinner,
-                statusLabel,
-                boxInfoLabel,
-                new Separator(),
-                clearPlacementButton,
-                placeButton,
-                signButton,
-                downloadButton
-        );
-        // Make status label grow to fill available space
-        HBox.setHgrow(statusLabel, Priority.ALWAYS);
+        // ============ SIGNATURE CHAIN PANEL (collapsible) ============
+        buildChainPanel();
 
         // ============ ROOT ============
         BorderPane root = new BorderPane();
-        root.setTop(new VBox(headerBar, docToolbar));
+        root.setTop(headerBar);
         root.setCenter(centerPane);
-        root.setBottom(new VBox(securityBar, actionBar));
+        root.setLeft(railWrapper);
+        root.setBottom(new VBox(statusStrip, chainPane));
 
-        Scene scene = new Scene(root, 1100, 750);
-        scene.getStylesheets().add(
-                getClass().getResource("/ui/application.css").toExternalForm());
+        Scene scene = new Scene(root, 1180, 760);
+        ThemeManager.instance().attach(scene);
         setupKeyboard(scene);
         setupDropTarget(scene, centerPane);
+
+        // Responsive: auto-collapse the rail on narrow windows so the page
+        // keeps a usable width — unless the user chose its state explicitly.
+        scene.widthProperty().addListener((obs, was, now) -> {
+            if (railManuallyToggled) {
+                return;
+            }
+            boolean shouldShow = now.doubleValue() >= 900;
+            if (shouldShow != railVisible) {
+                setRailVisible(shouldShow, false);
+            }
+        });
 
         stage = new Stage();
         stage.setTitle("PDF Signing Workspace");
@@ -447,8 +529,19 @@ public class SigningWorkspace {
         stage.setOnCloseRequest(e -> log.info("Workspace closed"));
     }
 
+    /** Shows or hides the guided workflow rail (responsive + user toggle). */
+    private void setRailVisible(boolean visible, boolean manual) {
+        railVisible = visible;
+        if (manual) {
+            railManuallyToggled = true;
+        }
+        railWrapper.setVisible(visible);
+        railWrapper.setManaged(visible);
+    }
+
     private VBox buildEmptyOverlay() {
-        Label icon = new Label("\uD83D\uDCC4");
+        Label icon = new Label();
+        icon.setGraphic(new FontIcon(FontAwesomeSolid.FILE_PDF));
         icon.getStyleClass().add("empty-state-icon");
         Label title = new Label("No document open");
         title.getStyleClass().add("empty-state-title");
@@ -457,7 +550,7 @@ public class SigningWorkspace {
         hint.getStyleClass().add("empty-state-hint");
         hint.setWrapText(true);
         hint.setMaxWidth(460);
-        Button upload = new Button("Upload PDF");
+        Button upload = new Button("Browse PDF\u2026");
         upload.getStyleClass().add("btn-primary");
         upload.setOnAction(e -> uploadPdf());
         Label dragHint = new Label("or drag and drop a PDF here");
@@ -468,10 +561,40 @@ public class SigningWorkspace {
         return box;
     }
 
-    private static Button button(String text, String tip) {
+    /** A labelled button with a bundled icon-font glyph and a tooltip. */
+    private static Button button(String text, String tip, FontAwesomeSolid icon) {
         Button button = new Button(text);
+        button.setGraphic(new FontIcon(icon));
         button.setTooltip(new Tooltip(tip));
         return button;
+    }
+
+    /** A toolbar button that shows only an icon; the tooltip names the action. */
+    private static Button navIcon(FontAwesomeSolid icon, String tip) {
+        Button button = new Button();
+        button.setGraphic(new FontIcon(icon));
+        button.getStyleClass().add("nav-btn");
+        button.setTooltip(new Tooltip(tip));
+        return button;
+    }
+
+    /** Marks a mode button as active so its pressed state is visible. */
+    private static void syncPressedStyle(Button button, boolean active) {
+        button.getStyleClass().removeIf("pressed"::equals);
+        if (active) {
+            button.getStyleClass().add("pressed");
+        }
+    }
+
+    /** Round numbered badge for a workflow step header. */
+    private static Label stepBadge(String number) {
+        Label badge = new Label(number);
+        badge.getStyleClass().add("step-num");
+        return badge;
+    }
+
+    private static float clamp(float value, float min, float max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private static Node divider() {
@@ -481,21 +604,10 @@ public class SigningWorkspace {
     }
 
     private void makeDraggable(Node header, Stage stage) {
-        final Delta dragDelta = new Delta();
-        header.setOnMousePressed(e -> {
-            dragDelta.x = stage.getX() - e.getScreenX();
-            dragDelta.y = stage.getY() - e.getScreenY();
-            header.setCursor(Cursor.MOVE);
-        });
-        header.setOnMouseDragged(e -> {
-            stage.setX(e.getScreenX() + dragDelta.x);
-            stage.setY(e.getScreenY() + dragDelta.y);
-        });
-        header.setOnMouseReleased(e -> header.setCursor(Cursor.DEFAULT));
-        header.setOnMouseExited(e -> header.setCursor(Cursor.DEFAULT));
+        // Resolve the stage at event time: buildUi() runs before the field is
+        // assigned, so an eager capture would NPE on every header interaction.
+        UiSupport.makeDraggable(header, () -> this.stage != null ? this.stage : stage);
     }
-
-    private static class Delta { double x, y; }
 
     private void setupKeyboard(Scene scene) {
         scene.addEventHandler(KeyEvent.KEY_PRESSED, e -> {
@@ -508,6 +620,10 @@ public class SigningWorkspace {
                     case S -> {
                         e.consume();
                         saveSignedPdf();
+                    }
+                    case R -> {
+                        e.consume();
+                        verifyAnyPdf();
                     }
                     case EQUALS, ADD -> {
                         e.consume();
@@ -593,6 +709,7 @@ public class SigningWorkspace {
             signedVerified = false;
             signatureBox.setVisible(false);
             signatureBadge.setVisible(false);
+            hideChainPanel();
             docTitleLabel.setText(pdf.getFileName().toString());
             docMetaLabel.setText(count + " page" + (count == 1 ? "" : "s"));
             setStatus("\u2713 PDF loaded: \u201C" + pdf.getFileName() + "\u201D · " + count + " page(s)");
@@ -601,7 +718,7 @@ public class SigningWorkspace {
         task.setOnFailed(e -> {
             pdfLoadInProgress = false;
             setBusy(false);
-            setError("Could not open PDF: " + failureMessage(task));
+            setError("Could not open PDF: " + UiSupport.failureMessage(task));
         });
         new Thread(task, "pdf-workspace-open").start();
     }
@@ -704,7 +821,7 @@ public class SigningWorkspace {
             renderInFlight = false;
             autoFitLaps = 0;
             setBusy(false);
-            setError("Could not render page: " + failureMessage(task));
+            setError("Could not render page: " + UiSupport.failureMessage(task));
             log.warn("Page render failed", task.getException());
             if (renderQueued) {
                 renderCurrentPage();
@@ -800,9 +917,11 @@ public class SigningWorkspace {
         if (placingMode) {
             setStatus("Placement on — drag on the document to draw (or replace) the signature box.");
             pageLayer.setCursor(Cursor.CROSSHAIR);
+            placeButton.setText("Placing Box\u2026");
         } else {
             pageLayer.setCursor(Cursor.DEFAULT);
             setStatus("Placement off — drag the box to move it, or its corner to resize.");
+            placeButton.setText("Place Signature");
         }
         updateChromeVisibility();
         updateActionButtons();
@@ -842,6 +961,10 @@ public class SigningWorkspace {
         double py = e.getY();
         pressX = px;
         pressY = py;
+        // A drag that starts on the page belongs to the signature box, not to
+        // ScrollPane panning: suspend panning for the gesture or the page
+        // slides under the cursor while drawing (box lands somewhere else).
+        scrollPane.setPannable(false);
         if (placingMode) {
             dragMode = DragMode.CREATE;
             signatureBox.setX(px);
@@ -862,7 +985,11 @@ public class SigningWorkspace {
                 startX = signatureBox.getX();
                 startY = signatureBox.getY();
                 dragMode = DragMode.MOVE;
+            } else {
+                scrollPane.setPannable(true);
             }
+        } else {
+            scrollPane.setPannable(true);
         }
     }
 
@@ -902,6 +1029,7 @@ public class SigningWorkspace {
         }
         dragMode = DragMode.NONE;
         placingMode = false;
+        scrollPane.setPannable(true);
         pageLayer.setCursor(Cursor.DEFAULT);
         updateChromeVisibility();
         updateActionButtons();
@@ -923,11 +1051,15 @@ public class SigningWorkspace {
 
     private void commitPlacement() {
         float scale = (float) renderScale;
-        float x = (float) (signatureBox.getX() / scale);
-        float w = (float) (signatureBox.getWidth() / scale);
-        float h = (float) (signatureBox.getHeight() / scale);
-        float y = rendered.viewportHeightPoints() - (float) (signatureBox.getY() / scale) - h;
-        y = Math.max(0f, y);
+        float pageW = rendered.viewportWidthPoints();
+        float pageH = rendered.viewportHeightPoints();
+        // Clamp to the page so a drag that slips off the edge (or a resize
+        // past a border) can never produce an out-of-bounds placement.
+        float x = clamp((float) (signatureBox.getX() / scale), 0f, pageW);
+        float w = Math.min((float) (signatureBox.getWidth() / scale), pageW - x);
+        float top = clamp((float) (signatureBox.getY() / scale), 0f, pageH);
+        float h = Math.min((float) (signatureBox.getHeight() / scale), pageH - top);
+        float y = Math.max(0f, pageH - top - h);
         placement = new SignaturePlacement(currentPage, x, y, w, h);
         log.info("Placement committed at page={} x={} y={} w={} h={} (page={}x{} pts)",
                 currentPage, x, y, w, h,
@@ -958,7 +1090,7 @@ public class SigningWorkspace {
 
     private void authenticate() {
         TokenState state = tokenService.getState();
-        if (isAuthenticatedState(state)) {
+        if (UiSupport.isAuthenticatedState(state)) {
             setStatus("\u2713 Security device is already unlocked — you can sign documents.");
             refreshTokenUi();
             return;
@@ -1004,10 +1136,10 @@ public class SigningWorkspace {
         task.setOnFailed(e -> {
             setBusy(false);
             refreshTokenUi();
-            setError("Authentication failed: " + failureMessage(task));
+            setError("Authentication failed: " + UiSupport.failureMessage(task));
             log.warn("Authentication failed", task.getException());
             showAlert(Alert.AlertType.ERROR, "Authentication failed",
-                    failureMessage(task));
+                    UiSupport.failureMessage(task));
         });
         new Thread(task, "workspace-auth").start();
     }
@@ -1060,7 +1192,7 @@ public class SigningWorkspace {
             setStatus("Place a signature box on the page first.");
             return;
         }
-        if (!isAuthenticatedState(tokenService.getState())) {
+        if (!UiSupport.isAuthenticatedState(tokenService.getState())) {
             setError("Security device not unlocked — enter the PIN and click Unlock Device.");
             showAlert(Alert.AlertType.WARNING, "Security device locked",
                     "Unlock the device with its PIN first (1234 for the mock token).");
@@ -1103,9 +1235,9 @@ public class SigningWorkspace {
         });
         task.setOnFailed(e -> {
             setBusy(false);
-            setError("Signing failed: " + failureMessage(task));
+            setError("Signing failed: " + UiSupport.failureMessage(task));
             log.warn("Workspace signing failed", task.getException());
-            showAlert(Alert.AlertType.ERROR, "Signing failed", failureMessage(task));
+            showAlert(Alert.AlertType.ERROR, "Signing failed", UiSupport.failureMessage(task));
             updateActionButtons();
         });
         new Thread(task, "workspace-sign").start();
@@ -1126,15 +1258,190 @@ public class SigningWorkspace {
                 updateSignatureBadge();
                 setSuccess("Signature verified  ·  " + vr.signerSubject()
                         + "  —  Download the signed PDF (Ctrl+S).");
+                showSignatureChain(vr, pdf);
             } else {
                 setError("Signature invalid: " + vr.message());
+                showSignatureChain(vr, pdf);
             }
         });
         task.setOnFailed(e -> {
             log.warn("Workspace verification failed", task.getException());
-            setError("Verification failed: " + failureMessage(task));
+            setError("Verification failed: " + UiSupport.failureMessage(task));
         });
         new Thread(task, "workspace-verify").start();
+    }
+
+    /**
+     * Verify-any-PDF flow: the user picks any PDF, its signature chain is
+     * verified and shown in the chain panel with the file name in the panel
+     * title. The document currently open in the viewer is left untouched, so
+     * an in-progress signing workflow cannot be disturbed.
+     */
+    private void verifyAnyPdf() {
+        if (busy || pdfLoadInProgress) {
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Choose a PDF to verify");
+        chooser.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("PDF documents", "*.pdf"));
+        File file = chooser.showOpenDialog(stage);
+        if (file == null) {
+            return;
+        }
+        Path pdf = file.toPath();
+        setBusy(true);
+        setStatus("Verifying \u201C" + pdf.getFileName() + "\u201D\u2026");
+        Task<SignatureVerificationResult> task = new Task<>() {
+            @Override
+            protected SignatureVerificationResult call() throws Exception {
+                return pdfVerificationService.verifyPdf(pdf);
+            }
+        };
+        task.setOnSucceeded(e -> {
+            setBusy(false);
+            SignatureVerificationResult vr = task.getValue();
+            if (vr.valid()) {
+                setSuccess("Signature chain valid for \u201C" + pdf.getFileName()
+                        + "\u201D  ·  most recent signer: " + vr.signerSubject());
+            } else {
+                setError("Signature chain invalid for \u201C" + pdf.getFileName()
+                        + "\u201D: " + vr.message());
+            }
+            showSignatureChain(vr, pdf);
+        });
+        task.setOnFailed(e -> {
+            setBusy(false);
+            log.warn("Verify-any-PDF failed", task.getException());
+            setError("Verification failed: " + UiSupport.failureMessage(task));
+        });
+        new Thread(task, "workspace-verify-any").start();
+    }
+
+    // ============ SIGNATURE CHAIN PANEL ============
+
+    /**
+     * Builds the collapsible panel that lists one row per signature in the
+     * revision chain: signer, algorithm, signing time and a valid/invalid
+     * badge. Hidden until a verification produces chain detail.
+     */
+    private void buildChainPanel() {
+        chainEmptyLabel = new Label("No signatures verified yet.");
+        chainEmptyLabel.getStyleClass().add("chain-empty");
+
+        chainRows = new VBox(4);
+        chainRows.getStyleClass().add("chain-rows");
+        chainRows.getChildren().setAll(chainEmptyLabel);
+
+        VBox content = new VBox(chainRows);
+        content.getStyleClass().add("chain-content");
+        content.setPadding(new Insets(4, 12, 8, 12));
+
+        chainPane = new TitledPane("Signature chain", content);
+        chainPane.getStyleClass().add("chain-pane");
+        chainPane.setExpanded(false);
+        chainPane.setVisible(false);
+        chainPane.setManaged(false);
+        chainPane.setAnimated(false);
+    }
+
+    /**
+     * Shows the per-signature chain in the panel (and in the log): one row
+     * per signature with signer, algorithm, signing time and validity badge.
+     */
+    private void showSignatureChain(SignatureVerificationResult result, Path verifiedPdf) {
+        List<SignatureVerificationResult.SignatureDetail> chain = result.signatures();
+        if (chain.isEmpty()) {
+            hideChainPanel();
+            return;
+        }
+
+        log.info("Signature chain of \"{}\" ({}):", verifiedPdf.getFileName(), chain.size());
+        chainRows.getChildren().clear();
+        java.time.format.DateTimeFormatter timeFormat =
+                java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm 'UTC'")
+                        .withZone(java.time.ZoneOffset.UTC);
+        for (SignatureVerificationResult.SignatureDetail detail : chain) {
+            log.info("  [{}] {} — {} — signed {} — {} ({})",
+                    detail.index() + 1,
+                    detail.signerSubject(),
+                    detail.algorithm() != null ? detail.algorithm() : "unknown",
+                    detail.signedAtKnown() ? detail.signedAt() : "time unknown",
+                    detail.valid() ? "VALID" : "INVALID",
+                    detail.message());
+            chainRows.getChildren().add(buildChainRow(detail, timeFormat));
+        }
+
+        boolean allValid = result.valid();
+        chainPane.setText(String.format("Signature chain — %s — %d signature%s — %s",
+                verifiedPdf.getFileName(), chain.size(), chain.size() == 1 ? "" : "s",
+                allValid ? "all valid" : "chain invalid"));
+        boolean invalidStyled = chainPane.getStyleClass().contains("chain-pane--invalid");
+        if (allValid && invalidStyled) {
+            chainPane.getStyleClass().remove("chain-pane--invalid");
+        } else if (!allValid && !invalidStyled) {
+            chainPane.getStyleClass().add("chain-pane--invalid");
+        }
+        chainPane.setVisible(true);
+        chainPane.setManaged(true);
+        chainPane.setExpanded(true);
+    }
+
+    /** Builds one visual row of the chain panel. */
+    private HBox buildChainRow(SignatureVerificationResult.SignatureDetail detail,
+                               java.time.format.DateTimeFormatter timeFormat) {
+        Label index = new Label("#" + (detail.index() + 1));
+        index.getStyleClass().add("chain-index");
+
+        Label signer = new Label(shortSubject(detail.signerSubject()));
+        signer.getStyleClass().add("chain-signer");
+
+        Label algorithm = new Label(detail.algorithm() != null
+                ? detail.algorithm().name() : "unknown");
+        algorithm.getStyleClass().add("chain-algorithm");
+
+        Label time = new Label(detail.signedAtKnown()
+                ? timeFormat.format(detail.signedAt())
+                : "time unknown");
+        time.getStyleClass().add("chain-time");
+
+        Label badge = new Label(detail.valid() ? "VALID" : "INVALID");
+        badge.getStyleClass().add("chain-badge");
+        badge.getStyleClass().add(detail.valid() ? "chain-badge--valid" : "chain-badge--invalid");
+        if (!detail.valid()) {
+            Tooltip invalidReason = new Tooltip(detail.message());
+            badge.setTooltip(invalidReason);
+        }
+
+        HBox row = new HBox(10, index, signer, algorithm, time, badge);
+        row.getStyleClass().add("chain-row");
+        row.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(signer, Priority.ALWAYS);
+        signer.setMaxWidth(Double.MAX_VALUE);
+        return row;
+    }
+
+    /**
+     * Shortens a subject DN to its {@code CN=...} component for display,
+     * falling back to the full DN when no CN is present.
+     */
+    private static String shortSubject(String subjectDn) {
+        if (subjectDn == null || subjectDn.isBlank()) {
+            return "unknown signer";
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("(?:^|,)\\s*CN=([^,]+)").matcher(subjectDn);
+        return matcher.find() ? matcher.group(1) : subjectDn;
+    }
+
+    /** Hides the chain panel (e.g. when a new document is opened). */
+    private void hideChainPanel() {
+        chainPane.setVisible(false);
+        chainPane.setManaged(false);
+        chainPane.setExpanded(false);
+        if (chainRows != null) {
+            chainRows.getChildren().setAll(chainEmptyLabel);
+        }
     }
 
     private void saveSignedPdf() {
@@ -1179,10 +1486,23 @@ public class SigningWorkspace {
 
     private void updateActionButtons() {
         TokenState state = tokenService.getState();
-        boolean authed = isAuthenticatedState(state);
+        boolean authed = UiSupport.isAuthenticatedState(state);
         boolean hasCerts = !safeCertificates().isEmpty();
         boolean hasDoc = displayedPdf != null;
         boolean hasPlacement = placement != null;
+
+        // guided-rail progress: checks light up, future steps dim
+        step1Done.setVisible(hasDoc);
+        step2Done.setVisible(authed);
+        step3Done.setVisible(signedDone);
+        step2Body.getStyleClass().removeIf("step-dim"::equals);
+        step3Body.getStyleClass().removeIf("step-dim"::equals);
+        if (!hasDoc) {
+            step2Body.getStyleClass().add("step-dim");
+            step3Body.getStyleClass().add("step-dim");
+        } else if (!authed) {
+            step3Body.getStyleClass().add("step-dim");
+        }
 
         uploadButton.setDisable(busy);
         prevButton.setDisable(busy || rendered == null || currentPage <= 0);
@@ -1193,9 +1513,11 @@ public class SigningWorkspace {
         fitWidthButton.setDisable(busy || !hasDoc);
         fitPageButton.setDisable(busy || !hasDoc);
         placeButton.setDisable(busy || !hasDoc || signedDone);
+        syncPressedStyle(placeButton, placingMode);
         clearPlacementButton.setDisable(busy || !hasPlacement);
         signButton.setDisable(busy || !hasDoc || !hasPlacement || !authed || signedDone);
         downloadButton.setDisable(busy || signedPdfPath == null);
+        verifyAnyButton.setDisable(busy);
         certCombo.setDisable(busy || !hasCerts);
         pinField.setDisable(busy || !hasCerts || authed);
         authenticateButton.setDisable(busy || !hasCerts || authed);
@@ -1204,7 +1526,7 @@ public class SigningWorkspace {
         placeButton.setText(placingMode ? "Cancel Placement" : "Place Signature");
 
         updatePageLabel();
-        updateAuthPill(state);
+        updateSecurityPill(state);
         updateBoxInfo();
         updateChromeVisibility();
     }
@@ -1215,45 +1537,42 @@ public class SigningWorkspace {
         TokenState state = tokenService.getState();
         boolean hasToken = state != TokenState.NO_TOKEN && state != TokenState.TOKEN_REMOVED;
 
-        docChip.setManaged(hasDoc);
-        docChip.setVisible(hasDoc);
         docToolbar.setManaged(hasDoc);
         docToolbar.setVisible(hasDoc);
         emptyOverlay.setVisible(!hasDoc);
-        securityBar.setManaged(hasToken);
-        securityBar.setVisible(hasToken);
+        step1Empty.setManaged(!hasDoc);
+        step1Empty.setVisible(!hasDoc);
+        docChip.setManaged(hasDoc);
+        docChip.setVisible(hasDoc);
+        certCombo.setManaged(hasToken);
+        certCombo.setVisible(hasToken);
+        pinField.setManaged(hasToken);
+        pinField.setVisible(hasToken);
+        authenticateButton.setManaged(hasToken);
+        authenticateButton.setVisible(hasToken);
         placementBanner.setVisible(placingMode && hasDoc);
     }
 
-    private void updateAuthPill(TokenState state) {
-        boolean authed = isAuthenticatedState(state);
+    private void updateSecurityPill(TokenState state) {
+        boolean authed = UiSupport.isAuthenticatedState(state);
         boolean pending = state == TokenState.WAITING_FOR_PIN
                 || state == TokenState.CERTIFICATE_AVAILABLE
                 || state == TokenState.TOKEN_INITIALIZED
                 || state == TokenState.TOKEN_DETECTED;
 
-        String barText;
         String headerText;
         String variant;
         if (authed) {
-            barText = "Authenticated";
             headerText = "\u25CF Authenticated";
             variant = "status-pill--active";
         } else if (pending) {
-            barText = state == TokenState.WAITING_FOR_PIN ? "PIN required" : "Token detected";
             headerText = state == TokenState.WAITING_FOR_PIN
                     ? "\u25CF PIN required" : "\u25CF Token detected";
             variant = "status-pill--pending";
         } else {
-            barText = "No token";
             headerText = "\u25CF No token";
             variant = "status-pill--error";
         }
-
-        authPill.setText(barText);
-        authPill.getStyleClass().removeIf(c -> c.startsWith("status-pill")
-                && !c.equals("status-pill"));
-        authPill.getStyleClass().add(variant);
 
         headerSecurityLabel.getStyleClass().removeIf(c -> c.startsWith("status-pill"));
         headerSecurityLabel.getStyleClass().add("security-label");
@@ -1263,28 +1582,25 @@ public class SigningWorkspace {
 
     private void updateBoxInfo() {
         if (placement == null) {
-            boxInfoLabel.setText("No signature box");
+            boxInfoLabel.setText("");
+            boxInfoLabel.setTooltip(null);
+            boxInfoLabel.setManaged(false);
+            boxInfoLabel.setVisible(false);
             return;
         }
+        boxInfoLabel.setManaged(true);
+ boxInfoLabel.setVisible(true);
         String suffix = signedVerified ? "  ·  verified"
                 : (signedDone ? "  ·  verifying\u2026" : "");
-        boxInfoLabel.setText(String.format("Box · %dx%d pt @ (%.0f, %.0f) · page %d%s",
+        boxInfoLabel.setText("Box placed" + suffix);
+        boxInfoLabel.setTooltip(new Tooltip(String.format(
+                "Box · %dx%d pt @ (%.0f, %.0f) · page %d",
                 Math.round(placement.width()), Math.round(placement.height()),
-                placement.x(), placement.y(), placement.pageIndex() + 1, suffix));
-    }
-
-    private static boolean isAuthenticatedState(TokenState state) {
-        return state == TokenState.AUTHENTICATED
-                || state == TokenState.SIGNATURE_COMPLETE
-                || state == TokenState.SIGNATURE_FAILED;
+                placement.x(), placement.y(), placement.pageIndex() + 1)));
     }
 
     private List<SigningCertificate> safeCertificates() {
-        try {
-            return tokenService.getCertificates();
-        } catch (IllegalStateException e) {
-            return List.of();
-        }
+        return UiSupport.safeCertificates(tokenService);
     }
 
     private void setStatus(String message) {
@@ -1348,11 +1664,6 @@ public class SigningWorkspace {
         alert.showAndWait();
     }
 
-    private static String failureMessage(Task<?> task) {
-        Throwable t = task.getException();
-        return t == null ? "unknown error"
-                : (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName());
-    }
 
     private static long nullSafeSize(Path path) {
         try {

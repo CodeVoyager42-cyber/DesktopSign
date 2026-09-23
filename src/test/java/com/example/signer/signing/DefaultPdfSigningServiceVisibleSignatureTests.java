@@ -108,4 +108,54 @@ class DefaultPdfSigningServiceVisibleSignatureTests {
         Files.deleteIfExists(output);
         Files.deleteIfExists(dir);
     }
+
+    @Test
+    void visibleSignatureLandsWhereDrawnOnCroppedScannedPage() throws Exception {
+        // Scanned documents typically have a crop box offset inside a larger
+        // media box. The user draws on the VISIBLE (crop) area, so the widget
+        // must land at the same spot relative to the crop box — historically
+        // it was displaced by exactly the crop offset.
+        simulator.insertToken();
+        tokenService.detect();
+        tokenService.startAuthentication();
+        tokenService.authenticate(MockSigningToken.defaultPin());
+
+        Path dir = Files.createTempDirectory("pdf-cropped-test");
+        Path input = dir.resolve("cropped.pdf");
+        try (PDDocument doc = new PDDocument()) {
+            PDPage page = new PDPage();
+            page.setMediaBox(new PDRectangle(0f, 0f, 612f, 1008f));
+            page.setCropBox(new PDRectangle(50f, 100f, 512f, 808f));
+            doc.addPage(page);
+            doc.save(input.toFile());
+        }
+
+        // User-visible coordinates (bottom-left origin of the crop area):
+        // a 150x60 box at (100, 600).
+        SignaturePlacement placement = new SignaturePlacement(0, 100f, 600f, 150f, 60f);
+
+        Path output = dir.resolve("cropped-signed.pdf");
+        pdfSigningService.signPdf(
+                input, MockSigningToken.DEFAULT_ALIAS, SigningAlgorithm.RSA_SHA256, output, placement);
+
+        try (PDDocument doc = Loader.loadPDF(output.toFile())) {
+            PDPage page = doc.getPage(0);
+            PDAnnotationWidget widget = (PDAnnotationWidget) page.getAnnotations().stream()
+                    .filter(a -> a instanceof PDAnnotationWidget)
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("expected a widget annotation"));
+
+            // Widget rects live in default user space, so the expected absolute
+            // position is the crop offset plus the user-visible placement.
+            PDRectangle rect = widget.getRectangle();
+            assertThat(rect.getLowerLeftX()).isCloseTo(150f, within(1.5f));
+            assertThat(rect.getLowerLeftY()).isCloseTo(700f, within(1.5f));
+            assertThat(rect.getWidth()).isCloseTo(150f, within(1.5f));
+            assertThat(rect.getHeight()).isCloseTo(60f, within(1.5f));
+        }
+
+        Files.deleteIfExists(input);
+        Files.deleteIfExists(output);
+        Files.deleteIfExists(dir);
+    }
 }

@@ -5,8 +5,6 @@ package com.example.signer.exception;
  *
  * <p>Used to keep errors machine-processable while keeping all human-readable
  * messages free of sensitive values (PINs, key material, credentials).
- * Only codes already relevant to the current phase are used; the list grows
- * together with the features implemented in later phases.
  */
 public enum ErrorCode {
 

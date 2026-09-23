@@ -53,4 +53,18 @@ public interface PdfSigningService {
                           SigningAlgorithm algorithm,
                           Path outputPdf,
                           SignaturePlacement placement) throws Exception;
+
+    /**
+     * As above, with full control over the visible signature appearance and
+     * the signature dictionary's {@code /Reason} and {@code /Location}.
+     *
+     * @param appearance what the visible stamp shows; {@code null} uses the
+     *                   application's default appearance
+     */
+    SigningResult signPdf(Path inputPdf,
+                          String keyAlias,
+                          SigningAlgorithm algorithm,
+                          Path outputPdf,
+                          SignaturePlacement placement,
+                          SignatureAppearance appearance) throws Exception;
 }

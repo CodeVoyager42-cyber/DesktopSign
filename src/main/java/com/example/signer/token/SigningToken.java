@@ -6,9 +6,9 @@ import com.example.signer.token.mock.MockSigningToken;
  * Generic, vendor-independent cryptographic token.
  *
  * <p>The concrete token performs all private-key operations internally; the
- * private key never leaves the token. Implementations are expected to keep
- * the signing key inside hardware (a PKCS#11 implementation will be added in a
- * later phase) or, for development only, inside an in-memory mock
+ * private key never leaves the token. Implementations keep the signing key
+ * inside hardware ({@code Pkcs11SigningToken}, backed by SunPKCS11) or, for
+ * development and tests only, inside an in-memory mock
  * ({@link MockSigningToken}).
  *
  * <p>The PDF-signing layer must depend on this interface and never on a

@@ -27,4 +27,18 @@ public record SignaturePlacement(
             throw new IllegalArgumentException("width and height must be > 0");
         }
     }
+
+    /**
+     * Whether this placement intersects another one on the same page (§30).
+     * Touching edges do not count as overlap.
+     */
+    public boolean overlaps(SignaturePlacement other) {
+        if (other == null || other.pageIndex() != pageIndex) {
+            return false;
+        }
+        return x < other.x + other.width
+                && other.x < x + width
+                && y < other.y + other.height
+                && other.y < y + height;
+    }
 }

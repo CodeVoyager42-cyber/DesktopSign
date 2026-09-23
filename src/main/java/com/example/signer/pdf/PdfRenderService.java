@@ -10,6 +10,13 @@ import java.nio.file.Path;
 public interface PdfRenderService {
 
     /**
+     * Opens a reusable renderer over the document: parse once, render any
+     * page at any resolution. Prefer this over repeated {@link #renderPage}
+     * calls (viewer with thumbnails, multi-page documents).
+     */
+    DocumentRenderer openDocument(Path pdf) throws IOException;
+
+    /**
      * @param pdf the PDF document
      * @return the number of pages in the document
      */

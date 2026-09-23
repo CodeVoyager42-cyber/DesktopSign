@@ -13,3 +13,6 @@ dependency-reduced-pom.xml
 # OS
 .DS_Store
 Thumbs.db
+
+# Freebuff agent state
+.freebuff/

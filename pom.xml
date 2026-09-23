@@ -18,7 +18,8 @@
     <name>pdf-signer-desktop</name>
     <description>
         Local desktop PDF digital-signature application built around a generic
-        PKCS#11 hardware cryptographic token. Phase 1: project foundation.
+        PKCS#11 hardware cryptographic token, with sequential multi-signer
+        workflows and chain-aware signature verification.
     </description>
 
     <properties>
@@ -26,9 +27,14 @@
         <javafx.version>21.0.7</javafx.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <!-- The PKCS#11 wrapper access adds exports on a JDK system module,
-             which javac rejects when target is set via the release flag.
-             Compile against the pinned JDK 21 (source/target 21) instead. -->
+        <!-- source/target instead of the release flag, deliberately: javac
+             rejects the jdk.crypto.cryptoki add-exports together with the
+             release flag (verified empirically), and compiling against
+             sun.security.pkcs11.wrapper requires that export. The empty
+             release below overrides the Boot parent's maven.compiler.release
+             default (${java.version}). The resulting "location of system
+             modules" warning is the known, accepted trade-off; class files
+             are exercised on JDK 21 in CI. -->
         <maven.compiler.release></maven.compiler.release>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
@@ -50,6 +56,16 @@
             <version>${javafx.version}</version>
         </dependency>
         <dependency>
+            <groupId>org.kordamp.ikonli</groupId>
+            <artifactId>ikonli-javafx</artifactId>
+            <version>12.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.kordamp.ikonli</groupId>
+            <artifactId>ikonli-fontawesome5-pack</artifactId>
+            <version>12.3.1</version>
+        </dependency>
+        <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcpkix-jdk18on</artifactId>
             <version>1.80</version>
@@ -59,6 +75,16 @@
             <groupId>org.apache.pdfbox</groupId>
             <artifactId>pdfbox</artifactId>
             <version>3.0.5</version>
+            <exclusions>
+                <!-- Spring's spring-core already provides the
+                     org.apache.commons.logging bridge routed to the app's
+                     logback; keeping this jar would emit the
+                     "Standard Commons Logging discovery" conflict warning. -->
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
@@ -90,6 +116,12 @@
                          that would try to parse the empty release as an opcode. -->
                     <createMissingPackageInfoClass>false</createMissingPackageInfoClass>
                     <compilerArgs>
+                        <!-- The [options] note below ("release is recommended
+                             instead of source/target") is unavoidable here: the
+                             cryptoki add-exports are rejected under the release
+                             flag (verified empirically), and the trade-off is
+                             documented in the properties block above. -->
+                        <arg>-Xlint:-options</arg>
                         <arg>--add-modules</arg>
                         <arg>jdk.crypto.cryptoki</arg>
                         <arg>--add-exports</arg>
@@ -108,9 +140,49 @@
                         <option>jdk.crypto.cryptoki</option>
                         <option>--add-exports</option>
                         <option>jdk.crypto.cryptoki/sun.security.pkcs11.wrapper=ALL-UNNAMED</option>
+                        <option>--enable-native-access=javafx.graphics</option>
                     </options>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- JavaFX's marlin renderer calls sun.misc.Unsafe::allocateMemory,
+             which JDK 23+ warns about (JEP 471). The flag below is the
+             official escape hatch; it only exists on JDK 23+, so it is
+             appended solely when the build runs on such a JDK. JDK 21 runs
+             (CI) are unaffected and need nothing. -->
+        <profile>
+            <id>jdk23-unsafe-memory-access</id>
+            <activation>
+                <jdk>[23,)</jdk>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.openjfx</groupId>
+                        <artifactId>javafx-maven-plugin</artifactId>
+                        <version>0.0.8</version>
+                        <configuration>
+                            <!-- Full option set, not a delta: profile config
+                                 replaces the base list (combine.self does not
+                                 merge within the same POM, verified via
+                                 help:effective-pom), so all base options are
+                                 repeated here plus the unsafe-memory-access
+                                 flag, which exists only on JDK 23+. -->
+                            <options>
+                                <option>--add-modules</option>
+                                <option>jdk.crypto.cryptoki</option>
+                                <option>--add-exports</option>
+                                <option>jdk.crypto.cryptoki/sun.security.pkcs11.wrapper=ALL-UNNAMED</option>
+                                <option>--enable-native-access=javafx.graphics</option>
+                                <option>--sun-misc-unsafe-memory-access=allow</option>
+                            </options>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
