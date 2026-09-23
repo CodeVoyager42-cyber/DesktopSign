@@ -26,6 +26,9 @@ jobs:
           java-version: '21'
           cache: maven
 
+      - name: Install WiX toolset (for MSI)
+        run: choco install wixtoolset -y --no-progress
+
       - name: Build, test, and package
         run: bash package.sh
 
