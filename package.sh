@@ -79,7 +79,15 @@ echo "== Portable zip =="
 "$JAVA_HOME/bin/jar" --create --file "build/dist/${APP_NAME}-${APP_VERSION}-windows.zip" -C build/jpackage "$APP_NAME"
 
 echo "== MSI (optional, needs WiX 3.x) =="
-if ls "/c/Program Files (x86)/WiX Toolset" >/dev/null 2>&1; then
+# Find candle.exe: on PATH, or in a Chocolatey/standard install dir. The WiX
+# toolset installs to "WiX Toolset v3.14" (versioned dir), so a fixed path
+# check misses it (verified on a GitHub windows-latest runner).
+if ! command -v candle >/dev/null 2>&1; then
+    for d in "/c/Program Files (x86)/WiX Toolset"*/bin "/c/Program Files/WiX Toolset"*/bin; do
+        if [[ -f "$d/candle.exe" ]]; then export PATH="$d:$PATH"; break; fi
+    done
+fi
+if command -v candle >/dev/null 2>&1; then
     "$JPACKAGE" \
         --type msi \
         --name "$APP_NAME" \
@@ -92,7 +100,7 @@ if ls "/c/Program Files (x86)/WiX Toolset" >/dev/null 2>&1; then
         --dest build/dist
     echo "MSI built."
 else
-    echo "WiX not installed — MSI skipped. Zip + app-image are ready in build/dist."
+    echo "WiX not found (candle.exe) — MSI skipped. Zip + app-image are ready in build/dist."
 fi
 
 echo "== Done =="
