@@ -1,0 +1,322 @@
+/* ==========================================================================
+   shell.css — Application shell: sidebar, top bar, footer, action tiles
+   ==========================================================================
+   References ONLY the -sig-* tokens defined in theme.css (redefined for dark
+   mode by theme-dark.css). No hex values here, no layout outside JavaFX code.
+   ========================================================================== */
+
+/* ------------------------------------------------------------------
+   Sidebar (deep navy, icon + label, collapsible to an icon rail)
+   ------------------------------------------------------------------ */
+.sidebar {
+    -fx-background-color: -sig-navy;
+    -fx-min-width:        220px;
+    -fx-pref-width:       220px;
+    -fx-padding:          16px 12px 12px 12px;
+    -fx-spacing:          4px;
+}
+
+.sidebar--rail {
+    -fx-min-width:  72px;
+    -fx-pref-width: 72px;
+    -fx-padding:    16px 10px 12px 10px;
+}
+
+.sidebar-brand {
+    -fx-text-fill:   #FFFFFF;
+    -fx-font-size:   16px;
+    -fx-font-weight: 700;
+    -fx-padding:     4px 8px 14px 8px;
+}
+
+.sidebar-brand .font-icon {
+    -fx-icon-color: -sig-accent;
+    -fx-icon-size:  18px;
+}
+
+.sidebar-item {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6px;
+    -fx-text-fill:        -sig-navy-text;
+    -fx-font-size:        13px;
+    -fx-font-weight:      500;
+    -fx-padding:          9px 12px;
+    -fx-alignment:        CENTER_LEFT;
+    -fx-cursor:           hand;
+    -fx-border-width:     0 0 0 0;
+}
+
+.sidebar-item .font-icon {
+    -fx-icon-color: -sig-navy-text;
+    -fx-icon-size:  14px;
+}
+
+.sidebar-item:hover {
+    -fx-background-color: -sig-navy-hover;
+    -fx-text-fill:        #FFFFFF;
+}
+
+.sidebar-item:hover .font-icon {
+    -fx-icon-color: #FFFFFF;
+}
+
+.sidebar-item:focused {
+    -fx-background-color: -sig-navy-hover;
+    -fx-border-color:     transparent transparent transparent -sig-accent;
+    -fx-border-width:     0 0 0 2px;
+}
+
+/* Active destination: hover bg + 3px primary bar on the left + white text */
+.sidebar-item--active {
+    -fx-background-color: -sig-navy-hover;
+    -fx-text-fill:        #FFFFFF;
+    -fx-border-color:     transparent transparent transparent -sig-primary;
+    -fx-border-width:     0 0 0 3px;
+}
+
+.sidebar-item--active .font-icon {
+    -fx-icon-color: #FFFFFF;
+}
+
+/* Collapsed rail: hide labels, center icons */
+.sidebar--rail .sidebar-label {
+    -fx-min-width:  0px;
+    -fx-pref-width: 0px;
+    -fx-visible:    false;
+}
+
+/* ------------------------------------------------------------------
+   Top bar: page title + subtitle, date, token badge
+   ------------------------------------------------------------------ */
+.topbar {
+    -fx-background-color: -sig-bg;
+    -fx-border-color:     transparent transparent -sig-border transparent;
+    -fx-border-width:     0 0 1px 0;
+    -fx-padding:          14px 28px 14px 28px;
+    -fx-spacing:          12px;
+}
+
+.page-title {
+    -fx-font-size:   24px;
+    -fx-font-weight: 700;
+    -fx-text-fill:   -sig-text;
+}
+
+.page-subtitle {
+    -fx-font-size:   13px;
+    -fx-text-fill:   -sig-text-secondary;
+}
+
+.topbar-date {
+    -fx-font-size:   12px;
+    -fx-text-fill:   -sig-text-secondary;
+}
+
+/* Token status badge: always icon + text, never color alone */
+.token-badge {
+    -fx-background-color: -sig-surface;
+    -fx-background-radius: 9999px;
+    -fx-border-color:     -sig-border;
+    -fx-border-radius:    9999px;
+    -fx-border-width:     1px;
+    -fx-padding:          5px 12px;
+    -fx-spacing:          7px;
+    -fx-alignment:        CENTER_LEFT;
+}
+
+.token-badge .label {
+    -fx-font-size: 12px;
+    -fx-font-weight: 600;
+}
+
+.token-badge--ok    { -fx-background-color: -sig-success-bg; -fx-border-color: -sig-success-bg; }
+.token-badge--ok .label, .token-badge--ok .font-icon { -fx-text-fill: -sig-success-text; -fx-icon-color: -sig-success; }
+
+.token-badge--warn  { -fx-background-color: -sig-warning-bg; -fx-border-color: -sig-warning-bg; }
+.token-badge--warn .label, .token-badge--warn .font-icon { -fx-text-fill: -sig-warning-text; -fx-icon-color: -sig-warning; }
+
+.token-badge--off   { -fx-background-color: -sig-hover; -fx-border-color: -sig-border; }
+.token-badge--off .label, .token-badge--off .font-icon { -fx-text-fill: -sig-text-secondary; -fx-icon-color: -sig-text-secondary; }
+
+/* ------------------------------------------------------------------
+   Footer
+   ------------------------------------------------------------------ */
+.app-footer {
+    -fx-background-color: -sig-bg;
+    -fx-border-color:     -sig-border transparent transparent transparent;
+    -fx-border-width:     1px 0 0 0;
+    -fx-padding:          6px 28px 8px 28px;
+}
+
+.app-footer .label {
+    -fx-font-size:  11px;
+    -fx-text-fill:  -sig-text-secondary;
+}
+
+/* ------------------------------------------------------------------
+   Action tiles grid (uniform sizes) + drop zones
+   ------------------------------------------------------------------ */
+.tiles-scroll {
+    -fx-background-color: transparent;
+    -fx-border-color:     transparent;
+}
+
+.tiles-pane {
+    -fx-padding: 24px 28px 8px 28px;
+}
+
+.tile {
+    -fx-background-color:   -sig-surface;
+    -fx-background-radius:  8px;
+    -fx-border-color:       -sig-border;
+    -fx-border-radius:      8px;
+    -fx-border-width:       1px;
+    -fx-padding:            18px;
+    -fx-spacing:            12px;
+    -fx-effect:             dropshadow(gaussian, rgba(15,23,42,0.06), 6, 0.1, 0, 2);
+}
+
+.tile-header {
+    -fx-spacing: 8px;
+    -fx-alignment: CENTER_LEFT;
+}
+
+.tile-title {
+    -fx-font-size:   15px;
+    -fx-font-weight: 600;
+    -fx-text-fill:   -sig-text;
+}
+
+.tile-info .font-icon {
+    -fx-icon-color: -sig-text-secondary;
+    -fx-icon-size:  12px;
+}
+
+/* The drop zone inside a tile: dashed primary at reduced opacity */
+.dropzone {
+    -fx-background-color:   -sig-surface;
+    -fx-background-radius:  6px;
+    -fx-border-color:       -sig-primary;
+    -fx-border-width:       1.5px;
+    -fx-border-style:       segments(6px, 5px) line-cap butt;
+    -fx-border-radius:      6px;
+    -fx-opacity:            0.85;
+    -fx-padding:            18px 14px;
+    -fx-spacing:            8px;
+    -fx-alignment:          CENTER;
+    -fx-cursor:             hand;
+}
+
+.dropzone .font-icon {
+    -fx-icon-color: -sig-primary;
+    -fx-icon-size:  32px;
+}
+
+.dropzone-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: -sig-text-secondary;
+    -fx-alignment: CENTER;
+    -fx-text-alignment: CENTER;
+}
+
+/* hover: light primary fill, solid border */
+.tile:hover .dropzone, .dropzone:hover {
+    -fx-background-color: -sig-primary-bg;
+    -fx-border-style:     solid;
+    -fx-opacity:          1;
+}
+
+/* drag-over (valid file): stronger fill + solid border */
+.dropzone--dragover {
+    -fx-background-color: -sig-primary-bg;
+    -fx-border-style:     solid;
+    -fx-opacity:          1;
+}
+
+.dropzone--dragover .dropzone-label {
+    -fx-font-weight: 600;
+}
+
+/* invalid type dragged over: error tones */
+.dropzone--invalid {
+    -fx-background-color: -sig-error-bg;
+    -fx-border-color:     -sig-error;
+    -fx-border-style:     solid;
+    -fx-opacity:          1;
+}
+
+.dropzone--invalid .dropzone-label { -fx-text-fill: -sig-error; }
+.dropzone--invalid .font-icon      { -fx-icon-color: -sig-error; }
+
+/* disabled (e.g. token required but absent) */
+.dropzone--disabled {
+    -fx-border-color: -sig-disabled;
+    -fx-opacity:      0.55;
+}
+
+.dropzone--disabled .font-icon { -fx-icon-color: -sig-disabled; }
+.dropzone--disabled .dropzone-label { -fx-text-fill: -sig-text-secondary; }
+
+/* keyboard focus ring on tiles (accent, visible) */
+.tile:focused {
+    -fx-border-color: -sig-accent;
+    -fx-border-width: 2px;
+}
+
+/* ------------------------------------------------------------------
+   Status pills (icon + text + color, never color alone)
+   ------------------------------------------------------------------ */
+.status-badge {
+    -fx-background-radius: 9999px;
+    -fx-padding: 2px 10px;
+    -fx-font-size: 11px;
+    -fx-font-weight: 700;
+    -fx-alignment: CENTER;
+}
+
+.status-success { -fx-background-color: -sig-success-bg; -fx-text-fill: -sig-success-text; }
+.status-warning { -fx-background-color: -sig-warning-bg; -fx-text-fill: -sig-warning-text; }
+.status-error   { -fx-background-color: -sig-error-bg;   -fx-text-fill: -sig-error; }
+.status-pending { -fx-background-color: -sig-primary-bg; -fx-text-fill: -sig-primary-hover; }
+.status-neutral { -fx-background-color: -sig-hover;      -fx-text-fill: -sig-text-secondary; }
+
+/* ------------------------------------------------------------------
+   Recent-documents list (compact, from real data only)
+   ------------------------------------------------------------------ */
+.recent-section {
+    -fx-padding: 8px 28px 16px 28px;
+}
+
+.section-title {
+    -fx-font-size:   16px;
+    -fx-font-weight: 600;
+    -fx-text-fill:   -sig-text;
+}
+
+.empty-state {
+    -fx-background-color: -sig-surface;
+    -fx-background-radius: 8px;
+    -fx-border-color:     -sig-border;
+    -fx-border-radius:    8px;
+    -fx-border-width:     1px;
+    -fx-padding:          28px;
+    -fx-spacing:          10px;
+    -fx-alignment:        TOP_CENTER;
+}
+
+.empty-state .font-icon {
+    -fx-icon-color: -sig-text-secondary;
+    -fx-icon-size:  28px;
+}
+
+.empty-state-title {
+    -fx-font-size:   14px;
+    -fx-font-weight: 600;
+    -fx-text-fill:   -sig-text;
+}
+
+.empty-state-hint {
+    -fx-font-size: 12px;
+    -fx-text-fill: -sig-text-secondary;
+    -fx-text-alignment: CENTER;
+}

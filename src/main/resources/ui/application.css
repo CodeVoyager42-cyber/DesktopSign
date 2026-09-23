@@ -15,32 +15,32 @@
    1.  DESIGN TOKENS
    -------------------------------------------------------------------------- */
 .root {
-    /* ---- palette (shadcn/ui zinc, light mode) ---- */
-    -bg:                #fafafa;
-    -surface:           #ffffff;
-    -surface-hover:     #f4f4f5;
-    -surface-subtle:    #fafafa;
-    -border:            #e4e4e7;
-    -border-light:      #f4f4f5;
-    -border-focus:      #18181b;
-    -text-primary:      #09090b;
-    -text-secondary:    #71717a;
-    -text-muted:        #a1a1aa;
-    -text-disabled:     #d4d4d8;
+    /* ---- palette (professional slate + enterprise blue, light mode) ---- */
+    -bg:                #F8FAFC;
+    -surface:           #FFFFFF;
+    -surface-hover:     #F1F5F9;
+    -surface-subtle:    #F8FAFC;
+    -border:            #E2E8F0;
+    -border-light:      #F1F5F9;
+    -border-focus:      #2563EB;
+    -text-primary:      #1E293B;
+    -text-secondary:    #64748B;
+    -text-muted:        #94A3B8;
+    -text-disabled:     #CBD5E1;
 
-    /* ---- action colours ---- */
-    -primary:           #18181b;
-    -primary-hover:     #27272a;
-    -primary-active:    #3f3f46;
-    -primary-light:     #f4f4f5;
-    -primary-disabled:  #a1a1aa;
-    -primary-text:      #fafafa;
+    /* ---- action colours (blue = the only accent; color communicates) ---- */
+    -primary:           #2563EB;
+    -primary-hover:     #1D4ED8;
+    -primary-active:    #1E40AF;
+    -primary-light:     #DBEAFE;
+    -primary-disabled:  #94A3B8;
+    -primary-text:      #FFFFFF;
 
-    -secondary-bg:      #f4f4f5;
-    -secondary-border:  #e4e4e7;
-    -secondary-text:    #18181b;
-    -secondary-hover-bg:#e4e4e7;
-    -secondary-hover-border:#d4d4d8;
+    -secondary-bg:      #FFFFFF;
+    -secondary-border:  #E2E8F0;
+    -secondary-text:    #1E293B;
+    -secondary-hover-bg:#F1F5F9;
+    -secondary-hover-border:#CBD5E1;
 
     -danger:            #DC2626;
     -danger-hover:      #B91C1C;
@@ -56,6 +56,8 @@
     -error-light:       #FEF2F2;
     -info:              #2563EB;
     -info-light:        #EFF6FF;
+    -accent:            #06B6D4;
+    -accent-light:      #ECFEFF;
 
     /* ---- radii ---- */
     -radius-sm:         4px;
@@ -236,7 +238,13 @@
 }
 .btn-primary:focused {
     -fx-background-color: -primary-hover;
-    -fx-effect:         dropshadow(gaussian, rgba(9,9,11,0.25), 6, 0, 0, 0);
+    -fx-effect:         dropshadow(gaussian, rgba(37,99,235,0.35), 8, 0, 0, 0);
+}
+/* Icons on the primary action inherit the button text colour, not the
+   global secondary icon tint (slate on blue is illegible). */
+.btn-primary > .font-icon,
+.btn-danger > .font-icon {
+    -fx-icon-color:     -primary-text;
 }
 
 /* ---- secondary ---- */
@@ -333,6 +341,7 @@
 .password-field:focused {
     -fx-border-color:   -border-focus;
     -fx-background-color: -surface;
+    -fx-effect:         dropshadow(gaussian, rgba(37,99,235,0.18), 6, 0, 0, 0);
 }
 
 .combo-box {

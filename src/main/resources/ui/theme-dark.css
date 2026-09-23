@@ -1,0 +1,116 @@
+/* ==========================================================================
+   theme-dark.css — Dark-mode token overlay (navy enterprise)
+   ==========================================================================
+   Loaded AFTER theme.css + application.css by ThemeManager when dark mode
+   is active. Redefines ONLY looked-up color tokens; every rule elsewhere
+   re-resolves automatically. Layout, spacing and radii are never touched.
+   The PDF page itself stays white (workspace-canvas rule below keeps the
+   surround dark, the page renders its own white background).
+   ========================================================================== */
+
+.root {
+    /* ---- core palette (dark navy) ---- */
+    -sig-navy:             #0B1120;
+    -sig-primary:          #3B82F6;
+    -sig-primary-hover:    #2563EB;
+    -sig-primary-active:   #1D4ED8;
+    -sig-accent:           #22D3EE;
+    -sig-bg:               #0B1120;
+    -sig-surface:          #111827;
+    -sig-text:             #F8FAFC;
+    -sig-text-secondary:   #94A3B8;
+    -sig-border:           #334155;
+    -sig-success:          #22C55E;
+    -sig-warning:          #F59E0B;
+    -sig-error:            #F87171;
+    -sig-disabled:         #475569;
+
+    /* ---- derived (dark tints) ---- */
+    -sig-success-text:     #4ADE80;
+    -sig-warning-text:     #FBBF24;
+    -sig-success-bg:       #0F2E1A;
+    -sig-warning-bg:       #451A03;
+    -sig-error-bg:         #450A0A;
+    -sig-primary-bg:       #172554;
+    -sig-navy-hover:       #1E293B;
+    -sig-navy-text:        #94A3B8;
+    -sig-hover:            #1E293B;
+    -sig-text-muted:       #64748B;
+    -sig-border-light:     #1E293B;
+    -sig-surface-subtle:   #111827;
+    -sig-warning-light:    #451A03;
+    -sig-error-light:      #450A0A;
+    -sig-info:             #3B82F6;
+    -sig-info-light:       #172554;
+    -sig-accent-light:     #164E63;
+
+    /* ---- Modena overrides ---- */
+    -fx-base:              -sig-surface;
+    -fx-background:        -sig-bg;
+    -fx-control-inner-background: -sig-surface;
+    -fx-text-background-color:    -sig-text;
+    -fx-accent:            -sig-primary;
+    -fx-focus-color:       -sig-accent;
+    -fx-faint-focus-color: transparent;
+
+    /* ---- aliases ---- */
+    -bg:                -sig-bg;
+    -surface:           -sig-surface;
+    -surface-hover:     -sig-hover;
+    -surface-subtle:    -sig-surface-subtle;
+    -border:            -sig-border;
+    -border-light:      -sig-border-light;
+    -border-focus:      -sig-primary;
+    -text-primary:      -sig-text;
+    -text-secondary:    -sig-text-secondary;
+    -text-muted:        -sig-text-muted;
+    -text-disabled:     -sig-disabled;
+
+    -primary:           -sig-primary;
+    -primary-hover:     -sig-primary-hover;
+    -primary-active:    -sig-primary-active;
+    -primary-light:     -sig-primary-bg;
+    -primary-disabled:  -sig-disabled;
+    -primary-text:      #FFFFFF;
+
+    -secondary-bg:      -sig-hover;
+    -secondary-border:  -sig-border;
+    -secondary-text:    -sig-text;
+    -secondary-hover-bg: -sig-navy-hover;
+    -secondary-hover-border: #475569;
+
+    -danger:            -sig-error;
+    -danger-hover:      #EF4444;
+    -danger-light:      -sig-error-bg;
+    -danger-text:       #FFFFFF;
+
+    -success:           -sig-success;
+    -success-light:     -sig-success-bg;
+    -warning:           -sig-warning;
+    -warning-light:     -sig-warning-bg;
+    -error:             -sig-error;
+    -error-light:       -sig-error-bg;
+    -info:              -sig-info;
+    -info-light:        -sig-info-light;
+    -accent:            -sig-accent;
+    -accent-light:      -sig-accent-light;
+}
+
+/* Dark-specific fixed surfaces: the PDF viewer surround keeps a slate tone
+   (never pure black) while the rendered page itself stays white. Deeper
+   shadows than light mode so elevation stays visible on dark surfaces. */
+.workspace-canvas {
+    -fx-background-color: #1E293B;
+}
+
+.root {
+    -shadow-sm: dropshadow(gaussian, rgba(0,0,0,0.40), 3, 0, 0, 1);
+    -shadow-md: dropshadow(gaussian, rgba(0,0,0,0.45), 8, 0, 0, 2);
+    -shadow-lg: dropshadow(gaussian, rgba(0,0,0,0.50), 16, 0, 0, 4);
+}
+
+/* Tooltip inverts in dark mode (light surface, dark text). */
+.tooltip {
+    -fx-background-color: #F8FAFC;
+    -fx-text-fill:      #0B1120;
+}
