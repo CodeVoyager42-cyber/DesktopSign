@@ -23,6 +23,18 @@ Built with Java 21, JavaFX, and Spring Boot, it supports sequential multi-signer
   fully loaded into memory, with a configurable size guard
 - **Light/dark themes**, responsive layout, and an audit trail of workflow events
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Login](docs/screenshots/login.png) | ![Workflow Selection](docs/screenshots/workflow-selection.png) |
+| ![Signing Workspace](docs/screenshots/signing-workspace.png) | ![Signature Placement](docs/screenshots/signature-placement.png) |
+| ![Multi-Signer Workflow](docs/screenshots/multi-signer-workflow.png) | ![Signature Chain Verification](docs/screenshots/signature-verification.png) |
+
+> **Note:** the images above are labeled placeholders — replace the files in
+> `docs/screenshots/` with real captures of the running application
+> (1280×800 or larger recommended).
+
 ## Technology
 
 | Component | Choice |
@@ -170,3 +182,7 @@ UI (JavaFX workspace)
 - Configure real credentials and a real PKCS#11 library via the environment
   variables above before any production use
 - The application makes no network connections; there is no HTTP surface
+
+## License
+
+Released under the [MIT License](LICENSE).
