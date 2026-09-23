@@ -119,6 +119,14 @@ public class SignerFxApplication extends Application {
     private VBox certSection;
     private VBox pinSection;
 
+    // shell ----------------------------------------------------------------
+    private HBox tokenBadge;
+    private Label tokenBadgeLabel;
+    private javafx.scene.layout.VBox sidebar;
+    private Label topbarTitle;
+    private Label topbarSubtitle;
+    private javafx.scene.layout.VBox sidebarNav;
+
     private ProgressBar progressBar;
     private Label statusLabel;
     private SigningResult lastSigningResult;
@@ -153,7 +161,8 @@ public class SignerFxApplication extends Application {
         log.info("Starting JavaFX stage");
         this.stage = stage;
 
-        // header -------------------------------------------------------------
+        // header (top bar inside the content column; the window is now a
+        // sidebar + content BorderPane shell — see below) ---------------------
         Label appLogo = new Label();
         appLogo.setGraphic(new FontIcon(FontAwesomeSolid.FILE_SIGNATURE));
         appLogo.getStyleClass().setAll("app-logo");
@@ -308,12 +317,15 @@ public class SignerFxApplication extends Application {
         contentScroll.getStyleClass().add("content-scroll");
 
         root = new BorderPane();
-        root.setTop(header);
-        root.setCenter(contentScroll);
-        root.setBottom(bottom);
         root.getStyleClass().add("content-pane");
 
-        Scene scene = new Scene(root, 900, 700);
+        // ---- GoSign-style shell: navy sidebar + content column ------------
+        // The sidebar offers only destinations that exist: Home (this
+        // step-by-step signing panel), Signing workspace, Verify (the
+        // workflow continuation screen hosts both verify and continue).
+        buildShell(header, contentScroll, bottom);
+
+        Scene scene = new Scene(root, 1100, 720);
         ThemeManager.instance().attach(scene);
         scene.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ESCAPE
@@ -665,6 +677,107 @@ public class SignerFxApplication extends Application {
         new Thread(task, "token-detect").start();
     }
 
+    /**
+     * Builds the GoSign-style shell: navy sidebar on the left (existing
+     * destinations only), content column on the right with the top bar,
+     * the scrollable workspace and the status footer.
+     */
+    private void buildShell(HBox header, ScrollPane contentScroll, VBox bottom) {
+        // ---- sidebar -------------------------------------------------------
+        Label brandIcon = new Label();
+        brandIcon.setGraphic(new FontIcon(FontAwesomeSolid.FILE_SIGNATURE));
+        brandIcon.getStyleClass().add("sidebar-brand");
+
+        sidebarNav = new javafx.scene.layout.VBox(4);
+
+        Button homeBtn = sidebarItem("Home", FontAwesomeSolid.HOME, "Sign a PDF step by step");
+        Button workspaceBtn = sidebarItem("Signing workspace", FontAwesomeSolid.EDIT,
+                "Open the visual signing workspace: place your signature on the page");
+        workspaceBtn.setOnAction(e -> openWorkspace());
+        Button continueBtn = sidebarItem("Continue workflow", FontAwesomeSolid.FOLDER_OPEN,
+                "Open a workflow PDF created on this or another computer and sign your turn");
+        continueBtn.setOnAction(e -> openWorkflowContinuation());
+        sidebarNav.getChildren().addAll(homeBtn, workspaceBtn, continueBtn);
+        homeBtn.getStyleClass().add("sidebar-item--active");
+
+        Region sidebarSpacer = new Region();
+        javafx.scene.layout.VBox.setVgrow(sidebarSpacer, Priority.ALWAYS);
+
+        sidebar = new javafx.scene.layout.VBox(brandIcon, sidebarNav, sidebarSpacer,
+                ThemeManager.instance().createToggleButton());
+        sidebar.getStyleClass().add("sidebar");
+
+        // ---- top bar -------------------------------------------------------
+        topbarTitle = new Label("Welcome");
+        topbarTitle.getStyleClass().add("page-title");
+        topbarSubtitle = new Label("Choose what you want to do today");
+        topbarSubtitle.getStyleClass().add("page-subtitle");
+        VBox titles = new VBox(2, topbarTitle, topbarSubtitle);
+
+        tokenBadgeLabel = new Label("No token detected");
+        FontIcon badgeIcon = new FontIcon(FontAwesomeSolid.SHIELD_ALT);
+        tokenBadge = new HBox(7, badgeIcon, tokenBadgeLabel);
+        tokenBadge.getStyleClass().addAll("token-badge", "token-badge--off");
+
+        java.time.format.DateTimeFormatter dateFmt =
+                java.time.format.DateTimeFormatter.ofPattern("EEE d MMM yyyy");
+        Label dateLabel = new Label(java.time.LocalDate.now().format(dateFmt));
+        dateLabel.getStyleClass().add("topbar-date");
+
+        Region topSpacer = new Region();
+        HBox.setHgrow(topSpacer, Priority.ALWAYS);
+        HBox topbar = new HBox(12, titles, topSpacer, dateLabel, tokenBadge);
+        topbar.setAlignment(Pos.CENTER_LEFT);
+        topbar.getStyleClass().add("topbar");
+
+        // ---- footer ----------------------------------------------------------
+        Label footerLabel = new Label("SignFlow  ·  PDF digital signing with hardware tokens");
+        HBox footer = new HBox(footerLabel);
+        footer.setAlignment(Pos.CENTER);
+        footer.getStyleClass().add("app-footer");
+
+        // ---- assemble: sidebar left, content column right -------------------
+        VBox contentColumn = new VBox(header, topbar, contentScroll, bottom);
+        javafx.scene.layout.VBox.setVgrow(contentScroll, Priority.ALWAYS);
+        root.setLeft(sidebar);
+        root.setCenter(contentColumn);
+        root.setBottom(footer);
+    }
+
+    /** One sidebar destination: icon + label, keyboard focusable. */
+    private Button sidebarItem(String text, FontAwesomeSolid icon, String tooltip) {
+        Button item = new Button(text, new FontIcon(icon));
+        item.getStyleClass().addAll("sidebar-item", "button");
+        item.setBackground(javafx.scene.layout.Background.EMPTY);
+        item.setTooltip(new Tooltip(tooltip));
+        item.setMaxWidth(Double.MAX_VALUE);
+        item.setAlignment(Pos.CENTER_LEFT);
+        return item;
+    }
+
+    /** Top-bar token badge: icon + text, driven by the existing token state. */
+    private void updateTokenBadge(TokenState state) {
+        boolean connected = state == TokenState.AUTHENTICATED
+                || state == TokenState.SIGNATURE_COMPLETE
+                || state == TokenState.CERTIFICATE_AVAILABLE;
+        boolean waiting = state == TokenState.WAITING_FOR_PIN;
+        tokenBadge.getStyleClass().removeAll("token-badge--ok", "token-badge--warn",
+                "token-badge--off");
+        if (connected) {
+            tokenBadgeLabel.setText("Token connected");
+            tokenBadge.getStyleClass().add("token-badge--ok");
+            ((FontIcon) tokenBadge.getChildren().get(0)).setIconCode(FontAwesomeSolid.SHIELD_ALT);
+        } else if (waiting) {
+            tokenBadgeLabel.setText("PIN required");
+            tokenBadge.getStyleClass().add("token-badge--warn");
+            ((FontIcon) tokenBadge.getChildren().get(0)).setIconCode(FontAwesomeSolid.KEY);
+        } else {
+            tokenBadgeLabel.setText("No token detected");
+            tokenBadge.getStyleClass().add("token-badge--off");
+            ((FontIcon) tokenBadge.getChildren().get(0)).setIconCode(FontAwesomeSolid.SHIELD_ALT);
+        }
+    }
+
     private void refreshTokenUi() {
         TokenService tokenService = context.getBean(TokenService.class);
         Platform.runLater(() -> {
@@ -694,6 +807,7 @@ public class SignerFxApplication extends Application {
             tokenInfoLabel.setText(info == null
                     ? "No token"
                     : info.label() + "  ·  " + info.manufacturer() + "  ·  " + info.model());
+            updateTokenBadge(state);
 
             List<SigningCertificate> certs = UiSupport.safeCertificates(tokenService);
             List<String> labels = certs.stream()

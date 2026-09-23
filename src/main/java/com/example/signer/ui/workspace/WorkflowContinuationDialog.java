@@ -2,6 +2,7 @@ package com.example.signer.ui.workspace;
 
 import com.example.signer.token.TokenService;
 import com.example.signer.token.TokenState;
+import com.example.signer.ui.ThemeManager;
 import com.example.signer.ui.support.UiSupport;
 import com.example.signer.workflow.EffectiveWorkflowState;
 import com.example.signer.workflow.WorkflowManifest;
@@ -164,8 +165,7 @@ public final class WorkflowContinuationDialog {
         VBox.setVgrow(scroll, Priority.ALWAYS);
 
         Scene scene = new Scene(root, 720, 600);
-        scene.getStylesheets().add(getClass().getResource(
-                "/ui/application.css").toExternalForm());
+        ThemeManager.instance().attach(scene);
         dialog.setScene(scene);
         UiSupport.applyAppIcon(dialog);
 
@@ -356,7 +356,9 @@ public final class WorkflowContinuationDialog {
         HBox actionRow = new HBox(12, signButton, signReason);
         actionRow.setAlignment(Pos.CENTER_LEFT);
 
-        VBox actionCard = new VBox(8, new Label("TOKEN"), actionRow);
+        Label tokenHeading = new Label("TOKEN & SIGNATURE");
+        tokenHeading.getStyleClass().add("section-title");
+        VBox actionCard = new VBox(10, tokenHeading, actionRow);
         actionCard.getStyleClass().add("card");
         refreshTokenPanel(actionCard, effective);
         timelineBox.getChildren().add(actionCard);
