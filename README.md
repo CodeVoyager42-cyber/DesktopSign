@@ -40,6 +40,30 @@ Built with Java 21, JavaFX, and Spring Boot, it supports sequential multi-signer
 - No separate Maven install needed — use the wrapper (`./mvnw` / `mvnw.cmd`)
 - For real hardware signing: a PKCS#11 token/smartcard and its vendor middleware
 
+## Download & Install
+
+No JDK, Maven, or any other prerequisite is needed for the packaged build — it
+carries its own Java runtime.
+
+**Installable/portable builds** are produced by the release workflow:
+
+1. Go to [Releases](https://github.com/CodeVoyager42-cyber/DesktopSign/releases)
+2. Download the asset for the latest release:
+   - `SignFlow-<version>-windows.zip` — portable: unzip anywhere and run
+     `SignFlow.exe` (no installation at all)
+   - `SignFlow-<version>.msi` — classic Windows installer with Start-menu
+     shortcut and uninstaller (built when the CI runner has the WiX toolset)
+
+To build the package yourself, from a machine with JDK 21+:
+
+```bash
+./package.sh
+```
+
+Output lands in `build/dist/` (`build/jpackage/SignFlow/SignFlow.exe` is the
+raw app-image). If the [WiX 3.x](https://wixtoolset.org/) toolset is
+installed, an MSI installer is produced as well.
+
 ## Build & Run
 
 ```bash

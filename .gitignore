@@ -2,6 +2,9 @@ target/
 dependency-reduced-pom.xml
 *.log
 
+# Packaging output (package.sh / jpackage)
+build/
+
 # IDE
 .idea/
 *.iml
