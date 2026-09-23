@@ -139,18 +139,20 @@ public class DefaultPdfVerificationService implements PdfVerificationService {
         for (int i = 0; i < total; i++) {
             SignatureAtRevision entry = chain.get(i);
             String label = total > 1 ? "signature " + (i + 1) + " of " + total : "signature";
+            String[] signerFingerprint = new String[1];
             SignatureVerificationResult result =
-                    verifySignatureCrypto(signedPdf, fileSize, entry.signature(), entry.range(), label);
+                    verifySignatureCrypto(signedPdf, fileSize, entry.signature(),
+                            entry.range(), label, signerFingerprint);
             if (result.valid()) {
                 details.add(SignatureDetail.of(i, result.signerSubject(),
                         result.algorithm(), entry.signature().getSignDate(), true,
-                        "Valid"));
+                        "Valid", signerFingerprint[0]));
                 lastSubject = result.signerSubject();
                 lastAlgorithm = result.algorithm();
             } else {
                 details.add(SignatureDetail.of(i, result.signerSubject(),
                         result.algorithm(), entry.signature().getSignDate(), false,
-                        result.message()));
+                        result.message(), signerFingerprint[0]));
                 if (firstCryptoFailure == null) {
                     firstCryptoFailure = result.message();
                 }
@@ -229,7 +231,8 @@ public class DefaultPdfVerificationService implements PdfVerificationService {
      * never materialised in memory.
      */
     private SignatureVerificationResult verifySignatureCrypto(
-            Path pdfPath, long fileSize, PDSignature pd, int[] range, String label)
+            Path pdfPath, long fileSize, PDSignature pd, int[] range, String label,
+            String[] signerFingerprintOut)
             throws Exception {
 
         byte[] cms = pd.getContents();
@@ -258,6 +261,10 @@ public class DefaultPdfVerificationService implements PdfVerificationService {
                     "No signer certificate found in the CMS", null, "unknown");
         }
         String subject = signerCert.getSubjectX500Principal().getName();
+        if (signerFingerprintOut != null) {
+            signerFingerprintOut[0] =
+                    com.example.signer.token.SigningCertificate.fingerprintOf(signerCert);
+        }
 
         // Fail closed on unknown or weak digest algorithms.
         DigestAlgorithm digestAlgorithm = DigestAlgorithm.forOid(signer.getDigestAlgOID());

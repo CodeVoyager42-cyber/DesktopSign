@@ -29,15 +29,24 @@ public record SignatureVerificationResult(
         String signerSubject,
         Instant verifiedAt,
         String message,
-        List<SignatureDetail> signatures) {
-
-    public record SignatureDetail(
+        List<SignatureDetail> signatures) {        public record SignatureDetail(
             int index,
             String signerSubject,
             SigningAlgorithm algorithm,
             Instant signedAt,
             boolean valid,
-            String message) {
+            String message,
+            String signerCertFingerprint) {
+
+            /** Backward-compatible factory (no fingerprint known). */
+            public static SignatureDetail of(int index,
+                                             String signerSubject,
+                                             SigningAlgorithm algorithm,
+                                             java.util.Calendar signDate,
+                                             boolean valid,
+                                             String message) {
+                return of(index, signerSubject, algorithm, signDate, valid, message, null);
+            }
 
         /**
          * Factory converting the PDF {@code /M} signing date. A missing or
@@ -49,13 +58,19 @@ public record SignatureVerificationResult(
                                          SigningAlgorithm algorithm,
                                          java.util.Calendar signDate,
                                          boolean valid,
-                                         String message) {
+                                         String message,
+                                         String signerCertFingerprint) {
             Instant signedAt = signDate != null
                     ? signDate.toInstant()
                     : null;
             return new SignatureDetail(index,
                     signerSubject != null ? signerSubject : "unknown",
-                    algorithm, signedAt, valid, message);
+                    algorithm, signedAt, valid, message, signerCertFingerprint);
+        }
+
+        /** SHA-256 fingerprint of the signer certificate (colon-separated hex). */
+        public String signerCertFingerprint() {
+            return signerCertFingerprint;
         }
 
         public boolean signedAtKnown() {

@@ -56,12 +56,20 @@ public class MockSigningToken implements SigningToken {
     /** Second development alias backed by an EC P-256 key (ECDSA). */
     public static final String EC_ALIAS = "mock-ec-signing-key";
 
+    /**
+     * Third development alias (RSA): a distinct signing identity so the
+     * portable cross-PC workflow can be exercised with three different
+     * certificates (A → B → C) on the shared mock token.
+     */
+    public static final String THIRD_ALIAS = "mock-third-signing-key";
+
     private static final int MAX_PIN_ATTEMPTS = 3;
     private static final int RSA_KEY_SIZE = 2048;
     private static final int EC_KEY_SIZE = 256;
 
     private static final String RSA_SUBJECT = "CN=Mock Signer, O=Signer Dev, C=FR";
     private static final String EC_SUBJECT = "CN=Mock EC Signer, O=Signer Dev, C=FR";
+    private static final String THIRD_SUBJECT = "CN=Mock Third Signer, O=Signer Dev, C=FR";
 
     private final AtomicBoolean present = new AtomicBoolean(true);
 
@@ -73,6 +81,7 @@ public class MockSigningToken implements SigningToken {
     private volatile List<SigningCertificate> certificates;
     private final Object initMonitor = new Object();
     private KeyPair rsaKeyPair;
+    private KeyPair thirdKeyPair;
     private KeyPair ecKeyPair;
 
     /**
@@ -159,6 +168,12 @@ public class MockSigningToken implements SigningToken {
                         "Algorithm not supported by the RSA mock key: " + algorithm);
             }
             privateKey = rsaKeyPair.getPrivate();
+        } else if (THIRD_ALIAS.equals(keyAlias)) {
+            if (algorithm != SigningAlgorithm.RSA_SHA256) {
+                throw new TokenException(ErrorCode.UNSUPPORTED_ALGORITHM,
+                        "Algorithm not supported by the third RSA mock key: " + algorithm);
+            }
+            privateKey = thirdKeyPair.getPrivate();
         } else if (EC_ALIAS.equals(keyAlias)) {
             if (algorithm != SigningAlgorithm.ECDSA_SHA256) {
                 throw new TokenException(ErrorCode.UNSUPPORTED_ALGORITHM,
@@ -210,9 +225,12 @@ public class MockSigningToken implements SigningToken {
             }
             try {
                 rsaKeyPair = generateRsaKeyPair();
+                thirdKeyPair = generateRsaKeyPair();
                 ecKeyPair = generateEcKeyPair();
                 X509Certificate rsaCertificate =
                         generateSelfSignedCertificate(rsaKeyPair, RSA_SUBJECT);
+                X509Certificate thirdCertificate =
+                        generateSelfSignedCertificate(thirdKeyPair, THIRD_SUBJECT);
                 X509Certificate ecCertificate =
                         generateSelfSignedCertificate(ecKeyPair, EC_SUBJECT);
                 tokenInfo = new TokenInfo(
@@ -223,9 +241,11 @@ public class MockSigningToken implements SigningToken {
                                 new SecureRandom().nextInt(), 16).toUpperCase());
                 certificates = List.of(
                         new SigningCertificate(DEFAULT_ALIAS, rsaCertificate),
+                        new SigningCertificate(THIRD_ALIAS, thirdCertificate),
                         new SigningCertificate(EC_ALIAS, ecCertificate));
-                log.info("Mock token initialized with RSA-{} and EC-{} signing certificates",
-                        RSA_KEY_SIZE, EC_KEY_SIZE);
+                log.info("Mock token initialized with RSA-{}, RSA-{} (third) and EC-{}"
+                                + " signing certificates",
+                        RSA_KEY_SIZE, RSA_KEY_SIZE, EC_KEY_SIZE);
             } catch (Exception e) {
                 log.error("Failed to initialize mock token", e);
                 throw new TokenException(ErrorCode.TOKEN_SESSION_FAILED,

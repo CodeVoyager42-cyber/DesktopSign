@@ -360,19 +360,39 @@ public class SignerFxApplication extends Application {
         }
         log.info("User signed in");
 
-        // ---- workflow selection gate (new: choose 1/2/3 signers) --------
-        SigningMode mode = new WorkflowSelectionDialog().showAndWait(stage);
-        if (mode == null) {
-            log.info("Workflow selection cancelled — exiting");
-            Platform.exit();
-            return;
-        }
-        log.info("Signing workflow selected: {}", mode);
+        // ---- workflow selection + navigation loop ---------------------------
+        // Every flow returns here when it ends (Back, cancelled, or
+        // completed), so the user can start or continue another workflow
+        // without restarting the application. The loop ends when the user
+        // leaves the selection screen (Back / Sign out) or opens the
+        // single-signer main window.
+        while (true) {
+            com.example.signer.ui.WorkflowSelectionDialog selectionDialog =
+                    new com.example.signer.ui.WorkflowSelectionDialog();
+            SigningMode mode = selectionDialog.showAndWait(stage);
 
-        if (mode.isMultiSigner()) {
-            openMultiSignerWorkflow(mode);
-            Platform.exit();
-            return;
+            if (selectionDialog.isOpenWorkflowRequested()) {
+                // Continue a portable workflow PDF; when the user presses
+                // Back or finishes, come back to this selection screen.
+                openWorkflowContinuation();
+                continue;
+            }
+
+            if (mode == null) {
+                log.info("Workflow selection cancelled — exiting");
+                Platform.exit();
+                return;
+            }
+            log.info("Signing workflow selected: {}", mode);
+
+            if (mode.isMultiSigner()) {
+                // The turn-based flow runs in its own window; when it is
+                // done (completed or cancelled) return to the selection.
+                openMultiSignerWorkflow(mode);
+                continue;
+            }
+
+            break; // single signer: show the main window below
         }
 
         stage.show();
@@ -1001,6 +1021,23 @@ public class SignerFxApplication extends Application {
      * signer reviews the current revision in the PDF viewer, places their
      * own signature, previews it, authenticates their token and signs.
      */
+    /** Opens a PDF carrying a portable workflow manifest and continues it. */
+    private void openWorkflowContinuation() {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Open a signing workflow document");
+        chooser.getExtensionFilters().add(
+                new FileChooser.ExtensionFilter("PDF documents", "*.pdf"));
+        java.io.File file = chooser.showOpenDialog(stage);
+        if (file == null) {
+            log.info("Workflow continuation cancelled at document selection");
+            return;
+        }
+        new com.example.signer.ui.workspace.WorkflowContinuationDialog(
+                context.getBean(com.example.signer.workflow.WorkflowSigningService.class),
+                context.getBean(TokenService.class))
+                .showAndWait(stage, file.toPath());
+    }
+
     private void openMultiSignerWorkflow(SigningMode mode) {
         FileChooser chooser = new FileChooser();
         chooser.setTitle("Choose the PDF for the "

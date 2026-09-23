@@ -1493,3 +1493,14 @@
 .mws-completion-doc { -fx-font-size: 14px; -fx-text-fill: -text-primary; }
 .mws-completion-pane { -fx-background-color: -bg; -fx-padding: 40; -fx-alignment: top-center; }
 .mws-dialog { -fx-background-color: -bg; -fx-padding: 12; }
+
+/* ---- Cross-PC workflow continuation (WorkflowContinuationDialog) ---- */
+.wf-root { -fx-background-color: -bg; }
+.wf-timeline { -fx-padding: 4 0 0 0; }
+.wf-step--done .chain-badge { -fx-background-color: -success-light; -fx-text-fill: -success; }
+.wf-step--current { -fx-background-color: -surface; -fx-background-radius: 8; -fx-border-color: -primary; -fx-border-width: 1; -fx-border-radius: 8; }
+.wf-step--current .chain-badge { -fx-background-color: -primary; -fx-text-fill: -surface; -fx-font-weight: bold; }
+.wf-step--waiting .chain-badge { -fx-background-color: -surface-subtle; -fx-text-fill: -text-muted; }
+.wf-banner--success { -fx-border-color: -success; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-color: -success-light; }
+.wf-banner--warn { -fx-border-color: -warning; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-color: -warning-light; }
+.wf-banner--danger { -fx-border-color: -danger; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-color: -danger-light; }

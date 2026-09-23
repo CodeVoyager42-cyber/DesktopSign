@@ -51,6 +51,14 @@ public final class WorkflowSelectionDialog {
     private final ObjectProperty<SigningMode> selected = new SimpleObjectProperty<>(this, "selected");
     private boolean cancelled = true;
 
+    /** Set when the user chose to open an existing (portable) workflow PDF. */
+    private boolean openWorkflowRequested;
+
+    /** @return true when the user picked “Open workflow…” on this dialog. */
+    public boolean isOpenWorkflowRequested() {
+        return openWorkflowRequested;
+    }
+
     public WorkflowSelectionDialog() {
         this(SigningMode.selectableModes());
     }
@@ -114,6 +122,19 @@ public final class WorkflowSelectionDialog {
         cardsRow.setAlignment(Pos.CENTER);
 
         // ---- bottom navigation --------------------------------------------------
+        Button openWorkflow = new Button("Open workflow…",
+                new FontIcon(FontAwesomeSolid.FOLDER_OPEN));
+        openWorkflow.getStyleClass().add("btn-secondary");
+        openWorkflow.setTooltip(new Tooltip(
+                "Continue a signing workflow that travels inside a PDF document"
+                        + " (created on this or another computer)"));
+        openWorkflow.setOnAction(e -> {
+            cancelled = true;
+            selected.set(null);
+            openWorkflowRequested = true;
+            dialog.close();
+        });
+
         Button back = new Button("Back");
         back.getStyleClass().add("btn-ghost");
         back.setCancelButton(true);
@@ -145,7 +166,7 @@ public final class WorkflowSelectionDialog {
 
         Region footerSpacer = new Region();
         HBox.setHgrow(footerSpacer, Priority.ALWAYS);
-        HBox footer = new HBox(10, back, signOut, footerSpacer, continueButton);
+        HBox footer = new HBox(10, back, signOut, openWorkflow, footerSpacer, continueButton);
         footer.getStyleClass().add("workflow-footer");
         footer.setAlignment(Pos.CENTER_LEFT);
 
@@ -189,7 +210,7 @@ public final class WorkflowSelectionDialog {
         if ("SIGN_OUT".equals(dialog.getUserData())) {
             return null;
         }
-        return cancelled ? null : selected.get();
+        return cancelled && !openWorkflowRequested ? null : selected.get();
     }
 
     /** Builds one selectable workflow card with icon, title, description, meta. */

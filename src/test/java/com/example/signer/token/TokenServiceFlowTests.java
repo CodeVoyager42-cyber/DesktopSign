@@ -55,7 +55,7 @@ class TokenServiceFlowTests {
         tokenService.detect();
         assertThat(tokenService.getState()).isEqualTo(TokenState.CERTIFICATE_AVAILABLE);
 
-        assertThat(tokenService.getCertificates()).hasSize(2);
+        assertThat(tokenService.getCertificates()).hasSize(3);
         SigningCertificate certificate = tokenService.getCertificates().stream()
                 .filter(c -> MockSigningToken.DEFAULT_ALIAS.equals(c.getAlias()))
                 .findFirst()
@@ -186,7 +186,7 @@ class TokenServiceFlowTests {
         simulator.insertToken();
         tokenService.detect();
         assertThat(tokenService.getState()).isEqualTo(TokenState.CERTIFICATE_AVAILABLE);
-        assertThat(tokenService.getCertificates()).hasSize(2);
+        assertThat(tokenService.getCertificates()).hasSize(3);
     }
 
     @Test

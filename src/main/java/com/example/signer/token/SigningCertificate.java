@@ -69,6 +69,16 @@ public final class SigningCertificate {
         return sha256Fingerprint;
     }
 
+    /**
+     * SHA-256 fingerprint (colon-separated uppercase hex) of any X.509
+     * certificate — the canonical portable identity used for workflow signer
+     * matching. Shared by the token layer and the signature verifier so both
+     * sides of a comparison compute the value identically.
+     */
+    public static String fingerprintOf(X509Certificate certificate) {
+        return computeFingerprint(certificate);
+    }
+
     private static String computeFingerprint(X509Certificate certificate) {
         try {
             byte[] der = certificate.getEncoded();

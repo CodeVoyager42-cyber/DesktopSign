@@ -67,4 +67,24 @@ public interface PdfSigningService {
                           Path outputPdf,
                           SignaturePlacement placement,
                           SignatureAppearance appearance) throws Exception;
+
+    /**
+     * Document-side hook invoked on the in-memory PDF before the signing
+     * incremental save: anything it writes to the document (e.g. a workflow
+     * manifest via {@code WorkflowManifestStore.writer}) is serialised in the
+     * SAME revision as the new signature, so the signature's byte range
+     * covers it and previous signatures stay valid.
+     */
+    interface DocumentCustomizer {
+        void apply(org.apache.pdfbox.pdmodel.PDDocument document) throws Exception;
+    }
+
+    /** As the 6-arg overload, plus the pre-save document hook above. */
+    SigningResult signPdf(Path inputPdf,
+                          String keyAlias,
+                          SigningAlgorithm algorithm,
+                          Path outputPdf,
+                          SignaturePlacement placement,
+                          SignatureAppearance appearance,
+                          DocumentCustomizer documentCustomizer) throws Exception;
 }

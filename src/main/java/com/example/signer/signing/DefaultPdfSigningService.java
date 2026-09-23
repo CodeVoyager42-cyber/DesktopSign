@@ -109,11 +109,32 @@ public class DefaultPdfSigningService implements PdfSigningService {
                                  Path outputPdf,
                                  SignaturePlacement placement,
                                  SignatureAppearance appearance) throws Exception {
+        return signPdf(inputPdf, keyAlias, algorithm, outputPdf, placement, appearance, null);
+    }
+
+    @Override
+    public SigningResult signPdf(Path inputPdf,
+                                 String keyAlias,
+                                 SigningAlgorithm algorithm,
+                                 Path outputPdf,
+                                 SignaturePlacement placement,
+                                 SignatureAppearance appearance,
+                                 DocumentCustomizer documentCustomizer) throws Exception {
 
         X509Certificate signerCert = resolveCertificate(keyAlias);
         SigningResult[] captured = new SigningResult[1];
 
         try (PDDocument doc = Loader.loadPDF(inputPdf.toFile())) {
+
+            // The customizer runs BEFORE addSignature: the manifest (or any
+            // other document-side state) and the signature are serialised by
+            // the SAME saveIncremental, so the new signature's /ByteRange
+            // cryptographically covers the document state it ships with and
+            // the chain still reaches EOF. Anything appended after the last
+            // signature would invalidate the chain.
+            if (documentCustomizer != null) {
+                documentCustomizer.apply(doc);
+            }
 
             SignatureInterface signer = content -> {
                 try {
