@@ -1,6 +1,7 @@
 package com.example.signer.ui;
 
 import com.example.signer.config.LoginProperties;
+import com.example.signer.ui.support.UiSupport;
 
 import org.kordamp.ikonli.fontawesome5.FontAwesomeSolid;
 import org.kordamp.ikonli.javafx.FontIcon;
@@ -116,6 +117,7 @@ public final class LoginDialog {
         Scene scene = new Scene(root, 400, 480);
         ThemeManager.instance().attach(scene);
         dialog.setScene(scene);
+        UiSupport.applyAppIcon(dialog);
 
         dialog.setOnShown(e -> usernameField.requestFocus());
         dialog.showAndWait();

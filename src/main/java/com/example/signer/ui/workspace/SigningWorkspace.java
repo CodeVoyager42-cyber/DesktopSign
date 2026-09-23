@@ -9,6 +9,7 @@ import com.example.signer.token.SigningAlgorithm;
 import com.example.signer.token.SigningCertificate;
 import com.example.signer.token.TokenService;
 import com.example.signer.token.TokenState;
+import com.example.signer.ui.support.UiSupport;
 import com.example.signer.verification.PdfVerificationService;
 import com.example.signer.verification.SignatureVerificationResult;
 import javafx.concurrent.Task;
@@ -524,6 +525,7 @@ public class SigningWorkspace {
         stage = new Stage();
         stage.setTitle("PDF Signing Workspace");
         stage.setScene(scene);
+        UiSupport.applyAppIcon(stage);
         stage.setMinWidth(720);
         stage.setMinHeight(500);
         stage.setOnCloseRequest(e -> log.info("Workspace closed"));

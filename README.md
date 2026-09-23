@@ -183,6 +183,12 @@ UI (JavaFX workspace)
   than `--release 21`; the `--release` flag is incompatible with the
   `jdk.crypto.cryptoki` add-exports the raw PKCS#11 wrapper requires (verified
   empirically — see the comment in `pom.xml`)
+- **App icon:** `docs/icon-source.png` is the master brand image (any square
+  picture). `./package.sh` regenerates from it the JavaFX window icon
+  (`src/main/resources/ui/app-icon.png`) and the Windows icon
+  (`build/SignFlow.ico`, used by the exe/installer) via
+  `tools/BuildIcon.java`. To rebrand, replace the source picture and re-run
+  `./package.sh` — or `java tools/BuildIcon.java` for the icons alone
 - Logs go to `%TEMP%/signer-app.log` by default; `com.example.signer` is at
   DEBUG level for tracing token and workflow behavior
 

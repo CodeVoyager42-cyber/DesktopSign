@@ -386,6 +386,7 @@ MultiSignerWorkspaceFlow {
         });
 
         stage.setScene(scene);
+        UiSupport.applyAppIcon(stage);
         audit.record("Workflow created: " + workflow.signerCount() + " signer(s)"
                 + ", document " + documentName);
         if (analysis.hasExistingSignatures()) {
@@ -1133,6 +1134,7 @@ MultiSignerWorkspaceFlow {
         preview.fitWidthProperty().bind(javafx.beans.binding.Bindings.min(
                 400.0, scene.widthProperty().subtract(56)));
         dialog.setScene(scene);
+        UiSupport.applyAppIcon(dialog);
         dialog.showAndWait();
         return confirmed[0];
     }
@@ -1772,6 +1774,7 @@ MultiSignerWorkspaceFlow {
         dialog.setMaxHeight(size[1] + 39);
         ThemeManager.instance().attach(scene);
         dialog.setScene(scene);
+        UiSupport.applyAppIcon(dialog);
         dialog.showAndWait();
     }
 

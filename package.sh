@@ -63,6 +63,11 @@ rm -rf build/jpackage build/dist build/jpkg-input
 mkdir -p build/jpkg-input build/dist
 cp "$JAR" build/jpkg-input/
 
+echo "== Icons =="
+# Regenerates src/main/resources/ui/app-icon.png + build/SignFlow.ico from
+# docs/icon-source.png (no-op content-wise when the source is unchanged).
+"$JAVA_HOME/bin/java" tools/BuildIcon.java
+
 echo "== jpackage app-image =="
 "$JPACKAGE" \
     --type app-image \
@@ -72,6 +77,7 @@ echo "== jpackage app-image =="
     --add-modules "$JLINK_MODULES" \
     --input build/jpkg-input \
     --main-jar "$(basename "$JAR")" \
+    --icon build/SignFlow.ico \
     $(for opt in "${JAVA_OPTS[@]}"; do echo --java-options "\"$opt\""; done) \
     --dest build/jpackage
 
@@ -96,6 +102,7 @@ if command -v candle >/dev/null 2>&1; then
         --add-modules "$JLINK_MODULES" \
         --input build/jpkg-input \
         --main-jar "$(basename "$JAR")" \
+        --icon build/SignFlow.ico \
         $(for opt in "${JAVA_OPTS[@]}"; do echo --java-options "\"$opt\""; done) \
         --dest build/dist
     echo "MSI built."

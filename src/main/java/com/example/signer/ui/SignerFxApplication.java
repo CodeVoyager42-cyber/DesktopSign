@@ -346,6 +346,7 @@ public class SignerFxApplication extends Application {
         setupDropTarget(scene, root);
         stage.setTitle("PDF Digital Signer");
         stage.setScene(scene);
+        UiSupport.applyAppIcon(stage);
         stage.setMinWidth(720);
         stage.setMinHeight(500);
 

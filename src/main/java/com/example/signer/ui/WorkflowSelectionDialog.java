@@ -1,5 +1,6 @@
 package com.example.signer.ui;
 
+import com.example.signer.ui.support.UiSupport;
 import com.example.signer.workflow.SigningMode;
 
 import org.kordamp.ikonli.fontawesome5.FontAwesomeSolid;
@@ -181,6 +182,7 @@ public final class WorkflowSelectionDialog {
             selectMode(cardsByMode, modes.get(index));
         });
         dialog.setScene(scene);
+        UiSupport.applyAppIcon(dialog);
 
         dialog.showAndWait();
 
