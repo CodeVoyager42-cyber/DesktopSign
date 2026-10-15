@@ -20,8 +20,7 @@ import java.util.function.Supplier;
  * token-state classification and PIN buffer extraction.
  *
  * <p>Consolidates helpers that were previously duplicated (and drifting)
- * across {@code SignerFxApplication}, {@code SigningWorkspace} and
- * {@code MultiSignerWorkspaceFlow}. Purely static and UI-framework aware;
+ * across the desktop screens. Purely static and UI-framework aware;
  * contains no business logic.</p>
  */
 public final class UiSupport {

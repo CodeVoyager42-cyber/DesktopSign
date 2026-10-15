@@ -150,15 +150,19 @@ class WorkflowManifestCodecTests {
     void blankFingerprintIsRejected() {
         assertThatThrownBy(() -> new CertificateIdentity("  ", "CN=x", null, null))
                 .isInstanceOf(Exception.class);
-        assertThatThrownBy(() -> new CertificateIdentity(null, "CN=x", null, null))
-                .isInstanceOf(NullPointerException.class);
+        // null is now legal: an UNBOUND identity for signers who bind their
+        // own certificate later (§17 enrollment lifecycle).
+        CertificateIdentity unbound = new CertificateIdentity(null, "CN=x", null, null);
+        assertThat(unbound.isBound()).isFalse();
+        assertThat(unbound.matchesFingerprint("AB:CD:EF")).isFalse();
     }
 
     @Test
-    void fingerprintMatchingIsCaseInsensitiveAndTrimmed() {
+    void fingerprintMatchingIsCaseInsensitiveAndFormatNormalized() {
         CertificateIdentity identity = new CertificateIdentity("AB:CD:EF", null, null, null);
         assertThat(identity.matchesFingerprint("ab:cd:ef")).isTrue();
         assertThat(identity.matchesFingerprint(" AB:CD:EF ")).isTrue();
+        assertThat(identity.matchesFingerprint("abcdef")).isTrue();
         assertThat(identity.matchesFingerprint("AB:CD:EE")).isFalse();
         assertThat(identity.matchesFingerprint(null)).isFalse();
     }

@@ -1,5 +1,7 @@
 package com.example.signer.pdf;
 
+import java.util.Locale;
+import org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature;
 import com.example.signer.exception.ErrorCode;
 import com.example.signer.exception.SignerException;
 import org.apache.pdfbox.Loader;
@@ -79,12 +81,12 @@ public class SimplePdfDocumentService implements PdfDocumentService {
                     toInstant(dict.getModificationDate()));
 
             int pageCount = doc.getNumberOfPages();
-            String pdfVersion = String.format(java.util.Locale.ROOT, "%.1f",
+            String pdfVersion = String.format(Locale.ROOT, "%.1f",
                     doc.getVersion());
 
             List<ExistingSignatureInfo> existing = new ArrayList<>();
             try {
-                List<org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature>
+                List<PDSignature>
                         signatures = doc.getSignatureDictionaries();
                 for (int i = 0; i < signatures.size(); i++) {
                     var sig = signatures.get(i);

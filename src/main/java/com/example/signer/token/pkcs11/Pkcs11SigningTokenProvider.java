@@ -82,8 +82,24 @@ public class Pkcs11SigningTokenProvider implements SigningTokenProvider {
             }
         } catch (TokenException e) {
             throw e;
+        } catch (IllegalAccessError e) {
+            // The JVM was started without the module export the certificate
+            // reads need: every detect would fail, so say so instead of
+            // reporting "no card".
+            log.error("PKCS#11 wrapper not accessible: start Java with "
+                    + "--add-exports jdk.crypto.cryptoki/sun.security.pkcs11.wrapper=ALL-UNNAMED");
+            throw new TokenException(ErrorCode.PKCS11_INITIALIZATION_FAILED,
+                    "SignFlow was started without smart-card support enabled in Java "
+                            + "(missing --add-exports for sun.security.pkcs11.wrapper)", e);
+        } catch (LinkageError e) {
+            log.error("PKCS#11 library could not be loaded: {}", e.toString());
+            throw new TokenException(ErrorCode.PKCS11_INITIALIZATION_FAILED,
+                    "The smart card driver could not be loaded: " + library, e);
         } catch (Exception e) {
-            log.debug("PKCS#11 token not available", e);
+            // Usually "no card in the reader"; the reason is logged so a
+            // driver or slot problem is visible without debug logging.
+            log.info("PKCS#11 token not available: {}", rootMessage(e));
+            log.debug("PKCS#11 token lookup failure", e);
             return Optional.empty();
         } finally {
             deleteQuietly(config);
@@ -110,6 +126,14 @@ public class Pkcs11SigningTokenProvider implements SigningTokenProvider {
             throw new TokenException(ErrorCode.PKCS11_INITIALIZATION_FAILED,
                     "Could not write SunPKCS11 configuration", e);
         }
+    }
+
+    private static String rootMessage(Throwable e) {
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        return root == e ? e.toString() : e.getClass().getSimpleName() + " <- " + root;
     }
 
     private static boolean isConfiguredPath(String library) {

@@ -35,8 +35,12 @@ public final class ThemeManager {
 
     /** Base stylesheet present in every scene, light or dark. */
     private static final String BASE_CSS = "/ui/application.css";
-    /** Dark token overlay added after the base sheet when dark mode is on. */
-    private static final String DARK_CSS = "/ui/application-dark.css";
+    /** GoSign-style token layer, loaded first on every scene. */
+    private static final String THEME_CSS = "/ui/theme.css";
+    /** Shell layer (sidebar, top bar, tiles), loaded on every scene. */
+    private static final String SHELL_CSS = "/ui/shell.css";
+    /** Dark redefinition of the -sig-* tokens, loaded before the legacy overlay. */
+    private static final String THEME_DARK_CSS = "/ui/theme-dark.css";
     /** Preferences / system-property key for the theme choice. */
     private static final String THEME_KEY = "signer.theme";
 
@@ -83,10 +87,9 @@ public final class ThemeManager {
      */
     public void attach(Scene scene) {
         String base = getClass().getResource(BASE_CSS).toExternalForm();
-        String overlay = getClass().getResource(DARK_CSS).toExternalForm();
 
         ChangeListener<Boolean> reapply = (obs, was, is) -> {
-            Runnable task = () -> applyStylesheets(scene, base, overlay);
+            Runnable task = () -> applyStylesheets(scene, base);
             if (Platform.isFxApplicationThread()) {
                 task.run();
             } else {
@@ -94,17 +97,26 @@ public final class ThemeManager {
             }
         };
         dark.addListener(reapply);
-        applyStylesheets(scene, base, overlay);
+        applyStylesheets(scene, base);
     }
 
-    private static void applyStylesheets(Scene scene, String base, String overlay) {
-        scene.getStylesheets().setAll(base);
+    private static void applyStylesheets(Scene scene, String base) {
+        // Order matters: token layer first (defines -sig-* and the legacy
+        // aliases), then the legacy sheet, then the shell, then — in dark
+        // mode — the dark token overlay so its redefinitions win.
+        String theme = getClassStatic(THEME_CSS);
+        String shell = getClassStatic(SHELL_CSS);
+        scene.getStylesheets().setAll(theme, base, shell);
         if (instance().dark.get()) {
-            scene.getStylesheets().add(overlay);
-            log.info("Applied dark theme (overlay: {})", overlay);
+            scene.getStylesheets().add(getClassStatic(THEME_DARK_CSS));
+            log.info("Applied dark theme");
         } else {
             log.info("Applied light theme");
         }
+    }
+
+    private static String getClassStatic(String path) {
+        return ThemeManager.class.getResource(path).toExternalForm();
     }
 
     /**

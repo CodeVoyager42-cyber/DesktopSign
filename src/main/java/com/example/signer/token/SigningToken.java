@@ -1,5 +1,7 @@
 package com.example.signer.token;
 
+import com.example.signer.exception.ErrorCode;
+import java.util.List;
 import com.example.signer.token.mock.MockSigningToken;
 
 /**
@@ -26,7 +28,7 @@ public interface SigningToken {
      * Certificates available for signing on this token, including the alias of
      * the private key each certificate is paired with.
      */
-    java.util.List<SigningCertificate> getSigningCertificates();
+    List<SigningCertificate> getSigningCertificates();
 
     /**
      * Authenticates to the token with the user PIN.
@@ -34,8 +36,8 @@ public interface SigningToken {
      * <p>The PIN is consumed by this call and must be wiped by the caller
      * afterwards.
      *
-     * @throws TokenException with {@link com.example.signer.exception.ErrorCode#TOKEN_PIN_INCORRECT}
-     *                        or {@link com.example.signer.exception.ErrorCode#TOKEN_PIN_LOCKED}
+     * @throws TokenException with {@link ErrorCode#TOKEN_PIN_INCORRECT}
+     *                        or {@link ErrorCode#TOKEN_PIN_LOCKED}
      *                        on authentication failure
      */
     void authenticate(char[] pin);
