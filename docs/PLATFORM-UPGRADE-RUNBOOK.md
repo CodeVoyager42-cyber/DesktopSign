@@ -68,15 +68,25 @@ alice/bob/charlie with bcrypt passwords (dev flag only).
 
 ### Clicking the link instead of pasting it
 
-`signflow://` is registered per-user by `register-signflow-protocol.cmd`
-(under `HKCU\Software\Classes\signflow`, no admin rights; undo with
-`unregister-signflow-protocol.cmd`). After that, clicking an emailed
-`signflow://invitation/<token>` link opens the desktop app with the
-invitation dialog pre-filled. If the app is already running, the second
-launch hands the token to the running instance (local activation port
-61234) and the dialog opens on top of the current screen. Re-run the
-register script after changing the JDK path or rebuilding to a new jar
-location.
+A **packaged install** (built by `package.sh`, run as `signflow.packaged=true`)
+registers `signflow://` for the current user itself on first launch —
+`ProtocolRegistration` in `SignerFxApplication.init()` writes
+`HKCU\Software\Classes\signflow` pointing at its own running executable
+(`ProcessHandle.current()`, which jpackage makes the real native launcher
+path). It re-registers whenever that path changes (reinstall, update,
+relocation), so there is no install-time step and nothing a coworker runs
+by hand. Undo with `unregister-signflow-protocol.cmd` if needed.
+
+**Running from source** (`mvnw javafx:run`, `run-app.cmd`) skips
+self-registration — use `register-signflow-protocol.cmd` instead to point
+the same registry key at this checkout's jar for local deep-link testing;
+re-run it after rebuilding to a new jar location.
+
+Either way, clicking an emailed `signflow://invitation/<token>` link opens
+the desktop app with the invitation dialog pre-filled. If the app is
+already running, the second launch hands the token to the running instance
+(local activation port 61234) and the dialog opens on top of the current
+screen.
 
 ## How to test Alice → Bob → Charlie signing
 

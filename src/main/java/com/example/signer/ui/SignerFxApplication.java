@@ -29,7 +29,9 @@ import java.util.List;
  *
  * <ol>
  *   <li>{@link #init()}: make sure only one SignFlow runs
- *       ({@link SingleInstanceGuard}), then start Spring;</li>
+ *       ({@link SingleInstanceGuard}), self-register the {@code signflow://}
+ *       protocol on packaged installs ({@link ProtocolRegistration}), then
+ *       start Spring;</li>
  *   <li>{@link #start(Stage)}: report start-up problems, then hand over to
  *       {@link AppNavigator} — the invitation flow when opened from a
  *       {@code signflow://} link, otherwise sign-in and the home screen;</li>
@@ -74,7 +76,10 @@ public class SignerFxApplication extends Application {
             case OTHER_UNRESPONSIVE -> {
                 // start() asks the user whether to replace the stuck copy.
             }
-            case FIRST_INSTANCE -> bootSpring();
+            case FIRST_INSTANCE -> {
+                ProtocolRegistration.ensureRegisteredForPackagedInstall();
+                bootSpring();
+            }
         }
     }
 
