@@ -9,6 +9,7 @@ import java.net.URLEncoder;
 import java.net.UnknownHostException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.nio.channels.ClosedChannelException;
 import com.example.signer.exception.ErrorCode;
 import com.example.signer.exception.SignerException;
 import com.example.signer.server.api.ApiContracts.ApiError;
@@ -1008,26 +1009,42 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
 
     private static SignerException transportFailure(String baseUrl, String action,
                                                     Exception e) {
-        Throwable root = rootCause(e);
         String where = baseUrl == null || baseUrl.isBlank() ? "" : " at " + baseUrl;
-        if (root instanceof ConnectException) {
+        // Classify by searching the WHOLE causal chain, not just the deepest
+        // cause: the JDK's java.net.http sometimes wraps a low-level
+        // ClosedChannelException inside an outer ConnectException (observed
+        // on some JDK/OS combinations when a connection attempt races a
+        // closed port), so walking straight to the bottom can land past the
+        // meaningful ConnectException on an internal NIO exception instead.
+        // A ClosedChannelException encountered while connecting means the
+        // same thing a signer cares about: the server could not be reached.
+        if (causedBy(e, ConnectException.class) || causedBy(e, ClosedChannelException.class)) {
             return new SignerException(ErrorCode.WORKFLOW_INVALID,
                     "Could not connect to the coordination server" + where
                             + ". Make sure it is running, then try again.", e);
         }
-        if (root instanceof HttpConnectTimeoutException
-                || root instanceof HttpTimeoutException) {
+        if (causedBy(e, HttpConnectTimeoutException.class)
+                || causedBy(e, HttpTimeoutException.class)) {
             return new SignerException(ErrorCode.WORKFLOW_INVALID,
                     "The coordination server" + where
                             + " did not respond in time.", e);
         }
-        if (root instanceof UnknownHostException) {
+        if (causedBy(e, UnknownHostException.class)) {
             return new SignerException(ErrorCode.WORKFLOW_INVALID,
                     "The coordination server address" + where
                             + " could not be resolved.", e);
         }
         return new SignerException(ErrorCode.WORKFLOW_INVALID,
                 action + " failed: " + rootMessage(e), e);
+    }
+
+    private static boolean causedBy(Throwable t, Class<? extends Throwable> type) {
+        for (Throwable cause = t; cause != null; cause = cause.getCause()) {
+            if (type.isInstance(cause)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Throwable rootCause(Throwable t) {
