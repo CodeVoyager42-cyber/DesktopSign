@@ -1,5 +1,6 @@
 package com.example.signer.workflow;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -42,7 +43,7 @@ public record EffectiveWorkflowState(
             CertificateIdentity certificate,
             boolean fulfilled,
             boolean verified,
-            java.time.Instant signedAt,
+            Instant signedAt,
             boolean yourTurn) {
     }
 

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
  * removing the mock token without any hardware.
  */
 @Component
+@org.springframework.context.annotation.Profile("dev")
 public class MockTokenSimulator {
 
     private static final Logger log = LoggerFactory.getLogger(MockTokenSimulator.class);

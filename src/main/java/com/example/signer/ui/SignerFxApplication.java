@@ -1,1098 +1,244 @@
 package com.example.signer.ui;
 
 import com.example.signer.SignerApplication;
-import com.example.signer.config.LoginProperties;
-import com.example.signer.pdf.PdfDocumentInfo;
-import com.example.signer.pdf.PdfDocumentService;
-import com.example.signer.signing.PdfSigningService;
-import com.example.signer.signing.SigningResult;
-import com.example.signer.token.SigningAlgorithm;
-import com.example.signer.token.SigningCertificate;
-import com.example.signer.token.TokenInfo;
-import com.example.signer.token.TokenService;
-import com.example.signer.token.TokenState;
-import com.example.signer.verification.PdfVerificationService;
-import com.example.signer.verification.SignatureVerificationResult;
-import com.example.signer.pdf.PdfRenderService;
+import com.example.signer.remote.WorkflowApiClient;
 import com.example.signer.ui.support.UiSupport;
-import com.example.signer.ui.workspace.SigningWorkspace;
-import com.example.signer.workflow.SigningMode;
+
+import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
-import javafx.concurrent.Task;
-import javafx.geometry.Insets;
-import javafx.geometry.Pos;
-import javafx.scene.Cursor;
-import javafx.scene.Node;
-import javafx.scene.Scene;
 import javafx.scene.control.Alert;
-import javafx.scene.control.Button;
-import javafx.scene.control.ComboBox;
-import javafx.scene.control.Label;
-
-import org.kordamp.ikonli.fontawesome5.FontAwesomeSolid;
-import org.kordamp.ikonli.javafx.FontIcon;
-import javafx.scene.control.PasswordField;
-import javafx.scene.control.ProgressBar;
-import javafx.scene.control.ScrollPane;
-import javafx.scene.control.Tooltip;
-import javafx.scene.input.Dragboard;
-import javafx.scene.input.KeyCode;
-import javafx.scene.input.TransferMode;
-import javafx.scene.layout.BorderPane;
-import javafx.scene.layout.FlowPane;
-import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
-import javafx.scene.layout.Region;
-import javafx.scene.layout.VBox;
-import javafx.stage.FileChooser;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.TextArea;
 import javafx.stage.Stage;
+import javafx.stage.Window;
+import javafx.util.Duration;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
-import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.core.env.Profiles;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 
 /**
- * JavaFX entry point driving the complete signing flow in a single window.
- *
- * <p>Spring is started from {@link #init()} (headless disabled, no web server)
- * so the UI can consume {@link TokenService} and friends directly. The flow:
+ * JavaFX entry point. Its only job is the application's life cycle:
  *
  * <ol>
- *   <li>pick a PDF (described locally with {@link PdfDocumentService}),</li>
- *   <li>detect the PKCS#11 token and choose a signing certificate,</li>
- *   <li>authenticate with the PIN (wiped immediately after use),</li>
- *   <li>sign the selected PDF into a temporary signed copy,</li>
- *   <li>verify the produced signature and save the signed PDF copy.
+ *   <li>{@link #init()}: make sure only one SignFlow runs
+ *       ({@link SingleInstanceGuard}), then start Spring;</li>
+ *   <li>{@link #start(Stage)}: report start-up problems, then hand over to
+ *       {@link AppNavigator} — the invitation flow when opened from a
+ *       {@code signflow://} link, otherwise sign-in and the home screen;</li>
+ *   <li>{@link #stop()}: release everything.</li>
  * </ol>
  *
- * <p>All blocking calls run on background threads via {@link Task} and return
- * to the JavaFX thread through {@code setOnSucceeded}/{@code setOnFailed}.
- * The Spring context is closed in {@link #stop()}.
- *
- * <p>Signing embeds a CMS signature in a temporary PDF copy; "Save signed
- * PDF…" copies that file to a user-chosen location.
+ * <p>Screens never touch Spring: they get their services from
+ * {@link DesktopServices}, resolved once here.
  */
 public class SignerFxApplication extends Application {
 
     private static final Logger log = LoggerFactory.getLogger(SignerFxApplication.class);
 
+    private final SingleInstanceGuard instanceGuard = new SingleInstanceGuard();
+    private SingleInstanceGuard.Outcome instanceOutcome;
     private ConfigurableApplicationContext context;
+    /** Configuration error that prevented Spring from starting, shown in start(). */
+    private String startupError;
+    /** Token from a {@code signflow://invitation/<token>} launch argument, or null. */
+    private String launchInvitationToken;
 
+    /** Hidden owner of every window; raised as a fallback on activation. */
     private Stage stage;
-    private BorderPane root;
-    private Label appTitle;
-    private Label appSubtitle;
-    private boolean pdfLoadInProgress;
-
-    // PDF -----------------------------------------------------------------
-    private Label pdfInfo;
-    private Button choosePdfButton;
-    private Path selectedPdf;
-
-    // Token -----------------------------------------------------------------
-    private Label statePill;
-    private Label tokenInfoLabel;
-    private Button detectButton;
-    private ComboBox<String> certCombo;
-    private SigningCertificate selectedCert;
-    private String selectedAlias;
-    private Label certInfoLabel;
-
-    // PIN / actions ---------------------------------------------------------
-    private PasswordField pinField;
-    private Button authenticateButton;
-    private Button cancelButton;
-    private Button signButton;
-    private Button verifyButton;
-    private Button saveButton;
-    private Button logoutButton;
-
-    private VBox pdfSection;
-    private VBox tokenSection;
-    private VBox certSection;
-    private VBox pinSection;
-
-    private ProgressBar progressBar;
-    private Label statusLabel;
-    private SigningResult lastSigningResult;
-    private Path signedPdfPath;
-
-    // step indicator labels
-    private Label pdfStepBadge;
-    private Label tokenStepBadge;
-    private Label certStepBadge;
-    private Label pinStepBadge;
-    private Label statusDot;
+    private AppNavigator navigator;
 
     @Override
     public void init() {
-        // Any exception escaping an event handler / Task callback used to die
-        // with an unnamed console trace (easy to lose); log it properly so
-        // every failure is attributable.
+        // An exception escaping an event handler would otherwise die as an
+        // anonymous console trace; log every one of them.
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
                 log.error("Uncaught exception on thread {}", thread.getName(), throwable));
-        Thread.currentThread().setUncaughtExceptionHandler((thread, throwable) ->
-                log.error("Uncaught exception during startup", throwable));
-        log.info("Initializing Spring application context");
-        context = new SpringApplicationBuilder(SignerApplication.class)
-                .headless(false)
-                .web(WebApplicationType.NONE)
-                .run(getParameters().getRaw().toArray(new String[0]));
-        log.info("Spring application context initialized");
+
+        // Read the link BEFORE the single-instance check: a second launch
+        // forwards it to the running copy instead of opening it itself.
+        launchInvitationToken = InvitationLinks.extractInvitationToken(getParameters().getRaw());
+        if (launchInvitationToken != null) {
+            log.info("Launched from an invitation link");
+        }
+        instanceOutcome = instanceGuard.acquire(launchInvitationToken);
+        switch (instanceOutcome) {
+            case HANDED_OFF -> Platform.exit();
+            case OTHER_UNRESPONSIVE -> {
+                // start() asks the user whether to replace the stuck copy.
+            }
+            case FIRST_INSTANCE -> bootSpring();
+        }
     }
 
     @Override
-    public void start(Stage stage) {
-        log.info("Starting JavaFX stage");
-        this.stage = stage;
-
-        // header -------------------------------------------------------------
-        Label appLogo = new Label();
-        appLogo.setGraphic(new FontIcon(FontAwesomeSolid.FILE_SIGNATURE));
-        appLogo.getStyleClass().setAll("app-logo");
-        appTitle = new Label("SignFlow");
-        appTitle.getStyleClass().add("app-name");
-        appSubtitle = new Label("PDF Digital Signing");
-        appSubtitle.getStyleClass().add("app-tagline");
-        HBox brand = new HBox(12, appLogo, new VBox(2, appTitle, appSubtitle));
-        brand.setAlignment(Pos.CENTER_LEFT);
-        Region headerSpacer = new Region();
-        HBox.setHgrow(headerSpacer, Priority.ALWAYS);
-        HBox header = new HBox(brand, headerSpacer, ThemeManager.instance().createToggleButton());
-        header.setAlignment(Pos.CENTER_LEFT);
-        header.setPadding(new Insets(12, 20, 12, 20));
-        header.getStyleClass().add("app-header");
-        UiSupport.makeDraggable(header, () -> stage);
-
-        // content -------------------------------------------------------------
-        VBox content = new VBox(14);
-        content.setPadding(new Insets(14, 20, 14, 20));
-        content.getStyleClass().add("content-pane");
-        content.setMaxWidth(Double.MAX_VALUE);
-        content.setAlignment(Pos.TOP_LEFT);
-
-        // --- step 1: PDF -----------------------------------------------------
-        pdfStepBadge = createStepBadge(1);
-        Label pdfTitle = sectionTitle("PDF document");
-        HBox pdfHeader = new HBox(8, pdfStepBadge, pdfTitle);
-        pdfHeader.setAlignment(Pos.CENTER_LEFT);
-        Label pdfHint = hintLabel("Choose the PDF you want to sign. The file is never modified — a signed copy is created.");
-        pdfInfo = new Label("No PDF selected");
-        pdfInfo.getStyleClass().add("section-hint");
-        pdfInfo.setWrapText(true);
-        pdfInfo.setMaxWidth(Double.MAX_VALUE);
-        choosePdfButton = new Button("Open PDF");
-        choosePdfButton.getStyleClass().add("btn-secondary");
-        choosePdfButton.setOnAction(e -> {
-            log.info("Choose PDF clicked");
-            choosePdf();
-        });
-        HBox pdfRow = new HBox(10, choosePdfButton, pdfInfo);
-        pdfRow.setAlignment(Pos.CENTER_LEFT);
-        HBox.setHgrow(pdfInfo, Priority.ALWAYS);
-        pdfSection = new VBox(5, pdfHeader, pdfHint, pdfRow);
-        pdfSection.getStyleClass().add("card");
-
-        // --- step 2: token -----------------------------------------------------
-        tokenStepBadge = createStepBadge(2);
-        Label tokenTitle = sectionTitle("Security device");
-        HBox tokenHeader = new HBox(8, tokenStepBadge, tokenTitle);
-        tokenHeader.setAlignment(Pos.CENTER_LEFT);
-        Label tokenHint = hintLabel("Detect the connected cryptographic USB key/token.");
-        statusDot = new Label("\u25CF");
-        statusDot.getStyleClass().addAll("status-dot", "status-dot--inactive");
-        statePill = new Label("NOT DETECTED");
-        statePill.getStyleClass().addAll("status-pill");
-        detectButton = new Button("Detect token");
-        detectButton.getStyleClass().add("btn-secondary");
-        detectButton.setOnAction(e -> detect());
-        HBox tokenRow = new HBox(8, statusDot, statePill, detectButton);
-        tokenRow.setAlignment(Pos.CENTER_LEFT);
-        tokenInfoLabel = new Label("No token");
-        tokenInfoLabel.getStyleClass().add("section-hint");
-        tokenInfoLabel.setWrapText(true);
-        tokenSection = new VBox(5, tokenHeader, tokenHint, tokenRow, tokenInfoLabel);
-        tokenSection.getStyleClass().add("card");
-
-        // --- step 3: certificate ---------------------------------------------------
-        certStepBadge = createStepBadge(3);
-        Label certTitle = sectionTitle("Certificate");
-        HBox certHeader = new HBox(8, certStepBadge, certTitle);
-        certHeader.setAlignment(Pos.CENTER_LEFT);
-        Label certHint = hintLabel("Choose the signing certificate stored on the security device.");
-        certCombo = new ComboBox<>();
-        certCombo.setPromptText("Select a signing certificate");
-        certCombo.setMaxWidth(Double.MAX_VALUE);
-        certCombo.setOnAction(e -> onCertificateSelected());
-        certInfoLabel = new Label(" ");
-        certInfoLabel.getStyleClass().add("section-hint");
-        certInfoLabel.setWrapText(true);
-        certSection = new VBox(5, certHeader, certHint, certCombo, certInfoLabel);
-        certSection.getStyleClass().add("card");
-
-        // --- step 4: PIN -----------------------------------------------------------
-        pinStepBadge = createStepBadge(4);
-        Label pinTitle = sectionTitle("Unlock device");
-        HBox pinHeader = new HBox(8, pinStepBadge, pinTitle);
-        pinHeader.setAlignment(Pos.CENTER_LEFT);
-        Label pinHint = hintLabel("Enter your security device PIN. The PIN is wiped immediately after use.");
-        pinField = new PasswordField();
-        pinField.setPromptText("Enter PIN");
-        pinField.setTooltip(new Tooltip("Press Enter to authenticate"));
-        pinField.setOnAction(e -> authenticate());
-        authenticateButton = new Button("Unlock Device");
-        authenticateButton.getStyleClass().add("btn-primary");
-        authenticateButton.setTooltip(new Tooltip("Authenticate with the security device PIN (Enter)"));
-        authenticateButton.setOnAction(e -> authenticate());
-        cancelButton = new Button("Cancel");
-        cancelButton.getStyleClass().add("btn-ghost");
-        cancelButton.setTooltip(new Tooltip("Abort the PIN entry (Esc)"));
-        cancelButton.setOnAction(e -> cancelAuthentication());
-        HBox pinRow = new HBox(8, pinField, authenticateButton, cancelButton);
-        pinRow.setAlignment(Pos.CENTER_LEFT);
-        HBox.setHgrow(pinField, Priority.ALWAYS);
-        pinSection = new VBox(5, pinTitle, pinHint, pinRow);
-        pinSection.getStyleClass().add("card");
-
-        // --- actions -------------------------------------------------------------
-        signButton = new Button("Sign Document");
-        signButton.getStyleClass().add("btn-primary");
-        signButton.setOnAction(e -> {
-            log.info("Sign Document clicked, selectedPdf={} selectedAlias={}", selectedPdf, selectedAlias);
-            sign();
-        });
-        verifyButton = new Button("Verify Signature");
-        verifyButton.getStyleClass().add("btn-secondary");
-        verifyButton.setOnAction(e -> verify());
-        saveButton = new Button("Download Signed PDF");
-        saveButton.getStyleClass().add("btn-secondary");
-        saveButton.setOnAction(e -> {
-            log.info("Save signed PDF clicked, signedPdfPath={}", signedPdfPath);
-            saveSignedPdf();
-        });
-        logoutButton = new Button("Logout");
-        logoutButton.getStyleClass().add("btn-danger");
-        logoutButton.setOnAction(e -> logout());
-        Button workspaceButton = new Button("Signing workspace…");
-        workspaceButton.getStyleClass().add("btn-secondary");
-        workspaceButton.setTooltip(new Tooltip("Open the Adobe-like workspace: upload a PDF, draw a signature box, sign and download"));
-        workspaceButton.setOnAction(e -> openWorkspace());
-        FlowPane actionsFlow = new FlowPane(10, 10, signButton, verifyButton, saveButton, logoutButton, workspaceButton);
-        actionsFlow.setAlignment(Pos.CENTER_LEFT);
-        actionsFlow.getStyleClass().add("flow-pane");
-
-        // --- progress / status -----------------------------------------------------
-        progressBar = new ProgressBar(0);
-        progressBar.setMaxWidth(Double.MAX_VALUE);
-        progressBar.setVisible(false);
-        statusLabel = new Label("Ready");
-        statusLabel.getStyleClass().add("status-text");
-        statusLabel.setWrapText(true);
-        VBox bottom = new VBox(6, progressBar, statusLabel);
-        bottom.getStyleClass().add("status-bar");
-
-        content.getChildren().addAll(pdfSection, tokenSection, certSection, pinSection, actionsFlow);
-
-        ScrollPane contentScroll = new ScrollPane(content);
-        contentScroll.setFitToWidth(true);
-        contentScroll.setFitToHeight(false);
-        contentScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        contentScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-        contentScroll.getStyleClass().add("content-scroll");
-
-        root = new BorderPane();
-        root.setTop(header);
-        root.setCenter(contentScroll);
-        root.setBottom(bottom);
-        root.getStyleClass().add("content-pane");
-
-        Scene scene = new Scene(root, 900, 700);
-        ThemeManager.instance().attach(scene);
-        scene.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ESCAPE
-                    && context != null && context.isActive()
-                    && context.getBean(TokenService.class).getState() == TokenState.WAITING_FOR_PIN) {
-                cancelAuthentication();
-                return;
-            }
-            if (!e.isControlDown()) {
-                return;
-            }
-            switch (e.getCode()) {
-                case O -> {
-                    e.consume();
-                    choosePdf();
-                }
-                case S -> {
-                    e.consume();
-                    saveSignedPdf();
-                }
-                case ENTER -> {
-                    e.consume();
-                    authenticate();
-                }
-                default -> {
-                    // ignore other shortcuts
-                }
-            }
-        });
-        setupDropTarget(scene, root);
-        stage.setTitle("PDF Digital Signer");
-        stage.setScene(scene);
-        UiSupport.applyAppIcon(stage);
-        stage.setMinWidth(720);
-        stage.setMinHeight(500);
-
-        // ---- start-up authentication gate -------------------------------
-        LoginProperties login = context.getBean(LoginProperties.class);
-        boolean authenticated = new LoginDialog(login).showAndWait();
-        if (!authenticated) {
-            log.info("Sign-in cancelled — exiting");
+    public void start(Stage primaryStage) {
+        if (instanceOutcome == SingleInstanceGuard.Outcome.HANDED_OFF) {
+            return;
+        }
+        if (instanceOutcome == SingleInstanceGuard.Outcome.OTHER_UNRESPONSIVE
+                && !replaceStuckCopy()) {
             Platform.exit();
             return;
         }
-        log.info("User signed in");
-
-        // ---- workflow selection + navigation loop ---------------------------
-        // Every flow returns here when it ends (Back, cancelled, or
-        // completed), so the user can start or continue another workflow
-        // without restarting the application. The loop ends when the user
-        // leaves the selection screen (Back / Sign out) or opens the
-        // single-signer main window.
-        while (true) {
-            com.example.signer.ui.WorkflowSelectionDialog selectionDialog =
-                    new com.example.signer.ui.WorkflowSelectionDialog();
-            SigningMode mode = selectionDialog.showAndWait(stage);
-
-            if (selectionDialog.isOpenWorkflowRequested()) {
-                // Continue a portable workflow PDF; when the user presses
-                // Back or finishes, come back to this selection screen.
-                openWorkflowContinuation();
-                continue;
-            }
-
-            if (mode == null) {
-                log.info("Workflow selection cancelled — exiting");
-                Platform.exit();
-                return;
-            }
-            log.info("Signing workflow selected: {}", mode);
-
-            if (mode.isMultiSigner()) {
-                // The turn-based flow runs in its own window; when it is
-                // done (completed or cancelled) return to the selection.
-                openMultiSignerWorkflow(mode);
-                continue;
-            }
-
-            break; // single signer: show the main window below
-        }
-
-        stage.show();
-
-        // When the window regains focus, re-sync token UI state so a token that was
-        // unlocked/removed in another window (e.g. the workspace) is reflected here.
-        stage.focusedProperty().addListener((obs, wasFocused, isFocused) -> {
-            if (isFocused && context != null && context.isActive()) {
-                refreshTokenUi();
-                refreshPdfButtons();
-            }
-        });
-
-        refreshTokenStateInBackground();
-        refreshPdfButtons();
-        log.info("JavaFX stage shown");
-    }
-
-    // --------------------------------------------------------------------------------
-    // helpers
-    // --------------------------------------------------------------------------------
-    private Label sectionTitle(String text) {
-        Label label = new Label(text);
-        label.getStyleClass().add("section-title");
-        return label;
-    }
-
-    /** Creates a step-number badge label. */
-    private Label createStepBadge(int num) {
-        Label badge = new Label(String.valueOf(num));
-        badge.getStyleClass().setAll("step-number");
-        return badge;
-    }
-
-    private Label hintLabel(String text) {
-        Label label = new Label(text);
-        label.getStyleClass().add("section-hint");
-        label.setWrapText(true);
-        return label;
-    }
-
-    private void setBusy(boolean busy) {
-        choosePdfButton.setDisable(busy);
-        detectButton.setDisable(busy);
-        authenticateButton.setDisable(busy);
-        cancelButton.setDisable(busy);
-        verifyButton.setDisable(busy);
-        logoutButton.setDisable(busy);
-        progressBar.setVisible(busy);
-        progressBar.setProgress(ProgressBar.INDETERMINATE_PROGRESS);
-        if (!busy) {
-            refreshPdfButtons();
-        } else {
-            signButton.setDisable(true);
-            saveButton.setDisable(true);
-        }
-    }
-
-    private void setStatus(String message) {
-        Platform.runLater(() -> {
-            statusLabel.setText(message);
-            statusLabel.getStyleClass().removeAll("status-text--error", "status-text--success");
-        });
-    }
-
-    private void setSuccess(String message) {
-        Platform.runLater(() -> {
-            statusLabel.setText(message.startsWith("\u2713") ? message : "\u2713 " + message);
-            statusLabel.getStyleClass().remove("status-text--error");
-            if (!statusLabel.getStyleClass().contains("status-text--success")) {
-                statusLabel.getStyleClass().add("status-text--success");
-            }
-        });
-    }
-
-    private void setError(String message) {
-        Platform.runLater(() -> {
-            statusLabel.setText(
-                    message.startsWith("\u2715") || message.startsWith("\u26A0")
-                            ? message : "\u2715 " + message);
-            statusLabel.getStyleClass().remove("status-text--success");
-            if (!statusLabel.getStyleClass().contains("status-text--error")) {
-                statusLabel.getStyleClass().add("status-text--error");
-            }
-        });
-    }
-
-    private void showAlert(Alert.AlertType type, String title, String message) {
-        Platform.runLater(() -> {
-            Alert alert = new Alert(type);
-            alert.setTitle(title);
-            alert.setHeaderText(null);
-            alert.setContentText(message);
-            alert.showAndWait();
-        });
-    }
-
-
-    /**
-     * Signing is only possible once the token is authenticated and a PDF has
-     * been selected; saving is only possible once a signed PDF exists.
-     */
-    private void refreshPdfButtons() {
-        saveButton.setDisable(signedPdfPath == null);
-        TokenState state = context == null || !context.isActive()
-                ? null
-                : context.getBean(TokenService.class).getState();
-        boolean authed = UiSupport.isAuthenticatedState(state);
-        authenticateButton.setDisable(authed);
-        authenticateButton.setText(authed ? "Unlocked" : "Unlock Device");
-        pinField.setDisable(authed);
-        cancelButton.setDisable(state != TokenState.WAITING_FOR_PIN);
-        signButton.setDisable(selectedPdf == null || !authed);
-        signButton.setText(authed ? "Sign Document" : "Sign Document — unlock device first");
-        highlightStep(state, authed);
-    }
-
-    /** Highlights the section the user should act on next (wizard feel). */
-    private void highlightStep(TokenState state, boolean authed) {
-        VBox active;
-        if (state == null || state == TokenState.NO_TOKEN) {
-            active = tokenSection;
-        } else if (!authed && state == TokenState.WAITING_FOR_PIN) {
-            active = pinSection;
-        } else if (!authed) {
-            active = certSection;
-        } else if (signedPdfPath == null) {
-            active = pdfSection;
-        } else {
-            active = null; // all steps complete — nothing highlighted
-        }
-        for (VBox section : List.of(pdfSection, tokenSection, certSection, pinSection)) {
-            if (section == active) {
-                if (!section.getStyleClass().contains("card--active")) {
-                    section.getStyleClass().add("card--active");
-                }
-            } else {
-                section.getStyleClass().remove("card--active");
-            }
-        }
-        // Update step badges
-        updateStepBadge(pdfStepBadge, signedPdfPath != null,
-                active == pdfSection);
-        boolean tokenDone = state != null && state != TokenState.NO_TOKEN
-                && state != TokenState.TOKEN_REMOVED;
-        updateStepBadge(tokenStepBadge, tokenDone, active == tokenSection);
-        boolean certDone = tokenDone && (state == TokenState.WAITING_FOR_PIN
-                || state == TokenState.AUTHENTICATED || state == TokenState.SIGNATURE_COMPLETE
-                || state == TokenState.SIGNATURE_FAILED);
-        updateStepBadge(certStepBadge, certDone, active == certSection);
-        boolean pinDone = state == TokenState.AUTHENTICATED
-                || state == TokenState.SIGNATURE_COMPLETE || state == TokenState.SIGNATURE_FAILED;
-        updateStepBadge(pinStepBadge, pinDone, active == pinSection);
-    }
-
-    private void updateStepBadge(Label badge, boolean done, boolean active) {
-        badge.getStyleClass().removeAll("step-number--active", "step-number--done");
-        if (done) {
-            badge.getStyleClass().add("step-number--done");
-        } else if (active) {
-            badge.getStyleClass().add("step-number--active");
-        }
-    }
-
-    // --------------------------------------------------------------------------------
-    // step 1: PDF
-    // --------------------------------------------------------------------------------
-    private void choosePdf() {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("Choose a PDF to sign");
-        chooser.getExtensionFilters().add(
-                new FileChooser.ExtensionFilter("PDF documents", "*.pdf"));
-        java.io.File file = chooser.showOpenDialog(stage);
-        if (file == null) {
+        if (startupError != null || context == null) {
+            showStartupError();
+            Platform.exit();
             return;
         }
-        loadPdf(file.toPath());
+
+        log.info("Starting JavaFX stage");
+        stage = primaryStage;
+        stage.setTitle("SignFlow");
+        UiSupport.applyAppIcon(stage);
+        navigator = new AppNavigator(DesktopServices.from(context), stage);
+        instanceGuard.startActivationListener(this::raiseForActivation);
+
+        if (launchInvitationToken != null) {
+            // Invited signer: no SignFlow account, so no sign-in. They get the
+            // invitation, a guest session for that one task, and the app
+            // closes when they are done.
+            log.info("Started from an invitation link — guest signing, no sign-in");
+            String token = launchInvitationToken;
+            launchInvitationToken = null;
+            navigator.acceptInvitation(stage, token);
+        } else if (navigator.signIn()) {
+            navigator.runHome();
+        }
+        Platform.exit();
     }
-
-    private void loadPdf(Path pdf) {
-        if (pdfLoadInProgress) {
-            return;
-        }
-        pdfLoadInProgress = true;
-        selectedPdf = pdf;
-        PdfDocumentService pdfService = context.getBean(PdfDocumentService.class);
-        Task<PdfDocumentInfo> task = new Task<>() {
-            @Override
-            protected PdfDocumentInfo call() throws IOException {
-                return pdfService.describe(selectedPdf);
-            }
-        };
-        task.setOnSucceeded(e -> {
-            pdfLoadInProgress = false;
-            PdfDocumentInfo info = task.getValue();
-            pdfInfo.setText(info.fileName() + "  ·  " + info.sizeBytes() + " bytes  ·  " + info.lastModified());
-            setStatus("\u2713 PDF selected: " + info.fileName());
-            refreshPdfButtons();
-        });
-        task.setOnFailed(e -> {
-            pdfLoadInProgress = false;
-            setError("Could not read PDF: " + UiSupport.failureMessage(task));
-        });
-        new Thread(task, "pdf-describe").start();
-    }
-
-    private void setupDropTarget(Scene scene, BorderPane target) {
-        scene.setOnDragOver(e -> {
-            Dragboard db = e.getDragboard();
-            if (e.getGestureSource() == null && db.hasFiles() && hasPdfFile(db)) {
-                e.acceptTransferModes(TransferMode.COPY);
-                if (!target.getStyleClass().contains("drop-target")) {
-                    target.getStyleClass().add("drop-target");
-                }
-            }
-            e.consume();
-        });
-        scene.setOnDragExited(e -> {
-            target.getStyleClass().remove("drop-target");
-        });
-        scene.setOnDragDropped(e -> {
-            boolean done = false;
-            Dragboard db = e.getDragboard();
-            if (db.hasFiles()) {
-                java.io.File pdf = db.getFiles().stream()
-                        .filter(f -> f.getName().toLowerCase().endsWith(".pdf"))
-                        .findFirst().orElse(null);
-                if (pdf != null) {
-                    loadPdf(pdf.toPath());
-                    done = true;
-                }
-            }
-            target.getStyleClass().remove("drop-target");
-            e.setDropCompleted(done);
-            e.consume();
-        });
-    }
-
-    private static boolean hasPdfFile(Dragboard db) {
-        return db.getFiles().stream().anyMatch(f -> f.getName().toLowerCase().endsWith(".pdf"));
-    }
-
-    // --------------------------------------------------------------------------------
-    // step 2: token detection
-    // --------------------------------------------------------------------------------
-    private void detect() {
-        if (context == null || !context.isActive()) {
-            return;
-        }
-        setBusy(true);
-        setStatus("Detecting token…");
-        TokenService tokenService = context.getBean(TokenService.class);
-        Task<Void> task = new Task<>() {
-            @Override
-            protected Void call() {
-                tokenService.detect();
-                return null;
-            }
-        };
-        task.setOnSucceeded(e -> {
-            setBusy(false);
-            refreshTokenUi();
-            setStatus("\u2713 Token detected");
-        });
-        task.setOnFailed(e -> {
-            setBusy(false);
-            refreshTokenUi();
-            setError("Token detection failed: " + UiSupport.failureMessage(task));
-        });
-        new Thread(task, "token-detect").start();
-    }
-
-    private void refreshTokenUi() {
-        TokenService tokenService = context.getBean(TokenService.class);
-        Platform.runLater(() -> {
-            TokenState state = tokenService.getState();
-            statePill.setText(state.name().replace('_', ' '));
-            if (state == TokenState.CERTIFICATE_AVAILABLE
-                    && !statusLabel.getStyleClass().contains("status-text--error")) {
-                statusLabel.setText("Token detected — enter your PIN and click Authenticate");
-            }
-
-            // Update status dot
-            statusDot.getStyleClass().removeAll("status-dot--active", "status-dot--pending",
-                    "status-dot--error", "status-dot--inactive");
-            if (state == TokenState.AUTHENTICATED
-                    || state == TokenState.SIGNATURE_COMPLETE) {
-                statusDot.getStyleClass().add("status-dot--active");
-            } else if (state == TokenState.NO_TOKEN || state == TokenState.TOKEN_REMOVED) {
-                statusDot.getStyleClass().add("status-dot--error");
-            } else if (state == TokenState.CERTIFICATE_AVAILABLE
-                    || state == TokenState.WAITING_FOR_PIN) {
-                statusDot.getStyleClass().add("status-dot--pending");
-            } else {
-                statusDot.getStyleClass().add("status-dot--pending");
-            }
-
-            TokenInfo info = tokenService.getTokenInfo();
-            tokenInfoLabel.setText(info == null
-                    ? "No token"
-                    : info.label() + "  ·  " + info.manufacturer() + "  ·  " + info.model());
-
-            List<SigningCertificate> certs = UiSupport.safeCertificates(tokenService);
-            List<String> labels = certs.stream()
-                    .map(c -> c.getSubject() + "  [" + c.getAlias() + "]")
-                    .toList();
-            certCombo.getItems().setAll(labels);
-            if (!certs.isEmpty()) {
-                selectedCert = certs.get(0);
-                selectedAlias = certs.get(0).getAlias();
-                certCombo.getSelectionModel().select(0);
-            } else {
-                selectedCert = null;
-                selectedAlias = null;
-            }
-            onCertificateSelected();
-            refreshPdfButtons();
-        });
-    }
-
-    private void onCertificateSelected() {
-        TokenService tokenService = context.getBean(TokenService.class);
-        int index = certCombo.getSelectionModel().getSelectedIndex();
-        if (index < 0) {
-            selectedCert = null;
-            selectedAlias = null;
-            certInfoLabel.setText(" ");
-            return;
-        }
-        List<SigningCertificate> certs = UiSupport.safeCertificates(tokenService);
-        if (index >= certs.size()) {
-            return;
-        }
-        selectedCert = certs.get(index);
-        selectedAlias = selectedCert.getAlias();
-        certInfoLabel.setText("Subject: " + selectedCert.getSubject()
-                + "  ·  " + selectedCert.getPublicKeyAlgorithm() + " " + selectedCert.getKeySize()
-                + "  ·  " + selectedCert.getSha256Fingerprint());
-    }
-
-    // --------------------------------------------------------------------------------
-    // step 3: authentication
-    // --------------------------------------------------------------------------------
-    private void authenticate() {
-        if (context == null || !context.isActive()) {
-            return;
-        }
-        TokenService tokenService0 = context.getBean(TokenService.class);
-        TokenState state = tokenService0.getState();
-        if (state == TokenState.AUTHENTICATED
-                || state == TokenState.SIGNATURE_COMPLETE
-                || state == TokenState.SIGNATURE_FAILED) {
-            log.info("Unlock clicked but token is already authenticated");
-            setStatus("\u2713 Security device is already unlocked — ready to sign.");
-            refreshTokenUi();
-            return;
-        }
-        if (state != TokenState.CERTIFICATE_AVAILABLE
-                && state != TokenState.WAITING_FOR_PIN) {
-            setError("Device not ready (state " + state + ") — detect the token first.");
-            return;
-        }
-        char[] pin = UiSupport.pinChars(pinField);
-        if (pin == null || pin.length == 0) {
-            log.info("Unlock clicked but PIN field is empty");
-            setError("Enter the device PIN first");
-            showAlert(Alert.AlertType.WARNING, "PIN required",
-                    "Type your security device PIN in the field, then click Unlock.");
-            return;
-        }
-        log.info("Unlock clicked with {} PIN character(s)", pin.length);
-        pinField.clear();
-        setBusy(true);
-        setStatus("Unlocking security device…");
-        TokenService tokenService = context.getBean(TokenService.class);
-        Task<Void> task = new Task<>() {
-            @Override
-            protected Void call() {
-                try {
-                    // Only OPEN the PIN flow when it has not been started yet;
-                    // after a failed attempt the state is WAITING_FOR_PIN and
-                    // startAuthentication() must not be called again.
-                    if (tokenService.getState() == TokenState.CERTIFICATE_AVAILABLE) {
-                        tokenService.startAuthentication();
-                    }
-                    tokenService.authenticate(pin); // TokenService wipes the PIN
-                    return null;
-                } finally {
-                    java.util.Arrays.fill(pin, '\0');
-                }
-            }
-        };
-        task.setOnSucceeded(e -> {
-            setBusy(false);
-            refreshTokenUi();
-            setStatus("\u2713 Security device unlocked — ready to sign.");
-            log.info("Authentication succeeded");
-            showAlert(Alert.AlertType.INFORMATION, "Authentication", "Authenticated. You can now Sign PDF.");
-        });
-        task.setOnFailed(e -> {
-            setBusy(false);
-            refreshTokenUi();
-            setError("Authentication failed: " + UiSupport.failureMessage(task));
-            log.warn("Authentication failed", task.getException());
-            showAlert(Alert.AlertType.ERROR, "Authentication failed",
-                    UiSupport.failureMessage(task));
-        });
-        new Thread(task, "token-auth").start();
-    }
-
-    private void cancelAuthentication() {
-        setBusy(true);
-        TokenService tokenService = context.getBean(TokenService.class);
-        Task<Void> task = new Task<>() {
-            @Override
-            protected Void call() {
-                tokenService.cancelAuthentication();
-                return null;
-            }
-        };
-        task.setOnSucceeded(e -> {
-            setBusy(false);
-            refreshTokenUi();
-            setStatus("PIN entry cancelled");
-        });
-        task.setOnFailed(e -> {
-            setBusy(false);
-            refreshTokenUi();
-            setError("Cancel failed: " + UiSupport.failureMessage(task));
-        });
-        new Thread(task, "token-cancel").start();
-    }
-
-    private void logout() {
-        setBusy(true);
-        TokenService tokenService = context.getBean(TokenService.class);
-        Task<Void> task = new Task<>() {
-            @Override
-            protected Void call() {
-                tokenService.logout();
-                return null;
-            }
-        };
-        task.setOnSucceeded(e -> {
-            setBusy(false);
-            refreshTokenUi();
-            setStatus("Logged out");
-        });
-        task.setOnFailed(e -> {
-            setBusy(false);
-            refreshTokenUi();
-            setError("Logout failed: " + UiSupport.failureMessage(task));
-        });
-        new Thread(task, "token-logout").start();
-    }
-
-    // --------------------------------------------------------------------------------
-    // step 4: sign & verify
-    // --------------------------------------------------------------------------------
-    private void sign() {
-        if (selectedPdf == null || selectedAlias == null) {
-            setError("Select a PDF and unlock the security device first");
-            return;
-        }
-        setBusy(true);
-        setStatus("Signing…");
-        PdfSigningService pdfSigningService = context.getBean(PdfSigningService.class);
-        Path pdf = selectedPdf;
-        String alias = selectedAlias;
-        SigningAlgorithm algorithm = SigningAlgorithm.RSA_SHA256;
-        Task<SigningResult> task = new Task<>() {
-            @Override
-            protected SigningResult call() throws Exception {
-                Path temp = Files.createTempFile("signer-", "-signed.pdf");
-                try {
-                    SigningResult r = pdfSigningService.signPdf(pdf, alias, algorithm, temp);
-                    if (Files.size(temp) == 0) {
-                        throw new IOException("Signing produced an empty output file");
-                    }
-                    signedPdfPath = temp;
-                    return r;
-                } catch (Exception ex) {
-                    Files.deleteIfExists(temp);
-                    throw ex;
-                }
-            }
-        };
-        task.setOnSucceeded(e -> {
-            setBusy(false);
-            lastSigningResult = task.getValue();
-            refreshTokenUi();
-            saveButton.setDisable(false);
-            log.info("PDF signing succeeded, signedPdfPath={}, size={}", signedPdfPath,
-                    (signedPdfPath == null ? -1 : nullSafeSize(signedPdfPath)));
-            setStatus("Signed with " + lastSigningResult.algorithm()
-                    + " by " + lastSigningResult.signerSubject() + " — verifying…");
-            verify();
-        });
-        task.setOnFailed(e -> {
-            setBusy(false);
-            refreshTokenUi();
-            setError("Signing failed: " + UiSupport.failureMessage(task));
-            log.warn("PDF signing failed", task.getException());
-        });
-        new Thread(task, "pdf-sign").start();
-    }
-
-    private long nullSafeSize(Path path) {
-        try {
-            return Files.size(path);
-        } catch (IOException ex) {
-            return -2;
-        }
-    }
-
-    private void verify() {
-        if (signedPdfPath == null) {
-            setError("Sign a PDF first, then verify");
-            return;
-        }
-        setBusy(true);
-        setStatus("Verifying…");
-        PdfVerificationService verificationService = context.getBean(PdfVerificationService.class);
-        Path pdf = signedPdfPath;
-        Task<SignatureVerificationResult> task = new Task<>() {
-            @Override
-            protected SignatureVerificationResult call() throws Exception {
-                return verificationService.verifyPdf(pdf);
-            }
-        };
-        task.setOnSucceeded(e -> {
-            setBusy(false);
-            SignatureVerificationResult vr = task.getValue();
-            if (vr.valid()) {
-                setSuccess("Signature verified  ·  " + vr.signerSubject());
-                log.info("Signature verified successfully");
-            } else {
-                setError("Signature invalid: " + vr.message());
-                log.warn("Signature verification failed: {}", vr.message());
-            }
-            showSignatureChain(vr);
-        });
-        task.setOnFailed(e -> {
-            setBusy(false);
-            setError("Verification failed: " + UiSupport.failureMessage(task));
-        });
-        new Thread(task, "token-verify").start();
-    }
-
-    /**
-     * Logs the per-signature chain detail (signer, algorithm, signing time,
-     * validity) so every signature in the revision chain is visible with its
-     * own status, not just the most recent one.
-     */
-    private static void showSignatureChain(SignatureVerificationResult result) {
-        List<SignatureVerificationResult.SignatureDetail> chain = result.signatures();
-        if (chain.isEmpty()) {
-            return;
-        }
-        log.info("Signature chain ({}):", chain.size());
-        for (SignatureVerificationResult.SignatureDetail detail : chain) {
-            log.info("  [{}] {} — {} — signed {} — {} ({})",
-                    detail.index() + 1,
-                    detail.signerSubject(),
-                    detail.algorithm() != null ? detail.algorithm() : "unknown",
-                    detail.signedAtKnown() ? detail.signedAt() : "time unknown",
-                    detail.valid() ? "VALID" : "INVALID",
-                    detail.message());
-        }
-    }
-
-    private void saveSignedPdf() {
-        if (signedPdfPath == null) {
-            setError("Sign a PDF first, then save the signed copy");
-            return;
-        }
-        try {
-            if (Files.size(signedPdfPath) == 0) {
-                setError("No signed data available — sign a PDF first");
-                signedPdfPath = null;
-                saveButton.setDisable(true);
-                return;
-            }
-        } catch (IOException ex) {
-            setError("Could not read signed PDF: " + ex.getMessage());
-            return;
-        }
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("Save signed PDF");
-        chooser.getExtensionFilters().add(
-                new FileChooser.ExtensionFilter("PDF documents", "*.pdf"));
-        if (selectedPdf != null) {
-            String name = selectedPdf.getFileName().toString();
-            int dot = name.lastIndexOf('.');
-            chooser.setInitialFileName((dot > 0 ? name.substring(0, dot) : name) + "-signed.pdf");
-        }
-        java.io.File target = chooser.showSaveDialog(stage);
-        if (target == null) {
-            return;
-        }
-        try {
-            Files.copy(signedPdfPath, target.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            if (Files.size(target.toPath()) == 0) {
-                Files.deleteIfExists(target.toPath());
-                setError("Could not save signed PDF: output file is empty");
-                return;
-            }
-            setSuccess("Signed PDF saved to " + target.getName());
-        } catch (IOException ex) {
-            setError("Could not save signed PDF: " + ex.getMessage());
-        }
-    }
-
-    private void openWorkspace() {
-        SigningWorkspace workspace = new SigningWorkspace(
-                context.getBean(com.example.signer.token.TokenService.class),
-                context.getBean(PdfSigningService.class),
-                context.getBean(PdfRenderService.class),
-                context.getBean(PdfVerificationService.class));
-        workspace.show(stage);
-    }
-
-    /**
-     * Opens the per-signer signing workspace for the chosen mode: every
-     * signer reviews the current revision in the PDF viewer, places their
-     * own signature, previews it, authenticates their token and signs.
-     */
-    /** Opens a PDF carrying a portable workflow manifest and continues it. */
-    private void openWorkflowContinuation() {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("Open a signing workflow document");
-        chooser.getExtensionFilters().add(
-                new FileChooser.ExtensionFilter("PDF documents", "*.pdf"));
-        java.io.File file = chooser.showOpenDialog(stage);
-        if (file == null) {
-            log.info("Workflow continuation cancelled at document selection");
-            return;
-        }
-        new com.example.signer.ui.workspace.WorkflowContinuationDialog(
-                context.getBean(com.example.signer.workflow.WorkflowSigningService.class),
-                context.getBean(TokenService.class))
-                .showAndWait(stage, file.toPath());
-    }
-
-    private void openMultiSignerWorkflow(SigningMode mode) {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("Choose the PDF for the "
-                + mode.signerCount() + "-signer workflow");
-        chooser.getExtensionFilters().add(
-                new FileChooser.ExtensionFilter("PDF documents", "*.pdf"));
-        java.io.File file = chooser.showOpenDialog(stage);
-        if (file == null) {
-            log.info("Multi-signer workflow cancelled at document selection");
-            return;
-        }
-        new com.example.signer.ui.workspace.MultiSignerWorkspaceFlow(
-                mode,
-                file.toPath(),
-                context.getBean(com.example.signer.workflow.WorkflowSigningEngine.class),
-                context.getBean(com.example.signer.token.TokenService.class),
-                context.getBean(PdfRenderService.class),
-                context.getBean(com.example.signer.pdf.PdfDocumentService.class))
-                .showAndWait(stage);
-    }
-
-    // --------------------------------------------------------------------------------
-    // background token polling (kept from the original placeholder)
-    // --------------------------------------------------------------------------------
-    private void refreshTokenStateInBackground() {
-        if (context == null || !context.isActive()) {
-            return;
-        }
-        TokenService tokenService = context.getBean(TokenService.class);
-        Task<TokenState> task = new Task<>() {
-            @Override
-            protected TokenState call() {
-                try {
-                    tokenService.detect();
-                } catch (Exception e) {
-                    log.debug("Token detection failed during startup: {}", e.getMessage());
-                }
-                return tokenService.getState();
-            }
-        };
-        task.setOnSucceeded(e -> {
-            refreshTokenUi();
-            if (task.getValue() != null && task.getValue().name().contains("NO_TOKEN")) {
-                setStatus("No token detected — insert a token and press “Detect token”");
-            }
-        });
-        new Thread(task, "token-detect-background").start();
-    }
-
 
     @Override
     public void stop() {
         log.info("Shutting down application");
+        instanceGuard.close();
         if (context != null) {
             context.close();
         }
+    }
+
+    /** Boots Spring: desktop profile, no web server, no database. */
+    private void bootSpring() {
+        log.info("Initializing Spring application context");
+        SpringApplication app = new SpringApplication(SignerApplication.class);
+        app.setWebApplicationType(WebApplicationType.NONE);
+        app.setAdditionalProfiles("desktop");
+        try {
+            context = app.run(getParameters().getRaw().toArray(new String[0]));
+        } catch (RuntimeException e) {
+            // Fail fast and visibly: an unsafe production configuration stops
+            // the app with the reason instead of falling back to dev settings.
+            startupError = rootMessage(e);
+            log.error("SignFlow cannot start: {}", startupError, e);
+            return;
+        }
+        // Plain http to a non-loopback server is allowed only in dev.
+        WorkflowApiClient.allowInsecureTransportForDevelopment(
+                context.getEnvironment().acceptsProfiles(Profiles.of("dev")));
+        log.info("Spring application context initialized");
+    }
+
+    /**
+     * Another copy holds the lock but does not answer: offer to restart.
+     *
+     * @return true when this process took over and Spring was started
+     */
+    private boolean replaceStuckCopy() {
+        ButtonType restart = new ButtonType("Restart SignFlow", ButtonBar.ButtonData.OK_DONE);
+        Alert ask = new Alert(Alert.AlertType.WARNING,
+                "Another copy of SignFlow is running but isn't responding, so its"
+                        + " window can't be shown.\n\nRestart SignFlow? The stuck copy"
+                        + " will be closed (nothing is signed or sent by this).",
+                restart, ButtonType.CANCEL);
+        ask.setTitle("SignFlow is already running");
+        ask.setHeaderText("SignFlow is already running");
+        if (ask.showAndWait().orElse(ButtonType.CANCEL) != restart) {
+            return false;
+        }
+        if (!instanceGuard.replaceUnresponsiveInstance()) {
+            Alert fail = new Alert(Alert.AlertType.ERROR,
+                    "The other copy could not be closed. Close it from the Task Manager"
+                            + " (Java Platform SE binary), then start SignFlow again.");
+            fail.setHeaderText("SignFlow could not restart");
+            fail.showAndWait();
+            return false;
+        }
+        bootSpring();
+        return true;
+    }
+
+    private void showStartupError() {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setTitle("SignFlow cannot start");
+        alert.setHeaderText("SignFlow cannot start with this configuration");
+        TextArea details = new TextArea(startupError != null ? startupError
+                : "The application context did not start. See the log for details.");
+        details.setEditable(false);
+        details.setWrapText(true);
+        alert.getDialogPane().setContent(details);
+        alert.showAndWait();
+    }
+
+    /**
+     * FX thread, on a second launch: bring the visible screen to the front
+     * and, when that launch came from an invitation link, open it.
+     *
+     * @return true when a window was raised (or the invitation will open)
+     */
+    private boolean raiseForActivation(String forwardedToken) {
+        // Dialogs are created after their owners, so the LAST showing stage
+        // is the screen the user is looking at.
+        Stage target = null;
+        List<Window> open = Window.getWindows();
+        for (int i = open.size() - 1; i >= 0; i--) {
+            if (open.get(i) instanceof Stage s && s.isShowing()) {
+                target = s;
+                break;
+            }
+        }
+        if (target == null) {
+            target = stage;
+        }
+        boolean raised = target != null && (target.isShowing() || forwardedToken != null);
+        if (target != null) {
+            // Windows refuses focus to background processes (toFront() only
+            // flashes the taskbar); a brief always-on-top round trip works.
+            Stage window = target;
+            window.setIconified(false);
+            window.setAlwaysOnTop(true);
+            window.toFront();
+            window.requestFocus();
+            PauseTransition drop = new PauseTransition(Duration.millis(400));
+            drop.setOnFinished(ev -> window.setAlwaysOnTop(false));
+            drop.play();
+            log.info("Activated by a second launch attempt (raised: {})", window.getTitle());
+        }
+        if (forwardedToken != null) {
+            log.info("Second launch forwarded an invitation link");
+            // Next pulse: the flow waits for the user, while the second launch
+            // must get its answer now.
+            Window owner = target != null ? target : stage;
+            Platform.runLater(() -> navigator.acceptInvitation(owner, forwardedToken));
+        }
+        return raised;
+    }
+
+    private static String rootMessage(Throwable e) {
+        Throwable t = e;
+        String message = e.getMessage();
+        while (t != null) {
+            if (t instanceof IllegalStateException && t.getMessage() != null) {
+                message = t.getMessage();
+            }
+            t = t.getCause();
+        }
+        return message == null ? e.toString() : message;
     }
 }

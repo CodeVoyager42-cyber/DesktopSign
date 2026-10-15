@@ -1,5 +1,6 @@
 package com.example.signer.verification;
 
+import java.util.Calendar;
 import com.example.signer.token.SigningAlgorithm;
 
 import java.time.Instant;
@@ -29,43 +30,84 @@ public record SignatureVerificationResult(
         String signerSubject,
         Instant verifiedAt,
         String message,
-        List<SignatureDetail> signatures) {        public record SignatureDetail(
+        List<SignatureDetail> signatures) {
+
+    /**
+     * Detail for one signature in the chain.
+     *
+     * @param docMdp DocMDP access-permission value from a certification
+     *               signature ({@code null} when the signature is not a
+     *               certification signature or declares no permissions) —
+     *               1 = no changes allowed, 2 = form fill/ signing allowed,
+     *               3 = form fill allowed, 4 = allowed with revocation info
+     */
+    public record SignatureDetail(
             int index,
             String signerSubject,
             SigningAlgorithm algorithm,
             Instant signedAt,
             boolean valid,
             String message,
-            String signerCertFingerprint) {
+            String signerCertFingerprint,
+            Integer docMdp,
+            SignatureProperties properties) {
 
-            /** Backward-compatible factory (no fingerprint known). */
-            public static SignatureDetail of(int index,
-                                             String signerSubject,
-                                             SigningAlgorithm algorithm,
-                                             java.util.Calendar signDate,
-                                             boolean valid,
-                                             String message) {
-                return of(index, signerSubject, algorithm, signDate, valid, message, null);
-            }
+        /** Backward-compatible factory (no fingerprint, no DocMDP known). */
+        public static SignatureDetail of(int index,
+                                         String signerSubject,
+                                         SigningAlgorithm algorithm,
+                                         Calendar signDate,
+                                         boolean valid,
+                                         String message) {
+            return of(index, signerSubject, algorithm, signDate, valid, message, null);
+        }
+
+        /** Backward-compatible factory (no DocMDP known). */
+        public static SignatureDetail of(int index,
+                                         String signerSubject,
+                                         SigningAlgorithm algorithm,
+                                         Calendar signDate,
+                                         boolean valid,
+                                         String message,
+                                         String signerCertFingerprint) {
+            return of(index, signerSubject, algorithm, signDate, valid, message,
+                    signerCertFingerprint, null);
+        }
+
+        /** Full factory (all known detail). */
+        public static SignatureDetail of(int index,
+                                         String signerSubject,
+                                         SigningAlgorithm algorithm,
+                                         Calendar signDate,
+                                         boolean valid,
+                                         String message,
+                                         String signerCertFingerprint,
+                                         Integer docMdp) {
+            return of(index, signerSubject, algorithm, signDate, valid, message,
+                    signerCertFingerprint, docMdp, null);
+        }
 
         /**
-         * Factory converting the PDF {@code /M} signing date. A missing or
-         * unparsable date yields {@code signedAt = null} — the signature can
-         * still be valid, its signing time is simply unknown.
+         * Full factory including the facts read from the embedded signature
+         * and its certificate ({@code properties} may be {@code null} when
+         * the CMS could not be parsed).
          */
         public static SignatureDetail of(int index,
                                          String signerSubject,
                                          SigningAlgorithm algorithm,
-                                         java.util.Calendar signDate,
+                                         Calendar signDate,
                                          boolean valid,
                                          String message,
-                                         String signerCertFingerprint) {
+                                         String signerCertFingerprint,
+                                         Integer docMdp,
+                                         SignatureProperties properties) {
             Instant signedAt = signDate != null
                     ? signDate.toInstant()
                     : null;
             return new SignatureDetail(index,
                     signerSubject != null ? signerSubject : "unknown",
-                    algorithm, signedAt, valid, message, signerCertFingerprint);
+                    algorithm, signedAt, valid, message, signerCertFingerprint,
+                    docMdp, properties);
         }
 
         /** SHA-256 fingerprint of the signer certificate (colon-separated hex). */
@@ -75,6 +117,14 @@ public record SignatureVerificationResult(
 
         public boolean signedAtKnown() {
             return signedAt != null;
+        }
+
+        /**
+         * The DocMDP value this certification signature grants, or
+         * {@code null} when this is an ordinary approval signature.
+         */
+        public Integer docMdp() {
+            return docMdp;
         }
     }
 

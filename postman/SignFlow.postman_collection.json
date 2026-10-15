@@ -1,0 +1,440 @@
+{
+	"info": {
+		"_postman_id": "b7e6c1de-signflow-api-0001",
+		"name": "SignFlow Coordination API",
+		"description": "JWT-authenticated coordination API of the PDF multi-signature desktop app.\n\nWorkflow:\n1. Run 'Auth / Login (alice)' — the test script saves accessToken + refreshToken automatically.\n2. Every other request inherits the Bearer token from the collection.\n3. Access tokens expire after 15 minutes — re-run login, or use 'Auth / Refresh' (also auto-saves the rotated pair).\n\nRequires the coordination server: double-click run-server.cmd (port 8080).",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{accessToken}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080"
+		},
+		{
+			"key": "accessToken",
+			"value": ""
+		},
+		{
+			"key": "refreshToken",
+			"value": ""
+		},
+		{
+			"key": "workflowId",
+			"value": ""
+		}
+	],
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Login (alice)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"login 200\", () => pm.response.to.have.status(200));",
+									"const json = pm.response.json();",
+									"pm.collectionVariables.set(\"accessToken\", json.accessToken);",
+									"pm.collectionVariables.set(\"refreshToken\", json.refreshToken);",
+									"pm.test(\"tokens present\", () => {",
+									"    pm.expect(json.accessToken).to.be.a(\"string\").and.not.empty;",
+									"    pm.expect(json.refreshToken).to.be.a(\"string\").and.not.empty;",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"alice\",\n  \"password\": \"alice-pass\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Dev passwords follow <name>-pass: alice-pass, bob-pass, charlie-pass. Wrong credentials return 401. The script stores both tokens in collection variables so every other request just works."
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh (rotate token)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"refresh 200\", () => pm.response.to.have.status(200));",
+									"const json = pm.response.json();",
+									"pm.collectionVariables.set(\"accessToken\", json.accessToken);",
+									"pm.collectionVariables.set(\"refreshToken\", json.refreshToken);"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/refresh",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"refresh"
+							]
+						},
+						"description": "Rotation: each use issues a NEW refresh token (auto-saved by the script). Replaying an already-used token revokes the whole session family — try it: re-send the same request twice, the second must be 401."
+					},
+					"response": []
+				},
+				{
+					"name": "Logout (revoke session)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/logout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"logout"
+							]
+						},
+						"description": "Revokes the presented refresh session (204). Idempotent. After logout, Refresh returns 401."
+					},
+					"response": []
+				},
+				{
+					"name": "Who am I (me)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"me"
+							]
+						},
+						"description": "Validates the Bearer token and returns the authenticated user id. Quick way to check token health: {\"userId\":\"alice\"}."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Workflows",
+			"item": [
+				{
+					"name": "My tasks",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"200\", () => pm.response.to.have.status(200));",
+									"const list = pm.response.json();",
+									"if (list.length > 0 && !pm.collectionVariables.get(\"workflowId\")) {",
+									"    pm.collectionVariables.set(\"workflowId\", list[0].workflowId);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/my-tasks",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"workflows",
+								"my-tasks"
+							]
+						},
+						"description": "Workflows currently waiting for THIS user's signature. Also try switching login to bob to see turn-taking in action."
+					},
+					"response": []
+				},
+				{
+					"name": "Create workflow (multipart)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"created 201\", () => pm.response.to.have.status(201));",
+									"const json = pm.response.json();",
+									"pm.collectionVariables.set(\"workflowId\", json.workflowId);",
+									"console.log(\"workflowId saved: \" + json.workflowId);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "request",
+									"type": "text",
+									"value": "{\"documentName\":\"contract.pdf\",\"signers\":[{\"order\":1,\"userId\":\"alice\",\"certificateSha256\":\"REPLACE_WITH_64_HEX_CHARS\"},{\"order\":2,\"userId\":\"bob\",\"certificateSha256\":\"REPLACE_WITH_64_HEX_CHARS\"}]}"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": ""
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"workflows"
+							]
+						},
+						"description": "form-data: field 'request' = JSON (edit in place), field 'file' = pick any .pdf via the file selector.\n\ncertificateSha256 must be 64 hex chars (colons are stripped). For pure API testing any 64-hex value passes creation validation — but signing later requires a signature from the real bound certificate (use the app's Capture button to get the real fingerprint of the mock token)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get workflow",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"workflows",
+								"{{workflowId}}"
+							]
+						},
+						"description": "Status overview incl. current signer and short fingerprint. Requires the logged-in user to be a workflow participant."
+					},
+					"response": []
+				},
+				{
+					"name": "Get task (current signing step)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/task",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"workflows",
+								"{{workflowId}}",
+								"task"
+							]
+						},
+						"description": "Returns documentRevision + documentSha256 — both are REQUIRED in the signature submission. 409 if it is not your turn."
+					},
+					"response": []
+				},
+				{
+					"name": "Download current revision",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/document",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"workflows",
+								"{{workflowId}}",
+								"document"
+							]
+						},
+						"description": "application/pdf — only served to the signer whose turn it is (409 otherwise). Save response to a file via 'Send and Download'."
+					},
+					"response": []
+				},
+				{
+					"name": "Revision history",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/revisions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"workflows",
+								"{{workflowId}}",
+								"revisions"
+							]
+						},
+						"description": "Immutable revision chain: number, parent, sha256, size, author. Revisions are never overwritten — each signature adds a new file."
+					},
+					"response": []
+				},
+				{
+					"name": "Audit trail",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/audit",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"workflows",
+								"{{workflowId}}",
+								"audit"
+							]
+						},
+						"description": "Every server decision: creation, submissions, validations, rejections, turn transitions."
+					},
+					"response": []
+				},
+				{
+					"name": "Submit signed PDF (multipart)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "request",
+									"type": "text",
+									"value": "{\"parentRevision\":0,\"parentSha256\":\"REPLACE_FROM_TASK_ENDPOINT\",\"signingOperationId\":\"REPLACE_WITH_ANY_UUID\"}"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": ""
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/signatures",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"workflows",
+								"{{workflowId}}",
+								"signatures"
+							]
+						},
+						"description": "Upload a signature produced by the DESKTOP app (incremental update of the current revision).\n\nServer-side checks: turn, parent revision+hash, byte-prefix append-only, full signature chain, certificate binding. Idempotent by signingOperationId — resending the same UUID returns the original result instead of a second revision."
+					},
+					"response": []
+				},
+				{
+					"name": "Cancel workflow",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/cancel",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"workflows",
+								"{{workflowId}}",
+								"cancel"
+							]
+						},
+						"description": "Any participant may cancel while the workflow is still active. Terminal workflows return 409."
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

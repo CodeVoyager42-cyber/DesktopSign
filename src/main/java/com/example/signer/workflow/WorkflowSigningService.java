@@ -1,5 +1,8 @@
 package com.example.signer.workflow;
 
+import com.example.signer.signing.SignatureAppearance;
+import com.example.signer.token.SigningAlgorithm;
+import org.apache.pdfbox.Loader;
 import com.example.signer.exception.ErrorCode;
 import com.example.signer.exception.SignerException;
 import com.example.signer.signing.PdfSigningService;
@@ -15,9 +18,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.cert.CertificateExpiredException;
+import java.security.cert.CertificateNotYetValidException;
+import java.util.HexFormat;
 import java.nio.file.StandardCopyOption;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
@@ -77,11 +85,27 @@ public class WorkflowSigningService {
      * ------------------------------------------------------------------ */
 
     /**
-     * Builds a manifest for the ordered signers. Identities must come from
-     * real certificates (token or file); call
-     * {@link #identityOf(SigningCertificate)} / {@link #identityOf(X509Certificate)}.
+     * Builds a manifest for the ordered signers, bound to the SHA-256 hash of
+     * {@code originalPdf} so the workflow can never silently accept a
+     * different document. Identities must come from real certificates (token
+     * or file); call {@link #identityOf(SigningCertificate)} /
+     * {@link #identityOf(X509Certificate)}.
      */
-    public WorkflowManifest createWorkflow(String documentName,
+    public WorkflowManifest createWorkflow(Path originalPdf,
+                                           String documentName,
+                                           List<WorkflowSignerStep> orderedSteps) {
+        return createWorkflow(originalPdf, documentName,
+                WorkflowSigningPolicy.SEQUENTIAL, orderedSteps);
+    }
+
+    /**
+     * As {@link #createWorkflow(Path, String, List)} with an explicit signing
+     * policy. The policy is embedded in the manifest so offline verification
+     * and local signing enforce the same turn rules as the server.
+     */
+    public WorkflowManifest createWorkflow(Path originalPdf,
+                                           String documentName,
+                                           WorkflowSigningPolicy signingPolicy,
                                            List<WorkflowSignerStep> orderedSteps) {
         if (orderedSteps == null || orderedSteps.isEmpty()) {
             throw new SignerException(ErrorCode.WORKFLOW_INVALID,
@@ -89,7 +113,10 @@ public class WorkflowSigningService {
         }
         Instant now = Instant.now();
         return new WorkflowManifest(WorkflowManifest.CURRENT,
-                UUID.randomUUID().toString(), now, now, List.copyOf(orderedSteps));
+                UUID.randomUUID().toString(), now, now,
+                sha256Hex(originalPdf),
+                signingPolicy == null ? WorkflowSigningPolicy.SEQUENTIAL : signingPolicy,
+                List.copyOf(orderedSteps));
     }
 
     /**
@@ -102,8 +129,17 @@ public class WorkflowSigningService {
     public void writeManifestIntoCopy(Path sourcePdf, WorkflowManifest manifest,
                                       Path targetPdf) {
         try {
+            // Document binding: when the manifest is bound to an original
+            // document, refuse to embed it into different bytes. This is the
+            // gate against seeding a workflow with a substituted document.
+            if (manifest.originalDocumentSha256() != null
+                    && !manifest.originalDocumentSha256().equals(sha256Hex(sourcePdf))) {
+                throw new SignerException(ErrorCode.WORKFLOW_TAMPERED,
+                        "The document does not match the workflow's registered"
+                                + " original document (SHA-256 mismatch)");
+            }
             byte[] bytes = WorkflowManifestCodec.serialize(manifest);
-            try (var doc = org.apache.pdfbox.Loader.loadPDF(sourcePdf.toFile())) {
+            try (var doc = Loader.loadPDF(sourcePdf.toFile())) {
                 WorkflowManifestStore.write(doc, bytes);
                 try (var os = Files.newOutputStream(targetPdf)) {
                     doc.save(os);
@@ -158,7 +194,21 @@ public class WorkflowSigningService {
      * a user-safe message otherwise. This is the domain gate; the UI must call
      * it before enabling signing and the sign path calls it again.
      */
-    public void requireCanSignNow(WorkflowDocument document, EffectiveWorkflowState state) {
+    public WorkflowSignerStep requireCanSignNow(WorkflowDocument document,
+                                                EffectiveWorkflowState state) {
+        return requireCanSignNow(document, state, null);
+    }
+
+    /**
+     * As {@link #requireCanSignNow(WorkflowDocument, EffectiveWorkflowState)}
+     * but with an optional expected signer order — the signer named by the
+     * coordination server's claimed turn — used to disambiguate when the
+     * connected token carries several certificates that match different
+     * pending steps.
+     */
+    public WorkflowSignerStep requireCanSignNow(WorkflowDocument document,
+                                                EffectiveWorkflowState state,
+                                                Integer expectedSignerOrder) {
         if (state == null || state.manifest() == null) {
             throw new SignerException(ErrorCode.WORKFLOW_INVALID,
                     "This document does not contain a signing workflow");
@@ -170,12 +220,52 @@ public class WorkflowSigningService {
                             : String.join(" ", state.signingBlockers()));
         }
         WorkflowSignerStep step = state.currentStep();
+        if (step == null
+                && state.manifest().policy() == WorkflowSigningPolicy.FLEXIBLE) {
+            // FLEXIBLE: no manifest-defined turn — the connected token's
+            // certificate selects which pending step may sign now. When the
+            // server has named the claimed signer, that order wins over the
+            // manifest's step order (one token can carry several certs).
+            step = flexibleStepForConnectedToken(state, expectedSignerOrder);
+        }
         if (step == null) {
             throw new SignerException(ErrorCode.WORKFLOW_OUT_OF_TURN,
-                    "There is no pending signature step in this workflow");
+                    "There is no pending signature step for the connected"
+                            + " signing certificate in this workflow");
         }
         // Identity check against the CONNECTED token, not a UI selection.
         certificateForStep(step);
+        return step;
+    }
+
+    /**
+     * The pending step fulfilled by a certificate on the connected token, or
+     * {@code null} when the token holds none of the pending signers.
+     */
+    private WorkflowSignerStep flexibleStepForConnectedToken(
+            EffectiveWorkflowState state, Integer expectedSignerOrder) {
+        List<SigningCertificate> certs = connectedCertificates();
+        List<WorkflowSignerStep> pending = state.manifest().stepsInOrder().stream()
+                .filter(s -> s.revisionIndex() == null)
+                .toList();
+        if (expectedSignerOrder != null) {
+            // The claimed turn names the signer: a multi-certificate token can
+            // match several pending steps, so the claim disambiguates.
+            return pending.stream()
+                    .filter(s -> expectedSignerOrder.equals(s.order()))
+                    .filter(s -> certs.stream().anyMatch(c -> s.certificate()
+                            .matchesFingerprint(c.getSha256Fingerprint())))
+                    .findFirst()
+                    .orElse(null);
+        }
+        for (WorkflowSignerStep step : pending) {
+            boolean claimed = certs.stream().anyMatch(c ->
+                    step.certificate().matchesFingerprint(c.getSha256Fingerprint()));
+            if (claimed) {
+                return step;
+            }
+        }
+        return null;
     }
 
     /**
@@ -185,10 +275,41 @@ public class WorkflowSigningService {
      * carries (they are simply not eligible here).
      */
     private SigningCertificate certificateForStep(WorkflowSignerStep step) {
-        // AUTHENTICATED is the pre-sign state; SIGNATURE_COMPLETE means a
-        // signing operation already ran in this session — the token is still
-        // authenticated and further signatures are allowed (sequential
-        // multi-signer use on one machine). Both are eligible here.
+        List<SigningCertificate> certs = connectedCertificates();
+        SigningCertificate certificate = certs.stream()
+                .filter(c -> step.certificate()
+                        .matchesFingerprint(c.getSha256Fingerprint()))
+                .findFirst()
+                .orElseThrow(() -> {
+                    log.info("Certificate mismatch for workflow step {}: expected {}",
+                            step.order(), step.certificate().fingerprintShort());
+                    return new SignerException(ErrorCode.WORKFLOW_CERT_MISMATCH,
+                            "The connected signing certificate does not match the"
+                                    + " certificate assigned to this workflow step (expected "
+                                    + step.certificate().fingerprintShort() + ")");
+                });
+        // Fail closed: an expired or not-yet-valid certificate must not
+        // produce new signatures.
+        try {
+            certificate.getCertificate().checkValidity();
+        } catch (CertificateExpiredException e) {
+            throw new SignerException(ErrorCode.CERTIFICATE_EXPIRED,
+                    "The signing certificate has expired and can no longer be"
+                            + " used to sign");
+        } catch (CertificateNotYetValidException e) {
+            throw new SignerException(ErrorCode.CERTIFICATE_NOT_YET_VALID,
+                    "The signing certificate is not valid yet");
+        }
+        return certificate;
+    }
+
+    /**
+     * Certificates of the connected, authenticated token. AUTHENTICATED is
+     * the pre-sign state; SIGNATURE_COMPLETE means a signing operation
+     * already ran in this session — the token is still authenticated and
+     * further signatures are allowed (multi-signer use on one machine).
+     */
+    private List<SigningCertificate> connectedCertificates() {
         if (!tokenService.isAuthenticated()
                 && tokenService.getState() != TokenState.SIGNATURE_COMPLETE) {
             throw new SignerException(ErrorCode.TOKEN_NOT_CONNECTED,
@@ -205,18 +326,7 @@ public class WorkflowSigningService {
             throw new SignerException(ErrorCode.CERTIFICATE_NOT_FOUND,
                     "The connected token carries no signing certificate");
         }
-        return certs.stream()
-                .filter(c -> step.certificate()
-                        .matchesFingerprint(c.getSha256Fingerprint()))
-                .findFirst()
-                .orElseThrow(() -> {
-                    log.info("Certificate mismatch for workflow step {}: expected {}",
-                            step.order(), step.certificate().fingerprintShort());
-                    return new SignerException(ErrorCode.WORKFLOW_CERT_MISMATCH,
-                            "The connected signing certificate does not match the"
-                                    + " certificate assigned to this workflow step (expected "
-                                    + step.certificate().fingerprintShort() + ")");
-                });
+        return certs;
     }
 
     /* ------------------------------------------------------------------
@@ -235,6 +345,37 @@ public class WorkflowSigningService {
     public EffectiveWorkflowState signNextStep(Path workflowPdf,
                                                SignatureAppearanceHint appearanceHint,
                                                Path outputPath) {
+        return signNextStep(workflowPdf, appearanceHint, outputPath, null);
+    }
+
+    /**
+     * As {@link #signNextStep(Path, SignatureAppearanceHint, Path)} but with
+     * the signer order expected by the coordination server's claimed turn —
+     * required when one token carries certificates for several pending
+     * signers and a FLEXIBLE policy leaves the signing order open.
+     */
+    public EffectiveWorkflowState signNextStep(Path workflowPdf,
+                                               SignatureAppearanceHint appearanceHint,
+                                               Path outputPath,
+                                               Integer expectedSignerOrder) {
+        return signNextStep(workflowPdf, appearanceHint, outputPath,
+                expectedSignerOrder, null);
+    }
+
+    /**
+     * As above, additionally stamping {@code placementHint} (the signer's
+     * chosen visible-signature geometry in PDF points) onto the fulfilled
+     * step BEFORE the updated manifest is embedded — so the coordination
+     * server can read the accepted placement back out of the revision it
+     * stores (brief §33: durable placement metadata). When the manifest step
+     * already carries a placement (workflow created with one), the existing
+     * value wins.
+     */
+    public EffectiveWorkflowState signNextStep(Path workflowPdf,
+                                               SignatureAppearanceHint appearanceHint,
+                                               Path outputPath,
+                                               Integer expectedSignerOrder,
+                                               SignaturePlacement placementHint) {
         // 1-2: fresh read of the CURRENT file (never a cached state — the file
         // may have changed since it was displayed).
         WorkflowDocument fresh = load(workflowPdf);
@@ -248,8 +389,7 @@ public class WorkflowSigningService {
         WorkflowManifest manifest = fresh.manifest();
         EffectiveWorkflowState before = fresh.effective();
         // 3: the domain gate — current turn, chain validity, certificate match.
-        requireCanSignNow(fresh, before);
-        WorkflowSignerStep step = before.currentStep();
+        WorkflowSignerStep step = requireCanSignNow(fresh, before, expectedSignerOrder);
 
         // 4: base file for this revision is the workflow PDF as read.
         Path base = fresh.pdf();
@@ -265,14 +405,18 @@ public class WorkflowSigningService {
         // 5: updated manifest with this step marked done (metadata only —
         // reconciliation will confirm against the chain after signing).
         Instant signedAt = Instant.now();
-        WorkflowManifest updated = withStepFulfilled(manifest, step, signedAt);
+        WorkflowSignerStep stampable = step.placement() == null && placementHint != null
+                ? step.withPlacement(placementHint)
+                : step;
+        WorkflowManifest updated = withStepFulfilled(manifest, stampable, signedAt);
 
         // 6-7: sign and embed in ONE incremental revision.
         Path temp = tempSibling(outputPath);
         try {
             String alias = keyAliasFor(step);
-            com.example.signer.signing.SignaturePlacement placement = step.placement();
-            com.example.signer.signing.SignatureAppearance appearance =
+            SignaturePlacement placement =
+                    stampable.placement();
+            SignatureAppearance appearance =
                     buildAppearance(step, appearanceHint);
             pdfSigningService.signPdf(base, alias,
                     algorithmFor(step), temp, placement, appearance,
@@ -327,6 +471,22 @@ public class WorkflowSigningService {
      * helpers
      * ------------------------------------------------------------------ */
 
+    /** Lower-case hex SHA-256 of a file's bytes (streamed, bounded memory). */
+    private static String sha256Hex(Path file) {
+        try (InputStream in = Files.newInputStream(file)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                digest.update(buffer, 0, read);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (Exception e) {
+            throw new SignerException(ErrorCode.PDF_SIGNING_FAILED,
+                    "The document could not be read to verify its identity", e);
+        }
+    }
+
     private boolean hasManifestBytes(Path pdf) {
         try {
             return WorkflowManifestStore.readRaw(pdf) != null;
@@ -352,13 +512,20 @@ public class WorkflowSigningService {
         }
         for (WorkflowSignerStep s : manifest.stepsInOrder()) {
             if (s.order() == step.order()) {
-                updated.add(s.withSignedAt(at).withRevisionIndex(highestRevision + 1));
+                // Carry the placement chosen for this signature (brief §33):
+                // without it the manifest never recorded where a remote
+                // signer's box went, so the server and later signers could
+                // not see it. A placement fixed at creation still wins.
+                WorkflowSignerStep base = s.placement() == null && step.placement() != null
+                        ? s.withPlacement(step.placement()) : s;
+                updated.add(base.withSignedAt(at).withRevisionIndex(highestRevision + 1));
             } else {
                 updated.add(s);
             }
         }
         return new WorkflowManifest(manifest.version(), manifest.workflowId(),
-                manifest.createdAt(), Instant.now(), updated);
+                manifest.createdAt(), Instant.now(),
+                manifest.originalDocumentSha256(), manifest.policy(), updated);
     }
 
     private String keyAliasFor(WorkflowSignerStep step) {
@@ -366,16 +533,16 @@ public class WorkflowSigningService {
     }
 
     /** RSA or ECDSA depending on the step certificate's key type. */
-    private com.example.signer.token.SigningAlgorithm algorithmFor(WorkflowSignerStep step) {
+    private SigningAlgorithm algorithmFor(WorkflowSignerStep step) {
         String keyAlgorithm = certificateForStep(step).getPublicKeyAlgorithm();
         return "EC".equals(keyAlgorithm)
-                ? com.example.signer.token.SigningAlgorithm.ECDSA_SHA256
-                : com.example.signer.token.SigningAlgorithm.RSA_SHA256;
+                ? SigningAlgorithm.ECDSA_SHA256
+                : SigningAlgorithm.RSA_SHA256;
     }
 
-    private com.example.signer.signing.SignatureAppearance buildAppearance(
+    private SignatureAppearance buildAppearance(
             WorkflowSignerStep step, SignatureAppearanceHint hint) {
-        return new com.example.signer.signing.SignatureAppearance(
+        return new SignatureAppearance(
                 hint == null || hint.reason() == null ? "Document signed with SignFlow" : hint.reason(),
                 hint == null ? null : hint.location(),
                 true, true, true, step.displayName());

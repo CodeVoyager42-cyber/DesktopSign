@@ -38,12 +38,80 @@
         <maven.compiler.release></maven.compiler.release>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
+        <jjwt.version>0.12.6</jjwt.version>
     </properties>
 
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+
+        <!-- Server-coordinated (REMOTE) signing mode: embedded coordination
+             server. The desktop context itself stays WebApplicationType.NONE;
+             the server runs as a separate Spring profile/process. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- PostgreSQL persistence (Phase 1 of the platform upgrade): JPA +
+             Flyway migrations. ALL database beans are gated on
+             signer.remote-server.database.enabled so the desktop context
+             (WebApplicationType.NONE, no DataSource) is never affected and
+             the file-based server mode keeps working unchanged. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- Optional SMTP delivery for invitation emails (console delivery
+             is the default; SMTP credentials come from environment only). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+
+        <!-- JWT authentication (Phase 3): password hashing (bcrypt) and
+             JWT signing/verification. Minimal crypto-only modules — the
+             server keeps its hand-rolled servlet filter chain and does not
+             pull in the full Spring Security filter stack. -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>org.openjfx</groupId>
@@ -109,14 +177,45 @@
     <build>
         <plugins>
             <plugin>
+                <!-- "java -jar" reads Add-Exports from the manifest (Spring
+                     Boot's repackage keeps these entries): the smart-card
+                     certificate reads use the JDK PKCS#11 wrapper
+                     (see Pkcs11WrapperAccess). -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Add-Exports>jdk.crypto.cryptoki/sun.security.pkcs11.wrapper</Add-Exports>
+                            <Enable-Native-Access>ALL-UNNAMED</Enable-Native-Access>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <!-- Desktop is the main artifact. The coordination server
+                         runs from the same jar with the server profile (see
+                         WorkflowServerApplication). -->
+                    <mainClass>com.example.signer.SignerApplication</mainClass>
+                    <!-- javafx:run is a development launch: mock token, plain
+                         HTTP to a local server (profile 'dev'). -->
+                    <commandlineArgs>--spring.profiles.active=dev</commandlineArgs>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>-XX:+EnableDynamicAgentLoading --add-modules jdk.crypto.cryptoki --add-exports jdk.crypto.cryptoki/sun.security.pkcs11.wrapper=ALL-UNNAMED</argLine>
+                    <!-- Tests run with the 'dev' profile (src/test/resources);
+                         keep the per-installation mock-token keys inside
+                         target/ instead of the developer's home directory. -->
+                    <environmentVariables>
+                        <SIGNER_MOCK_TOKEN_KEYSTORE>${project.build.directory}/test-mock-token.p12</SIGNER_MOCK_TOKEN_KEYSTORE>
+                    </environmentVariables>
                 </configuration>
             </plugin>
             <plugin>
