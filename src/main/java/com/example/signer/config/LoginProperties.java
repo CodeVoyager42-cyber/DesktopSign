@@ -1,5 +1,6 @@
 package com.example.signer.config;
 
+import java.nio.charset.StandardCharsets;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -17,6 +18,11 @@ public class LoginProperties {
     private String username = "ISICOD";
     private String password = "ISICOD";
 
+    /** Desktop start-up gate user (LOCAL app launch, unrelated to the server). */
+    private String serverUser = "coordinator";
+    /** Desktop start-up gate password (LOCAL app launch, unrelated to the server). */
+    private String serverPassword = "coordinator";
+
     public String getUsername() {
         return username;
     }
@@ -33,6 +39,22 @@ public class LoginProperties {
         this.password = password;
     }
 
+    public String getServerUser() {
+        return serverUser;
+    }
+
+    public void setServerUser(String serverUser) {
+        this.serverUser = serverUser;
+    }
+
+    public String getServerPassword() {
+        return serverPassword;
+    }
+
+    public void setServerPassword(String serverPassword) {
+        this.serverPassword = serverPassword;
+    }
+
     /**
      * Constant-time credential check: every byte is compared even after a
      * mismatch, so response timing does not reveal how much was correct.
@@ -46,8 +68,8 @@ public class LoginProperties {
         if (expected == null || provided == null) {
             return false;
         }
-        byte[] a = expected.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        byte[] b = provided.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] a = expected.getBytes(StandardCharsets.UTF_8);
+        byte[] b = provided.getBytes(StandardCharsets.UTF_8);
         int diff = a.length ^ b.length;
         int n = Math.max(a.length, b.length);
         for (int i = 0; i < n; i++) {

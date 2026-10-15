@@ -148,6 +148,35 @@ The manifest contains public certificate data only.
 
 Full suite: **116 tests, 0 failures** (90 pre-existing all preserved).
 
+## 8b. Integrity hardening (document binding, DocMDP, placement bounds)
+
+The portable workflow is bound to the exact bytes of the original document:
+
+- `createWorkflow(pdf, …)` records the **SHA-256 of the original PDF** in the
+  manifest (`originalDocumentSha256`, lower-case hex; absent for manifests
+  created before binding existed — those keep working).
+- `writeManifestIntoCopy` refuses to seed a bound manifest into any document
+  whose bytes do not match the recorded hash (`WORKFLOW_TAMPERED`). This is
+  the gate against preparing a workflow for one document and silently
+  attaching it to another.
+- After the first signature exists, the signature chain itself is the
+  integrity anchor (every later signature cryptographically covers all
+  earlier bytes, and the chain must reach end-of-file).
+
+**Certification permissions (DocMDP).** Verification now extracts the DocMDP
+access-permission value from certification signatures (per-signature
+`/Reference` entries, plus the catalog `/Perms/DocMDP` fallback) and reports
+it as `docMdp` on each signature detail. Reconciliation fails closed: a
+document certified with permissions stricter than "form fill / signatures
+allowed" (P≠2) cannot receive further workflow signatures — the UI shows a
+certification blocker instead of silently violating the policy. P=2
+certification (the standard approval-signing policy) is accepted.
+
+**Placement bounds.** The signing service validates the placement rectangle
+against the page's crop box at signing time and refuses out-of-page
+placements (a manifest created against a different page size can no longer
+draw a signature outside the document).
+
 ## 9. Known limitations
 
 - Manifest metadata between signatures is trust-on-transfer (see §6); the
@@ -157,6 +186,10 @@ Full suite: **116 tests, 0 failures** (90 pre-existing all preserved).
   hardening candidates, independent of this feature.
 - Two app instances editing one shared file are guarded by fresh-disk-read
   semantics, not file locking.
+- Certificate **expiry is enforced at signing time** (fail closed); verbatim
+  expiry status of *earlier* signers' certificates is displayed in the
+  signature chain, but expired-but-valid-at-signing-time signatures are not
+  distinguished (that requires trusted timestamps).
 
 ## 10. Future server migration
 

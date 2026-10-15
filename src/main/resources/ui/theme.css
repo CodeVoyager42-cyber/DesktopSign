@@ -9,11 +9,16 @@
    application.css keeps its historical token names (-bg, -surface, …) as
    aliases of these -sig-* tokens, so the rest of the existing stylesheet —
    which already references only token names — retints without any churn.
+
+   Identity: WHITE surfaces with BLUE as the single accent color. The
+   -sig-navy token survives by name (it is referenced by shell.css) but its
+   role is now "sidebar surface": white, with blue active states.
    ========================================================================== */
 
 .root {
     /* ---- core palette (light) ---- */
-    -sig-navy:             #0F172A;
+    -sig-navy:             #FFFFFF;
+    -sig-canvas:           #EFF6FF;
     -sig-primary:          #2563EB;
     -sig-primary-hover:    #1D4ED8;
     -sig-accent:           #06B6D4;
@@ -34,8 +39,8 @@
     -sig-warning-bg:       #FEF3C7;
     -sig-error-bg:         #FEE2E2;
     -sig-primary-bg:       #DBEAFE;
-    -sig-navy-hover:       #1E293B;
-    -sig-navy-text:        #CBD5E1;
+    -sig-navy-hover:       #EFF6FF;
+    -sig-navy-text:        #475569;
     -sig-hover:            #F1F5F9;
     -sig-primary-active:   #1E40AF;
     -sig-text-muted:       #94A3B8;

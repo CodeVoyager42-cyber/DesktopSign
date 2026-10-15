@@ -1,5 +1,6 @@
 package com.example.signer.workflow;
 
+import com.example.signer.signing.SignatureAppearance;
 import com.example.signer.signing.PdfSigningService;
 import com.example.signer.signing.SignaturePlacement;
 import com.example.signer.signing.SigningResult;
@@ -152,7 +153,7 @@ public class WorkflowSigningEngine {
                                Path inputPdf,
                                SignaturePlacement placement,
                                Path outputPdf,
-                               com.example.signer.signing.SignatureAppearance appearance)
+                               SignatureAppearance appearance)
             throws Exception {
         Signer signer = requireCurrent(workflow);
         if (!signer.isReadyToSign() && signer.getStatus() != SigningStatus.SIGNING) {
@@ -165,7 +166,7 @@ public class WorkflowSigningEngine {
         // The visible stamp's name line carries the signer's typed display
         // name (falling back to the certificate CN when they left it blank);
         // the certificate line keeps the real CN either way.
-        com.example.signer.signing.SignatureAppearance effectiveAppearance =
+        SignatureAppearance effectiveAppearance =
                 appearance == null ? null
                         : appearance.withSignerName(signer.getDisplayName());
         SigningResult result = pdfSigningService.signPdf(

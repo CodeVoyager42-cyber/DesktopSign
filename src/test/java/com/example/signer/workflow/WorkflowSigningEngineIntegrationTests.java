@@ -187,6 +187,34 @@ class WorkflowSigningEngineIntegrationTests {
         assertThat(WorkflowSigningEngine.signedOrders(workflow)).containsExactly(1);
     }
 
+    @Test
+    void oneSignerOnThisComputerProducesOneValidVisibleSignature() throws Exception {
+        // "One signer" on the home screen runs in the same workspace as two or
+        // three signers: the engine must give an ordinary signed PDF with
+        // exactly one valid signature at the box the signer placed.
+        Path dir = Files.createTempDirectory("engine-single-test");
+        Path original = dir.resolve("doc.pdf");
+        createOnePagePdf(original);
+
+        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.SINGLE);
+        engine.start(workflow);
+        engine.prepareCurrentSigner(workflow);
+        simulator.insertToken();
+        tokenService.detect();
+        engine.assignCertificate(workflow, MockSigningToken.DEFAULT_ALIAS);
+        engine.authenticate(workflow, MockSigningToken.defaultPin());
+
+        Path output = dir.resolve("signed.pdf");
+        SignerRevision revision = engine.sign(workflow, original,
+                new SignaturePlacement(0, 72f, 72f, 170f, 55f), output);
+
+        assertThat(workflow.isComplete()).isTrue();
+        assertThat(revision.verification().valid()).isTrue();
+        assertThat(revision.verification().signatures()).hasSize(1);
+        assertThat(revision.verification().signatures().get(0).valid()).isTrue();
+        assertThat(Files.size(output)).isGreaterThan(Files.size(original));
+    }
+
     /**
      * End-to-end identity check (turn handovers): three *named* signers sign
      * sequentially; after every handover the workflow's current signer must

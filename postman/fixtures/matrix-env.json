@@ -1,0 +1,30 @@
+{
+    "name":  "rejection-matrix",
+    "values":  [
+                   {
+                       "key":  "baseUrl",
+                       "value":  "http://localhost:8080",
+                       "enabled":  true
+                   },
+                   {
+                       "key":  "workflowId",
+                       "value":  "WF-1790872151417",
+                       "enabled":  true
+                   },
+                   {
+                       "key":  "parentRevision",
+                       "value":  "0",
+                       "enabled":  true
+                   },
+                   {
+                       "key":  "parentSha256",
+                       "value":  "c1cf6fc12b8081b8d168bcec352f38917d5f393e9d75dfe940fd9d22efff4889",
+                       "enabled":  true
+                   },
+                   {
+                       "key":  "operationId",
+                       "value":  "17a7a651-1317-4878-a830-5fb5dd58f3ce",
+                       "enabled":  true
+                   }
+               ]
+}

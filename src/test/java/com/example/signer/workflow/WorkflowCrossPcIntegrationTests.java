@@ -482,7 +482,7 @@ class WorkflowCrossPcIntegrationTests {
                         new SignaturePlacement(0, 320, 650, 180, 60)),
                 WorkflowSignerStep.of(3, "Sara",
                         identityOf(byAlias.get(MockSigningToken.EC_ALIAS)),
-                        new SignaturePlacement(0, 540, 650, 180, 60))));
+                        new SignaturePlacement(0, 400, 650, 180, 60))));
     }
 
     private SigningCertificate aliasCertificate(String alias) {

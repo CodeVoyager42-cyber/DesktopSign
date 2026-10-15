@@ -1,5 +1,11 @@
 package com.example.signer.ui;
 
+import javafx.application.Platform;
+import javafx.scene.AccessibleRole;
+import javafx.scene.control.ContentDisplay;
+import javafx.scene.control.Hyperlink;
+import javafx.scene.layout.ColumnConstraints;
+import javafx.scene.layout.GridPane;
 import com.example.signer.ui.support.UiSupport;
 import com.example.signer.workflow.SigningMode;
 
@@ -16,7 +22,6 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCode;
-import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -26,13 +31,14 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
- * "Choose Signing Workflow" screen, shown after successful sign-in and before
- * any signing UI.
+ * Home screen ("What would you like to do?"), shown after sign-in. Four
+ * large one-click actions cover the everyday tasks — sign here, send for
+ * signature, documents to sign, open an invitation — and the less common
+ * modes (several signers on one computer, continuing a signing PDF) are
+ * small links underneath.
  *
  * <p>Presents one selectable card per {@link SigningMode} (driven from
  * {@link SigningMode#selectableModes()}, so new modes appear automatically).
@@ -54,9 +60,41 @@ public final class WorkflowSelectionDialog {
     /** Set when the user chose to open an existing (portable) workflow PDF. */
     private boolean openWorkflowRequested;
 
+    /** Set when the user chose “Remote workflow…” on this dialog. */
+    private boolean remoteWorkflowRequested;
+
+    /** Set when the user pressed Back (as opposed to closing the window). */
+    private boolean backRequested;
+
+    /** Set when the user chose “Accept invitation…” on this dialog. */
+    private boolean acceptInvitationRequested;
+
+    /** Set when the user chose “Sign out” on this dialog. */
+    private boolean signOutRequested;
+
     /** @return true when the user picked “Open workflow…” on this dialog. */
     public boolean isOpenWorkflowRequested() {
         return openWorkflowRequested;
+    }
+
+    /** @return true when the user picked “Remote workflow…” on this dialog. */
+    public boolean isRemoteWorkflowRequested() {
+        return remoteWorkflowRequested;
+    }
+
+    /** @return true when the user pressed Back on this dialog. */
+    public boolean isBackRequested() {
+        return backRequested;
+    }
+
+    /** @return true when the user picked “Accept invitation…” on this dialog. */
+    public boolean isAcceptInvitationRequested() {
+        return acceptInvitationRequested;
+    }
+
+    /** @return true when the user chose “Sign out” on this dialog. */
+    public boolean isSignOutRequested() {
+        return signOutRequested;
     }
 
     public WorkflowSelectionDialog() {
@@ -75,14 +113,22 @@ public final class WorkflowSelectionDialog {
      *         pressed Back / closed the dialog / signed out
      */
     public SigningMode showAndWait(Window owner) {
+        cancelled = true;
+        openWorkflowRequested = false;
+        remoteWorkflowRequested = false;
+        sendForSignatureRequested = false;
+        signOutRequested = false;
+        backRequested = false;
+        acceptInvitationRequested = false;
+        selected.set(null);
         Stage dialog = new Stage(StageStyle.DECORATED);
         dialog.initModality(Modality.APPLICATION_MODAL);
         if (owner != null) {
             dialog.initOwner(owner);
         }
-        dialog.setTitle("Choose Signing Workflow");
+        dialog.setTitle("SignFlow — Home");
         dialog.setMinWidth(760);
-        dialog.setMinHeight(520);
+        dialog.setMinHeight(560);
 
         // ---- header ---------------------------------------------------------
         Label logo = new Label();
@@ -95,13 +141,6 @@ public final class WorkflowSelectionDialog {
         HBox brandRow = new HBox(10, logo, new VBox(1, brand, tagline));
         brandRow.setAlignment(Pos.CENTER_LEFT);
 
-        Label title = new Label("Choose Signing Workflow");
-        title.getStyleClass().add("workflow-title");
-        Label subtitle = new Label("Select the number of people who will sign this document.");
-        subtitle.getStyleClass().add("workflow-subtitle");
-        VBox heading = new VBox(4, title, subtitle);
-        heading.getStyleClass().add("workflow-heading");
-
         Button themeToggle = ThemeManager.instance().createToggleButton();
         Region headerSpacer = new Region();
         HBox.setHgrow(headerSpacer, Priority.ALWAYS);
@@ -109,181 +148,192 @@ public final class WorkflowSelectionDialog {
         header.setAlignment(Pos.CENTER_LEFT);
         header.getStyleClass().add("workflow-header");
 
-        // ---- cards ------------------------------------------------------------
-        Map<SigningMode, VBox> cardsByMode = new LinkedHashMap<>();
-        List<VBox> cardOrder = new java.util.ArrayList<>();
-        for (SigningMode mode : modes) {
-            VBox card = buildCard(dialog, mode, cardsByMode);
-            cardsByMode.put(mode, card);
-            cardOrder.add(card);
-        }
-        HBox cardsRow = new HBox(16, cardsByMode.values().toArray(new VBox[0]));
-        cardsRow.getStyleClass().add("workflow-cards");
-        cardsRow.setAlignment(Pos.CENTER);
+        Label title = new Label("What would you like to do?");
+        title.getStyleClass().add("workflow-title");
+        Label subtitle = new Label("Choose one option. You can come back to"
+                + " this screen at any time.");
+        subtitle.getStyleClass().add("workflow-subtitle");
+        VBox heading = new VBox(4, title, subtitle);
+        heading.getStyleClass().add("workflow-heading");
 
-        // ---- bottom navigation --------------------------------------------------
-        Button openWorkflow = new Button("Open workflow…",
-                new FontIcon(FontAwesomeSolid.FOLDER_OPEN));
-        openWorkflow.getStyleClass().add("btn-secondary");
+        // ---- the four main actions: one click, no separate Continue --------
+        VBox signHere = actionTile(FontAwesomeSolid.FILE_SIGNATURE,
+                "Sign a document",
+                "Sign a PDF yourself, here on this computer, with your"
+                        + " USB token.",
+                () -> {
+                    selected.set(SigningMode.SINGLE);
+                    cancelled = false;
+                    dialog.close();
+                });
+        VBox sendForSignature = actionTile(FontAwesomeSolid.PAPER_PLANE,
+                "Send for signature",
+                "Choose a PDF and the people who must sign it. They are"
+                        + " invited by email.",
+                () -> {
+                    remoteWorkflowRequested = true;
+                    sendForSignatureRequested = true;
+                    dialog.close();
+                });
+        VBox waiting = actionTile(FontAwesomeSolid.INBOX,
+                "Documents to sign",
+                "See the documents other people sent you, and the ones"
+                        + " you sent.",
+                () -> {
+                    remoteWorkflowRequested = true;
+                    dialog.close();
+                });
+        VBox invitation = actionTile(FontAwesomeSolid.ENVELOPE_OPEN,
+                "Open an invitation",
+                "You received an email asking you to sign? Paste its"
+                        + " link here.",
+                () -> {
+                    acceptInvitationRequested = true;
+                    dialog.close();
+                });
+        GridPane tiles = new GridPane();
+        tiles.setHgap(16);
+        tiles.setVgap(16);
+        tiles.add(signHere, 0, 0);
+        tiles.add(sendForSignature, 1, 0);
+        tiles.add(waiting, 0, 1);
+        tiles.add(invitation, 1, 1);
+        for (int c = 0; c < 2; c++) {
+            ColumnConstraints cc =
+                    new ColumnConstraints();
+            cc.setPercentWidth(50);
+            cc.setHgrow(Priority.ALWAYS);
+            tiles.getColumnConstraints().add(cc);
+        }
+
+        // ---- less common options: small links --------------------------------
+        Label otherTitle = new Label("Other options");
+        otherTitle.getStyleClass().add("workflow-card-meta");
+        HBox otherLinks = new HBox(18);
+        otherLinks.setAlignment(Pos.CENTER_LEFT);
+        for (SigningMode mode : modes) {
+            if (mode.isSingle()) {
+                continue;
+            }
+            Hyperlink link = new Hyperlink(
+                    mode.signerCount() + " people sign on this computer");
+            link.setTooltip(new Tooltip("Each person signs in turn, on this"
+                    + " computer, with their own USB token"));
+            link.setOnAction(e -> {
+                selected.set(mode);
+                cancelled = false;
+                dialog.close();
+            });
+            otherLinks.getChildren().add(link);
+        }
+        Hyperlink openWorkflow =
+                new Hyperlink("Continue a signing PDF…");
         openWorkflow.setTooltip(new Tooltip(
-                "Continue a signing workflow that travels inside a PDF document"
-                        + " (created on this or another computer)"));
+                "Open a PDF that was sent to you to sign in turn"
+                        + " (it carries its own list of signers)"));
         openWorkflow.setOnAction(e -> {
-            cancelled = true;
-            selected.set(null);
             openWorkflowRequested = true;
             dialog.close();
         });
+        otherLinks.getChildren().add(openWorkflow);
+        VBox other = new VBox(4, otherTitle, otherLinks);
 
-        Button back = new Button("Back");
+        // ---- bottom navigation ----------------------------------------------
+        // The home screen is the first screen of a session: leaving it closes
+        // SignFlow, so the button says so.
+        Button back = new Button("Quit");
         back.getStyleClass().add("btn-ghost");
         back.setCancelButton(true);
-        back.setTooltip(new Tooltip("Return to the previous screen (Esc)"));
-        back.setOnAction(e -> dialog.close());
+        back.setTooltip(new Tooltip("Close SignFlow (Esc)"));
+        back.setOnAction(e -> {
+            backRequested = true;
+            dialog.close();
+        });
 
-        Button signOut = new Button("Sign out");
+        Button signOut = new Button("Sign out",
+                new FontIcon(FontAwesomeSolid.SIGN_OUT_ALT));
         signOut.getStyleClass().add("btn-ghost");
         signOut.setTooltip(new Tooltip("Return to the sign-in screen"));
         signOut.setOnAction(e -> {
-            cancelled = true;
-            selected.set(null);
+            signOutRequested = true;
             dialog.setUserData("SIGN_OUT");
             dialog.close();
         });
 
-        Button continueButton = new Button("Continue", new FontIcon(FontAwesomeSolid.ARROW_RIGHT));
-        continueButton.getStyleClass().add("btn-primary");
-        continueButton.setDisable(true);
-        continueButton.setDefaultButton(true);
-        continueButton.setTooltip(new Tooltip("Open the selected signing workflow (Enter)"));
-        selected.addListener((obs, was, is) -> continueButton.setDisable(is == null));
-        continueButton.setOnAction(e -> {
-            if (selected.get() != null) {
-                cancelled = false;
-                dialog.close();
-            }
-        });
-
         Region footerSpacer = new Region();
         HBox.setHgrow(footerSpacer, Priority.ALWAYS);
-        HBox footer = new HBox(10, back, signOut, openWorkflow, footerSpacer, continueButton);
+        HBox footer = new HBox(10, back, footerSpacer, signOut);
         footer.getStyleClass().add("workflow-footer");
         footer.setAlignment(Pos.CENTER_LEFT);
 
-        // ---- root ------------------------------------------------------------------
+        // ---- root --------------------------------------------------------------
         Region grow = new Region();
         VBox.setVgrow(grow, Priority.ALWAYS);
-        VBox content = new VBox(28, heading, cardsRow, grow, footer);
+        VBox content = new VBox(22, header, heading, tiles, other, grow, footer);
         content.getStyleClass().add("workflow-root");
-        content.setPadding(new Insets(28, 32, 24, 32));
+        content.setPadding(new Insets(24, 32, 20, 32));
 
-        Scene scene = new Scene(content, 860, 540);
+        Scene scene = new Scene(content, 860, 600);
         ThemeManager.instance().attach(scene);
-
-        // Arrow keys walk the cards like a radio group; from the cards, Enter
-        // already selects via the per-card handler and then re-pressing Enter
-        // activates the default Continue button.
-        scene.addEventHandler(KeyEvent.KEY_PRESSED, e -> {
-            KeyCode code = e.getCode();
-            if (code != KeyCode.LEFT && code != KeyCode.RIGHT) {
-                return;
-            }
-            int index = selected.get() == null ? -1 : modes.indexOf(selected.get());
-            if (index < 0) {
-                // No selection yet: an arrow in either direction selects the
-                // first card, then further presses walk the row.
-                index = 0;
-            } else if (code == KeyCode.RIGHT && index < modes.size() - 1) {
-                index++;
-            } else if (code == KeyCode.LEFT && index > 0) {
-                index--;
-            }
-            e.consume();
-            cardsByMode.get(modes.get(index)).requestFocus();
-            selectMode(cardsByMode, modes.get(index));
-        });
         dialog.setScene(scene);
         UiSupport.applyAppIcon(dialog);
+        Platform.runLater(signHere::requestFocus);
 
         dialog.showAndWait();
 
         if ("SIGN_OUT".equals(dialog.getUserData())) {
             return null;
         }
-        return cancelled && !openWorkflowRequested ? null : selected.get();
+        return cancelled ? null : selected.get();
     }
 
-    /** Builds one selectable workflow card with icon, title, description, meta. */
-    private VBox buildCard(Stage dialog,
-                           SigningMode mode,
-                           Map<SigningMode, VBox> cardsByMode) {
-        FontIcon glyph = new FontIcon(switch (mode) {
-            case SINGLE -> FontAwesomeSolid.FILE_SIGNATURE;
-            case TWO_SIGNERS -> FontAwesomeSolid.USER_FRIENDS;
-            default -> FontAwesomeSolid.USERS;
-        });
+    /** Set when the user chose "Send for signature" (opens the new-workflow wizard). */
+    private boolean sendForSignatureRequested;
+
+    /** @return true when the user picked "Send for signature" on this dialog. */
+    public boolean isSendForSignatureRequested() {
+        return sendForSignatureRequested;
+    }
+
+    /**
+     * One large, clickable action tile: icon, title and a one-sentence
+     * explanation. Mouse click, Enter or Space runs {@code action}.
+     */
+    private VBox actionTile(FontAwesomeSolid icon, String titleText,
+                            String descriptionText, Runnable action) {
+        FontIcon glyph = new FontIcon(icon);
         glyph.getStyleClass().add("workflow-card-icon");
-
-        Label title = new Label(switch (mode) {
-            case SINGLE -> "Single Signer";
-            case TWO_SIGNERS -> "Two Signers";
-            default -> mode.signerCount() + " Signers";
-        });
+        Label title = new Label(titleText);
         title.getStyleClass().add("workflow-card-title");
-
-        Label description = new Label(switch (mode) {
-            case SINGLE -> "Sign a document with one digital signature.";
-            case TWO_SIGNERS -> "Allow two people to digitally sign the same document.";
-            default -> "Allow " + mode.signerCount()
-                    + " people to digitally sign the same document.";
-        });
+        Label description = new Label(descriptionText);
         description.getStyleClass().add("workflow-card-description");
         description.setWrapText(true);
+        Label go = new Label("Start", new FontIcon(FontAwesomeSolid.ARROW_RIGHT));
+        go.setContentDisplay(ContentDisplay.RIGHT);
+        go.getStyleClass().add("workflow-card-meta");
 
-        Label meta = new Label(mode.signerCount() + " signer"
-                + (mode.signerCount() == 1 ? "" : "s") + "  ·  "
-                + (mode.isSingle() ? "Standard document signing"
-                : "Multi-party document signing"));
-        meta.getStyleClass().add("workflow-card-meta");
-
-        Label check = new Label();
-        check.setGraphic(new FontIcon(FontAwesomeSolid.CHECK));
-        check.getStyleClass().add("workflow-card-check");
-        check.setVisible(false);
-        check.setManaged(false);
-
-        VBox text = new VBox(6, title, description, meta);
-        VBox card = new VBox(14, glyph, text, check);
-        card.getStyleClass().add("workflow-card");
-        card.setPadding(new Insets(22, 20, 18, 20));
-        HBox.setHgrow(card, Priority.ALWAYS);
-        card.setCursor(Cursor.HAND);
-        card.setAccessibleRole(javafx.scene.AccessibleRole.BUTTON);
-        card.setAccessibleText(title.getText() + ". " + description.getText());
-
-        card.setOnMouseClicked(e -> selectMode(cardsByMode, mode));
-        card.setOnKeyPressed(e -> {
+        VBox tile = new VBox(10, glyph, title, description, go);
+        tile.getStyleClass().add("workflow-card");
+        tile.setPadding(new Insets(20, 20, 16, 20));
+        tile.setMaxWidth(Double.MAX_VALUE);
+        tile.setMinHeight(150);
+        tile.setCursor(Cursor.HAND);
+        tile.setFocusTraversable(true);
+        tile.setAccessibleRole(AccessibleRole.BUTTON);
+        tile.setAccessibleText(titleText + ". " + descriptionText);
+        tile.setOnMouseClicked(e -> action.run());
+        tile.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ENTER || e.getCode() == KeyCode.SPACE) {
                 e.consume();
-                selectMode(cardsByMode, mode);
+                action.run();
             }
         });
-        card.setFocusTraversable(true);
-        return card;
-    }
-
-    /** Applies single selection: highlight + checkmark on the chosen card only. */
-    private void selectMode(Map<SigningMode, VBox> cardsByMode, SigningMode mode) {
-        selected.set(mode);
-        cardsByMode.forEach((m, card) -> {
-            boolean active = m == mode;
-            card.getStyleClass().remove("workflow-card--selected");
-            if (active) {
-                card.getStyleClass().add("workflow-card--selected");
+        tile.focusedProperty().addListener((o, was, is) -> {
+            tile.getStyleClass().remove("workflow-card--selected");
+            if (is) {
+                tile.getStyleClass().add("workflow-card--selected");
             }
-            Label check = (Label) card.getChildren().get(card.getChildren().size() - 1);
-            check.setVisible(active);
-            check.setManaged(active);
         });
+        return tile;
     }
 }
