@@ -1,5 +1,6 @@
 package com.example.signer.ui.workspace;
 
+import com.example.signer.ui.support.Background;
 import com.example.signer.pdf.DocumentRenderer;
 import com.example.signer.pdf.PdfRenderService;
 
@@ -77,10 +78,7 @@ final class ThumbnailPane extends ScrollPane {
             list.getChildren().add(placeholder);
         }
 
-        Thread worker = new Thread(() -> renderAll(pdf, generation, pageCount),
-                "mws-thumbnails");
-        worker.setDaemon(true);
-        worker.start();
+        Background.run("thumbnails", () -> renderAll(pdf, generation, pageCount));
     }
 
     private void renderAll(Path pdf, int generation, int pageCount) {

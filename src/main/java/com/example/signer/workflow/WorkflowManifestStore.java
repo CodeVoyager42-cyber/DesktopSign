@@ -1,5 +1,7 @@
 package com.example.signer.workflow;
 
+import java.util.List;
+import org.apache.pdfbox.pdmodel.common.PDNameTreeNode;
 import com.example.signer.exception.ErrorCode;
 import com.example.signer.exception.SignerException;
 import com.example.signer.signing.PdfSigningService;
@@ -200,10 +202,10 @@ public final class WorkflowManifestStore {
         if (direct != null) {
             out.putAll(direct);
         }
-        java.util.List<org.apache.pdfbox.pdmodel.common.PDNameTreeNode<PDComplexFileSpecification>> kids =
+        List<PDNameTreeNode<PDComplexFileSpecification>> kids =
                 node.getKids();
         if (kids != null) {
-            for (org.apache.pdfbox.pdmodel.common.PDNameTreeNode<PDComplexFileSpecification> kid : kids) {
+            for (PDNameTreeNode<PDComplexFileSpecification> kid : kids) {
                 out.putAll(flatten((PDEmbeddedFilesNameTreeNode) kid));
             }
         }

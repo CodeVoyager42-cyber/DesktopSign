@@ -10,7 +10,8 @@
 
 .root {
     /* ---- core palette (dark navy) ---- */
-    -sig-navy:             #0B1120;
+    -sig-navy:             #111827;
+    -sig-canvas:           #1E293B;
     -sig-primary:          #3B82F6;
     -sig-primary-hover:    #2563EB;
     -sig-primary-active:   #1D4ED8;
@@ -34,7 +35,6 @@
     -sig-primary-bg:       #172554;
     -sig-navy-hover:       #1E293B;
     -sig-navy-text:        #94A3B8;
-    -sig-hover:            #1E293B;
     -sig-text-muted:       #64748B;
     -sig-border-light:     #1E293B;
     -sig-surface-subtle:   #111827;
@@ -43,6 +43,7 @@
     -sig-info:             #3B82F6;
     -sig-info-light:       #172554;
     -sig-accent-light:     #164E63;
+    -sig-hover:            #1E293B;
 
     /* ---- Modena overrides ---- */
     -fx-base:              -sig-surface;
@@ -100,7 +101,7 @@
    (never pure black) while the rendered page itself stays white. Deeper
    shadows than light mode so elevation stays visible on dark surfaces. */
 .workspace-canvas {
-    -fx-background-color: #1E293B;
+    -fx-background-color: -sig-canvas;
 }
 
 .root {

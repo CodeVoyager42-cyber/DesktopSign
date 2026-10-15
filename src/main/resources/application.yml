@@ -4,11 +4,31 @@ spring:
   main:
     banner-mode: off
     web-application-type: none
+  autoconfigure:
+    # PostgreSQL persistence is provided EXCLUSIVELY by the conditional
+    # DbPersistenceConfiguration (server + database.enabled=true). Excluding
+    # the auto-configurations here guarantees the desktop context — and any
+    # context without an explicit database — never boots a DataSource/JPA.
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+
+app:
+  # Public web base URL used to build the invitation link that is emailed
+  # to a signer: ${APP_BASE_URL}/sign/{invitationToken}. Must be reachable
+  # from the signer's browser - localhost is fine for a local trial.
+  base-url: ${APP_BASE_URL:http://localhost:3000}
+  # Shown in the invitation email ("Regards, ...").
+  name: ${APP_NAME:SignFlow}
 
 logging:
   level:
     root: INFO
-    com.example.signer: DEBUG
+    # INFO in production; the dev profile below turns on DEBUG.
+    com.example.signer: INFO
   file:
     # Portable default: user temp directory. Override with SIGNER_LOG_FILE.
     name: ${SIGNER_LOG_FILE:${java.io.tmpdir}/signer-app.log}
@@ -16,17 +36,143 @@ logging:
 signature:
   login:
     # Start-up gate credentials. Change these for any real deployment —
-    # they are defaults for development convenience only.
+    # they are a shared deployment secret, not per-user accounts.
     username: ${SIGNATURE_LOGIN_USERNAME:ISICOD}
+    server-user: ${SIGNATURE_SERVER_USER:coordinator}
     password: ${SIGNATURE_LOGIN_PASSWORD:ISICOD}
+    server-password: ${SIGNATURE_SERVER_PASSWORD:coordinator}
+
   verification:
     # Refuse to verify PDFs larger than this (bytes). Verification streams
-    # the file in 64 KiB chunks, but huge scans still take minutes to hash.
+    # the new signature's covered byte ranges, but huge scans still take
+    # minutes to hash.
     max-file-bytes: ${SIGNATURE_VERIFICATION_MAX_FILE_BYTES:536870912}
+
   pkcs11:
-    # Enable to use a real PKCS#11 device (SoftHSM2 / smartcard) instead of the mock token.
-    # When disabled (default), the mock token provider is active.
+    # Real PKCS#11 device (smartcard / USB token / SoftHSM2). REQUIRED by the
+    # desktop application outside the 'dev' profile: production startup
+    # fails when it is disabled or the library path is wrong. The development
+    # mock token exists only in the 'dev' profile — never as a fallback.
     enabled: ${SIGNATURE_PKCS11_ENABLED:false}
     # Path configured via environment for the target platform (dll / so / dylib).
     library: ${PKCS11_LIBRARY:}
     slot-list-index: ${PKCS11_SLOT_INDEX:0}
+
+  remote:
+    # Base URL of the coordination server used by the desktop in REMOTE mode.
+    base-url: ${SIGNER_SERVER_URL:http://localhost:8080}
+    # Largest document that may be sent to / accepted by the coordination
+    # server, in bytes (100 MB). Enforced twice from this one value: the
+    # desktop refuses the file before uploading, and the server's multipart
+    # limits (below, server profile) reject anything larger.
+    upload:
+      max-bytes: ${SIGNER_UPLOAD_MAX_BYTES:104857600}
+
+---
+# Coordination-server profile (REMOTE signing mode): a servlet application
+# sharing the same artifact. The storage directory keeps one folder per
+# workflow with an append-only revisions/ directory.
+spring:
+  config:
+    activate:
+      on-profile: server
+  main:
+    web-application-type: servlet
+  servlet:
+    multipart:
+      # Document uploads: the desktop wizard POSTs the original PDF as
+      # multipart/form-data. Spring Boot's default maximum is 1 MB, which
+      # rejected ordinary documents. Plain byte counts are accepted.
+      max-file-size: ${SIGNER_UPLOAD_MAX_BYTES:104857600}
+      # Headroom over max-file-size for the multipart envelope and the
+      # workflow request part.
+      max-request-size: ${SIGNER_UPLOAD_MAX_REQUEST_BYTES:115343360}
+
+signature:
+  remote-server:
+    storage: ${SIGNER_SERVER_STORAGE:${java.io.tmpdir}/signer-server}
+    # No built-in accounts. (File mode: configure pre-hashed users here;
+    # database mode: users come from the users table / invitations.)
+    # JWT authentication. Access tokens are short-lived; refresh tokens
+    # rotate on every use and reuse revokes the session family.
+    # jwt-secret is REQUIRED (>= 32 bytes) outside the 'dev' profile: the
+    # server refuses to start without it. It is never derived from anything.
+    jwt-secret: ${SIGNER_SERVER_JWT_SECRET:}
+    access-token-minutes: ${SIGNER_SERVER_ACCESS_TOKEN_MINUTES:15}
+    refresh-token-hours: ${SIGNER_SERVER_REFRESH_TOKEN_HOURS:12}
+    # Production posture (default): plaintext passwords are refused and no
+    # development accounts are seeded. Only the 'dev' profile allows them.
+    allow-plaintext-passwords: false
+    # Transport security (production): either Spring Boot terminates TLS
+    # itself (server.ssl.*) or set this to true to declare that a reverse
+    # proxy in front of the server terminates TLS. Outside 'dev' the server
+    # refuses to start with neither. See docs/TRANSPORT-SECURITY.md.
+    tls-offloaded: ${SIGNER_TLS_OFFLOADED:false}
+
+    # ── PostgreSQL persistence (Phase 1 of the platform upgrade) ────────
+    # When enabled, workflow/signer/revision/audit state is stored in
+    # PostgreSQL (schema created by Flyway) instead of state.json files;
+    # PDF bytes always stay on the filesystem under `storage`. Credentials
+    # NEVER come from this file — environment variables only.
+    database:
+      enabled: ${SIGNER_DB_ENABLED:false}
+      url: ${SIGNER_DB_URL:jdbc:postgresql://localhost:5432/Signflow}
+      username: ${SIGNER_DB_USERNAME:postgres}
+      password: ${SIGNER_DB_PASSWORD:}
+
+    # ── Invitations (Phase 4) ────────────────────────────────────────────
+    invitation:
+      # How long an invitation link stays valid.
+      expiration: ${SIGNER_INVITATION_EXPIRATION:PT48H}
+      # Base URL for the links that are EMAILED to signers. Leave empty and
+      # the server picks one: `app.base-url` when it is not a loopback
+      # address, otherwise an auto-detected LAN address of this machine
+      # (virtual adapters are skipped). Set this explicitly — a tunnel, a
+      # public hostname, a forwarded port — whenever signers sit outside
+      # your network. A loopback value here is honoured but produces links
+      # that only open on this machine, which the server logs as a warning.
+      public-base-url: ${SIGNER_PUBLIC_BASE_URL:}
+
+    # ── Email delivery (Phase 5) ─────────────────────────────────────────
+    # console: development mailbox — links are printed to the server CONSOLE
+    #          (stdout, never the log file) in the 'dev' profile only.
+    #          Outside 'dev' the server refuses to start in console mode.
+    # smtp:    delivered through spring.mail.* (configure via environment).
+    email:
+      mode: ${SIGNER_EMAIL_MODE:console}
+      from: ${SIGNER_EMAIL_FROM:signflow@localhost}
+
+---
+# =============================================================================
+# DEVELOPMENT profile ('dev') — NEVER for production or packaged builds.
+#
+# Activate explicitly: --spring.profiles.active=dev (desktop: run-app.cmd /
+# mvnw javafx:run; server: run-server.cmd adds it next to 'server').
+# A packaged (jpackage) build refuses to start with this profile.
+#
+# Enables: the software mock token (random per-installation keys, PIN 1234),
+# plaintext dev passwords and the seeded alice/bob/charlie accounts, an
+# ephemeral random JWT key, plain HTTP, console "mailbox" invitations.
+# =============================================================================
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+logging:
+  level:
+    com.example.signer: DEBUG
+
+signature:
+  mock-token:
+    # Per-installation development keys (generated on first use).
+    keystore: ${SIGNER_MOCK_TOKEN_KEYSTORE:${user.home}/.signflow/dev-mock-token.p12}
+  remote-server:
+    allow-plaintext-passwords: true
+    # Accept certificates/signatures from the development mock token.
+    accept-development-identities: true
+    users:
+      alice: ${SIGNER_USER_ALICE:alice-pass}
+      bob: ${SIGNER_USER_BOB:bob-pass}
+      charlie: ${SIGNER_USER_CHARLIE:charlie-pass}
+

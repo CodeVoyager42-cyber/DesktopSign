@@ -236,6 +236,20 @@ public class DefaultPdfSigningService implements PdfSigningService {
         PDPage page = doc.getPage(pageIndex);
         PDRectangle cropBox = page.getCropBox() != null ? page.getCropBox() : page.getMediaBox();
         PDRectangle mediaBox = page.getMediaBox();
+        // Fail-closed placement validation: the rectangle must lie within the
+        // visible page. A workflow manifest can carry stale placements (e.g.
+        // created against a different document), so signing refuses rather
+        // than drawing a signature outside the page.
+        if (placement.x() < 0 || placement.y() < 0
+                || placement.x() + placement.width() > cropBox.getWidth() + 0.5f
+                || placement.y() + placement.height() > cropBox.getHeight() + 0.5f) {
+            throw new IOException("Signature placement (page " + (pageIndex + 1)
+                    + ", x=" + placement.x() + ", y=" + placement.y()
+                    + ", w=" + placement.width() + ", h=" + placement.height()
+                    + ") does not fit within the page ("
+                    + Math.round(cropBox.getWidth()) + "x"
+                    + Math.round(cropBox.getHeight()) + " pt)");
+        }
         // The workspace measures the placement from the visible (crop) box,
         // while PDFBox's designer anchors its top-left coordinates to the
         // media box. Translate between the two so the stamp lands exactly
@@ -362,7 +376,7 @@ public class DefaultPdfSigningService implements PdfSigningService {
         }
 
         @Override
-        public java.io.OutputStream getOutputStream() {
+        public OutputStream getOutputStream() {
             return buffer;
         }
 

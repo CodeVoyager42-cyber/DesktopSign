@@ -6,10 +6,12 @@
    ========================================================================== */
 
 /* ------------------------------------------------------------------
-   Sidebar (deep navy, icon + label, collapsible to an icon rail)
+   Sidebar (white surface, blue active states, collapsible to a rail)
    ------------------------------------------------------------------ */
 .sidebar {
     -fx-background-color: -sig-navy;
+    -fx-border-color:     transparent -sig-border transparent transparent;
+    -fx-border-width:     0 1px 0 0;
     -fx-min-width:        220px;
     -fx-pref-width:       220px;
     -fx-padding:          16px 12px 12px 12px;
@@ -23,14 +25,14 @@
 }
 
 .sidebar-brand {
-    -fx-text-fill:   #FFFFFF;
+    -fx-text-fill:   -sig-text;
     -fx-font-size:   16px;
     -fx-font-weight: 700;
     -fx-padding:     4px 8px 14px 8px;
 }
 
 .sidebar-brand .font-icon {
-    -fx-icon-color: -sig-accent;
+    -fx-icon-color: -sig-primary;
     -fx-icon-size:  18px;
 }
 
@@ -53,11 +55,11 @@
 
 .sidebar-item:hover {
     -fx-background-color: -sig-navy-hover;
-    -fx-text-fill:        #FFFFFF;
+    -fx-text-fill:        -sig-primary;
 }
 
 .sidebar-item:hover .font-icon {
-    -fx-icon-color: #FFFFFF;
+    -fx-icon-color: -sig-primary;
 }
 
 .sidebar-item:focused {
@@ -66,16 +68,18 @@
     -fx-border-width:     0 0 0 2px;
 }
 
-/* Active destination: hover bg + 3px primary bar on the left + white text */
+/* Active destination: pale-blue hover bg + 3px primary bar on the left +
+   blue text/icon (white + blue identity; contrast AA on the white surface) */
 .sidebar-item--active {
     -fx-background-color: -sig-navy-hover;
-    -fx-text-fill:        #FFFFFF;
+    -fx-text-fill:        -sig-primary;
+    -fx-font-weight:      600;
     -fx-border-color:     transparent transparent transparent -sig-primary;
     -fx-border-width:     0 0 0 3px;
 }
 
 .sidebar-item--active .font-icon {
-    -fx-icon-color: #FFFFFF;
+    -fx-icon-color: -sig-primary;
 }
 
 /* Collapsed rail: hide labels, center icons */

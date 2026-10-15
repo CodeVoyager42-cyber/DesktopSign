@@ -1,178 +1,237 @@
 package com.example.signer.ui.workspace;
 
+import com.example.signer.exception.ErrorCode;
+import com.example.signer.token.TokenException;
+import com.example.signer.exception.SignerException;
+import com.example.signer.pdf.PdfRenderService;
+import com.example.signer.remote.SigningCardCheck;
+import com.example.signer.signing.SignatureAppearance;
+import com.example.signer.signing.SignaturePlacement;
+import com.example.signer.signing.SignatureStampRenderer;
+import com.example.signer.token.SigningAlgorithm;
+import com.example.signer.token.SigningCertificate;
 import com.example.signer.token.TokenService;
 import com.example.signer.token.TokenState;
+import com.example.signer.ui.ErrorMessages;
 import com.example.signer.ui.ThemeManager;
+import com.example.signer.ui.kit.SignFlowUi;
+import com.example.signer.ui.kit.SignaturePropertiesView;
+import com.example.signer.ui.support.Background;
 import com.example.signer.ui.support.UiSupport;
+import com.example.signer.verification.SignatureProperties;
+import com.example.signer.verification.SignatureStatus;
+import com.example.signer.verification.SignatureVerificationResult;
 import com.example.signer.workflow.EffectiveWorkflowState;
-import com.example.signer.workflow.WorkflowManifest;
+import com.example.signer.workflow.WorkflowSignerStep;
 import com.example.signer.workflow.WorkflowSigningService;
 
-import org.kordamp.ikonli.fontawesome5.FontAwesomeSolid;
-import org.kordamp.ikonli.javafx.FontIcon;
-
 import javafx.concurrent.Task;
+import javafx.embed.swing.SwingFXUtils;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonType;
+import javafx.scene.control.ComboBox;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
+import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
+import javafx.scene.control.TitledPane;
 import javafx.scene.control.Tooltip;
+import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Modality;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
 
+import org.kordamp.ikonli.fontawesome5.FontAwesomeSolid;
+import org.kordamp.ikonli.javafx.FontIcon;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.File;
 import java.nio.file.Path;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 /**
- * Cross-PC workflow continuation workspace (Phase 8).
+ * Continues a portable workflow PDF on this computer, in the same layout as
+ * every other signing screen: the signers as step chips on top, the shared
+ * {@link PlacementViewer} (earlier signatures' boxes shown) in the middle,
+ * and the signer panel on the right — identity, actions, smart card and PIN,
+ * appearance, and the signatures already in the document.
  *
- * <p>Opens a PDF that carries a portable workflow manifest, reconciles it
- * against the real signature chain through
- * {@link WorkflowSigningService#load}, shows the signer timeline with the
- * effective state, and — when the domain layer allows it — drives one
- * signing turn end to end: pre-sign confirmation, token unlock, signing,
- * post-sign verification and save.</p>
- *
- * <p>All authorization decisions come from the workflow domain layer; this
- * UI only renders {@link EffectiveWorkflowState} and never decides on its
- * own whether signing is allowed.</p>
+ * <p>The workflow layer decides everything: {@link WorkflowSigningService#load}
+ * reconciles the manifest with the real signature chain, and this screen
+ * only renders {@link EffectiveWorkflowState}; it never decides on its own
+ * whether signing is allowed. The save location is chosen BEFORE signing so
+ * the service can write the result atomically.
  */
 public final class WorkflowContinuationDialog {
 
-    private static final org.slf4j.Logger log =
-            org.slf4j.LoggerFactory.getLogger(WorkflowContinuationDialog.class);
+    private static final Logger log = LoggerFactory.getLogger(WorkflowContinuationDialog.class);
 
-    private static final DateTimeFormatter TIME_FORMAT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
+    private static final float STAMP_W_PTS = 170f;
+    private static final float STAMP_H_PTS = 55f;
+    private static final List<String> REASONS = List.of("Document approval",
+            "Contract approval", "Reviewed", "Accepted", "Authorized", "Other…");
 
     private final WorkflowSigningService workflowService;
     private final TokenService tokenService;
+    private final PdfRenderService renderService;
 
-    private Stage dialog;
-    private VBox content;
+    private Stage stage;
+    private Path pdf;
+    private boolean signedHere;
+    private boolean busy;
+
+    /** Loaded state of the current file (null until loaded). */
+    private WorkflowSigningService.WorkflowDocument document;
+    private EffectiveWorkflowState state;
+    private WorkflowSignerStep currentStep;
+    private SigningCardCheck cardCheck;
+
+    // ---- layout ----------------------------------------------------------
+    private final HBox stripHolder = new HBox();
+    private final StackPane viewerHolder = new StackPane();
+    private final VBox panelInner = new VBox(8);
+    private final Label panelTitle = new Label("Workflow");
+    private final Label panelPill = new Label();
     private ProgressIndicator spinner;
     private Label statusLabel;
+    private PlacementViewer viewer;
+
+    // ---- panel controls (rebuilt for each loaded revision) ----------------
+    private Label placementLabel;
+    private Label overlapLabel;
+    private Button placeButton;
+    private Button clearButton;
+    private Button signButton;
+    private Label whyDisabled;
+    private VBox cardBox;
     private PasswordField pinField;
     private Button unlockButton;
-    private Button signButton;
-    private Label signReason;
-    private VBox timelineBox;
-    private Path pdf;
-    private EffectiveWorkflowState state;
-    private boolean signedHere;
+    private ComboBox<String> reasonCombo;
+    private TextField reasonOther;
+    private TextField locationField;
 
     public WorkflowContinuationDialog(WorkflowSigningService workflowService,
-                                      TokenService tokenService) {
+                                      TokenService tokenService,
+                                      PdfRenderService renderService) {
         this.workflowService = workflowService;
         this.tokenService = tokenService;
+        this.renderService = renderService;
     }
 
-    /** Shows the continuation workspace for {@code pdfToOpen}. */
+    /** Shows the workspace for {@code pdfToOpen}; returns when it is closed. */
     public void showAndWait(Window owner, Path pdfToOpen) {
         this.pdf = pdfToOpen;
         this.signedHere = false;
+        String documentName = pdfToOpen.getFileName().toString();
 
-        dialog = new Stage(StageStyle.DECORATED);
-        dialog.initModality(Modality.APPLICATION_MODAL);
+        stage = new Stage(StageStyle.DECORATED);
+        stage.initModality(Modality.APPLICATION_MODAL);
         if (owner != null) {
-            dialog.initOwner(owner);
+            stage.initOwner(owner);
         }
-        dialog.setTitle("Continue Signing Workflow");
-        dialog.setMinWidth(680);
-        dialog.setMinHeight(560);
-        UiSupport.applyAppIcon(dialog);
+        stage.setTitle("Continue Workflow — " + documentName);
+        stage.setMinWidth(900);
+        stage.setMinHeight(600);
 
-        // ---- header -------------------------------------------------------
+        // ---- header: brand + document (same as the other workspaces) -------
         Label logo = new Label();
         logo.setGraphic(new FontIcon(FontAwesomeSolid.FILE_SIGNATURE));
         logo.getStyleClass().add("app-logo");
         Label brand = new Label("SignFlow");
         brand.getStyleClass().add("app-name");
-        Label tagline = new Label("Workflow document");
-        tagline.getStyleClass().add("app-tagline");
-        HBox brandRow = new HBox(10, logo, new VBox(1, brand, tagline));
-        brandRow.setAlignment(Pos.CENTER_LEFT);
-
-        Button themeToggle = com.example.signer.ui.ThemeManager.instance()
-                .createToggleButton();
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox header = new HBox(brandRow, spacer, themeToggle);
+        Label docChip = new Label(documentName);
+        docChip.getStyleClass().add("mws-doc-chip");
+        docChip.setMaxWidth(240);
+        docChip.setTextOverrun(OverrunStyle.ELLIPSIS);
+        docChip.setTooltip(new Tooltip(pdfToOpen.toString()));
+        Region headerSpacer = new Region();
+        HBox.setHgrow(headerSpacer, Priority.ALWAYS);
+        HBox header = new HBox(12, logo, brand, docChip, headerSpacer);
         header.setAlignment(Pos.CENTER_LEFT);
         header.getStyleClass().add("app-header");
+        header.setPadding(new Insets(10, 16, 10, 16));
 
-        Label title = new Label(pdfToOpen.getFileName().toString());
-        title.getStyleClass().add("workflow-title");
-        title.setWrapText(true);
+        stripHolder.setAlignment(Pos.CENTER);
+        stripHolder.getStyleClass().add("mws-strip-row");
 
+        // ---- right panel shell ---------------------------------------------
+        panelTitle.getStyleClass().add("mws-panel-title");
+        panelPill.getStyleClass().addAll("status-pill", "status-pill--pending");
+        panelPill.setVisible(false);
+        HBox panelHead = new HBox(8, panelTitle, panelPill);
+        panelHead.setAlignment(Pos.CENTER_LEFT);
+        panelInner.getStyleClass().add("mws-panel");
+        ScrollPane panelScroll = new ScrollPane(panelInner);
+        panelScroll.setFitToWidth(true);
+        panelScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        panelScroll.getStyleClass().add("mws-panel-scroll");
+        VBox.setVgrow(panelScroll, Priority.ALWAYS);
+        VBox panel = new VBox(panelHead, panelScroll);
+        panel.getStyleClass().add("mws-panel-root");
+        panel.setPrefWidth(310);
+        panel.setMinWidth(280);
+
+        HBox.setHgrow(viewerHolder, Priority.ALWAYS);
+        HBox center = new HBox(10, viewerHolder, panel);
+        center.getStyleClass().add("mws-center");
+        center.setPadding(new Insets(10, 12, 10, 12));
+
+        // ---- status bar ------------------------------------------------------
         spinner = new ProgressIndicator();
         spinner.getStyleClass().add("mws-busy");
         spinner.setPrefSize(18, 18);
-        spinner.setVisible(true);
-
-        statusLabel = new Label("Verifying existing signatures…");
-        statusLabel.getStyleClass().add("doc-meta");
+        statusLabel = new Label("Checking the document and its signatures…");
+        statusLabel.getStyleClass().add("status-text");
         statusLabel.setWrapText(true);
+        HBox.setHgrow(statusLabel, Priority.ALWAYS);
+        HBox bottom = new HBox(10, spinner, statusLabel);
+        bottom.getStyleClass().add("status-bar");
+        bottom.setPadding(new Insets(8, 16, 8, 16));
 
-        HBox statusRow = new HBox(8, spinner, statusLabel);
-        statusRow.setAlignment(Pos.CENTER_LEFT);
+        BorderPane root = new BorderPane();
+        root.setTop(new VBox(header, stripHolder));
+        root.setCenter(center);
+        root.setBottom(bottom);
+        root.getStyleClass().add("mws-root");
 
-        timelineBox = new VBox(8);
-        timelineBox.getStyleClass().add("wf-timeline");
-
-        content = new VBox(14, header, title, statusRow, timelineBox);
-        content.getStyleClass().add("wf-root");
-        content.setPadding(new Insets(18));
-        content.setSpacing(14);
-
-        ScrollPane scroll = new ScrollPane(content);
-        scroll.setFitToWidth(true);
-        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        scroll.getStyleClass().add("content-scroll");
-
-        // ---- footer: Back to the workflow selection screen -----------------
-        Button backButton = new Button("Back", new FontIcon(FontAwesomeSolid.ARROW_LEFT));
-        backButton.getStyleClass().add("btn-ghost");
-        backButton.setCancelButton(true); // Esc = Back
-        backButton.setTooltip(new Tooltip(
-                "Return to the workflow selection screen (Esc)"));
-        backButton.setOnAction(e -> dialog.close());
-
-        Region footerSpacer = new Region();
-        HBox.setHgrow(footerSpacer, Priority.ALWAYS);
-        HBox footer = new HBox(10, backButton, footerSpacer);
-        footer.getStyleClass().add("workflow-footer");
-        footer.setPadding(new Insets(10, 18, 12, 18));
-
-        VBox root = new VBox(scroll, footer);
-        VBox.setVgrow(scroll, Priority.ALWAYS);
-
-        Scene scene = new Scene(root, 720, 600);
+        Rectangle2D screen = Screen.getPrimary().getVisualBounds();
+        Scene scene = new Scene(root,
+                Math.max(320, Math.min(1280, screen.getWidth() - 48)),
+                Math.max(240, Math.min(820, screen.getHeight() - 48)));
         ThemeManager.instance().attach(scene);
-        dialog.setScene(scene);
-        UiSupport.applyAppIcon(dialog);
+        installKeys(scene);
+        stage.setScene(scene);
+        UiSupport.applyAppIcon(stage);
 
-        // Leaving this workspace ends this app's token session — the same
-        // cleanup the multi-signer workspace performs when it is closed.
-        // disconnect() is a safe no-op when no token is connected.
-        dialog.setOnHiding(e -> {
+        // Never close in the middle of a signature (token unlocked, file
+        // half-written): wait for the outcome instead.
+        stage.setOnCloseRequest(e -> {
+            if (busy) {
+                e.consume();
+            }
+        });
+        // Leaving ends this app's token session, like the other workspaces.
+        stage.setOnHiding(e -> {
+            if (viewer != null) {
+                viewer.close();
+            }
             try {
                 tokenService.disconnect();
             } catch (Exception ex) {
@@ -180,8 +239,8 @@ public final class WorkflowContinuationDialog {
             }
         });
 
-        loadInBackground();
-        dialog.showAndWait();
+        load(null);
+        stage.showAndWait();
     }
 
     /** @return true when a signature was created and saved in this session. */
@@ -189,375 +248,525 @@ public final class WorkflowContinuationDialog {
         return signedHere;
     }
 
-    /* ------------------------------------------------------------------
-     * loading / reconciliation (background)
-     * ------------------------------------------------------------------ */
+    // ------------------------------------------------------------------ loading
 
-    private void loadInBackground() {
+    /** Reads {@link #pdf} in the background, then shows it. */
+    private void load(String afterSignMessage) {
+        setBusy(true);
         Task<WorkflowSigningService.WorkflowDocument> task = new Task<>() {
             @Override
             protected WorkflowSigningService.WorkflowDocument call() {
                 return workflowService.load(pdf);
             }
         };
-        task.setOnSucceeded(e -> render(task.getValue()));
-        task.setOnFailed(e -> {
-            spinner.setVisible(false);
-            statusLabel.setText("The document could not be opened.");
-            showFatal("This document could not be opened",
-                    UiSupport.failureMessage(task));
+        task.setOnSucceeded(e -> {
+            setBusy(false);
+            render(task.getValue(), afterSignMessage);
         });
-        new Thread(task, "wf-open").start();
+        task.setOnFailed(e -> {
+            setBusy(false);
+            statusLabel.setText("The document could not be opened.");
+            showAlert("This document could not be opened", UiSupport.failureMessage(task));
+        });
+        Background.run("wf-open", task);
     }
 
-    private void render(WorkflowSigningService.WorkflowDocument doc) {
-        spinner.setVisible(false);
+    private void render(WorkflowSigningService.WorkflowDocument doc, String afterSignMessage) {
+        this.document = doc;
+        this.state = doc.effective();
+        this.currentStep = state == null ? null : state.currentStep();
 
         if (doc.parseFailure() != null) {
-            statusLabel.setText("Workflow document detected — problem found");
-            renderFatalWorkflow(doc.parseFailure().getMessage());
+            showReadOnly(SignFlowUi.Tone.ERROR, "This document contains an invalid or"
+                    + " unsupported signing workflow. " + doc.parseFailure().getMessage());
+            statusLabel.setText("Signing is disabled for this document.");
             return;
         }
         if (doc.manifest() == null) {
-            statusLabel.setText("");
-            renderNoWorkflow();
+            showReadOnly(SignFlowUi.Tone.INFO, "This PDF carries no signing workflow. To sign"
+                    + " it, choose one, two or three signers on the home screen.");
+            statusLabel.setText("No signing workflow in this document.");
+            return;
+        }
+        if (state == null) {
+            showReadOnly(SignFlowUi.Tone.WARN, "This workflow was created by a newer version"
+                    + " of SignFlow. Its signatures remain valid and verifiable, but it"
+                    + " can't be signed with this version.");
+            statusLabel.setText("Signing is disabled for this document.");
             return;
         }
 
-        EffectiveWorkflowState effective = doc.effective();
-        if (effective == null) {
-            statusLabel.setText("");
-            renderFatalWorkflow(
-                    "This workflow was created by a newer version of the application."
-                            + " The document's signatures remain valid and verifiable.");
-            return;
-        }
-        this.state = effective;
-        statusLabel.setText(describeStatus(effective, doc.manifest()));
+        stripHolder.getChildren().setAll(buildStrip(state));
+        boolean completed = state.status() == EffectiveWorkflowState.WorkflowStatus.COMPLETED;
+        boolean canSign = state.canSign() && currentStep != null;
 
-        renderTimeline(effective);
-        renderActionArea(effective);
-    }
-
-    /* ------------------------------------------------------------------
-     * timeline (§18)
-     * ------------------------------------------------------------------ */
-
-    private void renderTimeline(EffectiveWorkflowState effective) {
-        timelineBox.getChildren().clear();
-
-        Label heading = new Label("SIGNING WORKFLOW");
-        heading.getStyleClass().add("section-title");
-        timelineBox.getChildren().add(heading);
-
-        for (EffectiveWorkflowState.StepView step : effective.steps()) {
-            timelineBox.getChildren().add(stepRow(step));
-        }
-
-        if (state != null && !state.warnings().isEmpty()) {
-            VBox warnings = new VBox(4);
-            warnings.getStyleClass().addAll("card", "wf-banner--warn");
-            for (String warning : state.warnings()) {
-                warnings.getChildren().add(new Label(warning));
+        // Viewer: earlier signatures' boxes are shown so the new one avoids
+        // them; a placement fixed in the workflow is used as-is.
+        List<SignaturePlacement> earlier = new ArrayList<>();
+        for (WorkflowSignerStep step : doc.manifest().stepsInOrder()) {
+            if (step.placement() != null && step.signedAt() != null) {
+                earlier.add(step.placement());
             }
-            timelineBox.getChildren().add(warnings);
         }
-        if (!effective.signingBlockers().isEmpty()
-                && effective.status() != EffectiveWorkflowState.WorkflowStatus.COMPLETED) {
-            VBox blockers = new VBox(4);
-            blockers.getStyleClass().addAll("card", "wf-banner--danger");
-            for (String blocker : effective.signingBlockers()) {
-                blockers.getChildren().add(new Label(blocker));
+        showViewer(canSign
+                ? new PlacementViewer(renderService, pdf, earlier, currentStep.placement())
+                : PlacementViewer.readOnly(renderService, pdf));
+
+        buildPanel(canSign, completed);
+        if (afterSignMessage != null) {
+            statusLabel.setText(afterSignMessage);
+        } else if (completed) {
+            statusLabel.setText("All signatures in this workflow are complete.");
+        } else if (canSign) {
+            statusLabel.setText(viewer.isLocked()
+                    ? "The workflow sets where your signature goes. Review the document, then sign."
+                    : "Review the document, click Place Signature and drag on the page.");
+            checkCard();
+        } else {
+            statusLabel.setText("Signing is unavailable for this document.");
+        }
+    }
+
+    private void showViewer(PlacementViewer next) {
+        if (viewer != null) {
+            viewer.close();
+        }
+        viewer = next;
+        viewer.setInteractive(!busy);
+        viewer.statusProperty().addListener((o, was, text) -> {
+            if (text != null) {
+                statusLabel.setText(text);
             }
-            timelineBox.getChildren().add(blockers);
+        });
+        viewer.placementProperty().addListener((o, was, now) -> refreshPanel());
+        viewer.placingProperty().addListener((o, was, now) -> {
+            if (placeButton != null) {
+                placeButton.setText(now ? "Drag on the page…" : "Place Signature");
+            }
+        });
+        viewerHolder.getChildren().setAll(viewer.getRoot());
+    }
+
+    /** A document that can't be signed here: show it, and say why. */
+    private void showReadOnly(SignFlowUi.Tone tone, String message) {
+        resetPanelControls();
+        stripHolder.getChildren().clear();
+        showViewer(PlacementViewer.readOnly(renderService, pdf));
+        panelTitle.setText("Workflow");
+        panelPill.setVisible(false);
+        panelInner.getChildren().setAll(
+                SignFlowUi.note(FontAwesomeSolid.INFO_CIRCLE, tone, message));
+        if (document != null && document.verification() != null) {
+            panelInner.getChildren().add(signaturesPane(document.verification()));
         }
     }
 
-    private HBox stepRow(EffectiveWorkflowState.StepView step) {
-        FontIcon icon;
-        String statusWord;
-        String style;
-        if (step.fulfilled() && step.verified()) {
-            icon = new FontIcon(FontAwesomeSolid.CHECK_CIRCLE);
-            statusWord = "Verified";
-            style = "wf-step--done";
-        } else if (step.yourTurn()) {
-            icon = new FontIcon(FontAwesomeSolid.ARROW_RIGHT);
-            statusWord = "Your turn";
-            style = "wf-step--current";
-        } else {
-            icon = new FontIcon(FontAwesomeSolid.CIRCLE);
-            statusWord = "Waiting";
-            style = "wf-step--waiting";
+    // ------------------------------------------------------------------ strip
+
+    private HBox buildStrip(EffectiveWorkflowState effective) {
+        HBox strip = new HBox(6);
+        strip.getStyleClass().add("mws-strip");
+        strip.setAlignment(Pos.CENTER);
+        List<EffectiveWorkflowState.StepView> steps = effective.steps();
+        for (int i = 0; i < steps.size(); i++) {
+            EffectiveWorkflowState.StepView step = steps.get(i);
+            Label chip = new Label(step.order() + " · " + step.displayName());
+            String style = step.fulfilled() && step.verified() ? "mws-chip--done"
+                    : step.fulfilled() ? "mws-chip--failed"
+                    : step.yourTurn() ? "mws-chip--active" : "mws-chip--pending";
+            chip.getStyleClass().addAll("mws-chip", style);
+            chip.setTooltip(new Tooltip(step.displayName() + " — "
+                    + (step.fulfilled() && step.verified() ? "signed and verified"
+                    : step.fulfilled() ? "signature problem"
+                    : step.yourTurn() ? "signing now" : "waiting")
+                    + " · certificate " + step.certificate().fingerprintShort()));
+            strip.getChildren().add(chip);
+            if (i < steps.size() - 1) {
+                FontIcon arrow = new FontIcon(FontAwesomeSolid.CHEVRON_RIGHT);
+                arrow.getStyleClass().add("mws-strip-arrow");
+                strip.getChildren().add(arrow);
+            }
         }
-
-        Label name = new Label(step.displayName());
-        name.getStyleClass().add("chain-signer");
-
-        Label status = new Label(statusWord);
-        status.getStyleClass().add("chain-badge");
-
-        Label detail = new Label(stepDetail(step));
-        detail.getStyleClass().add("chain-time");
-        detail.setWrapText(true);
-        HBox.setHgrow(detail, Priority.ALWAYS);
-
-        HBox row = new HBox(10, icon, name, status, detail);
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.getStyleClass().addAll("chain-row", style);
-        return row;
+        return strip;
     }
 
-    private String stepDetail(EffectiveWorkflowState.StepView step) {
-        StringBuilder detail = new StringBuilder();
-        if (step.signedAt() != null) {
-            detail.append("Signed ")
-                    .append(TIME_FORMAT.format(step.signedAt()))
-                    .append(" (time claimed in the signature)");
-        } else {
-            detail.append("Certificate ")
-                    .append(step.certificate().fingerprintShort());
-        }
-        return detail.toString();
-    }
+    // ------------------------------------------------------------------ panel
 
-    /* ------------------------------------------------------------------
-     * action area (§37): button state + reason, token panel (§14/§15)
-     * ------------------------------------------------------------------ */
-
-    private void renderActionArea(EffectiveWorkflowState effective) {
-        signReason = new Label();
-        signReason.getStyleClass().add("doc-meta");
-        signReason.setWrapText(true);
-
-        boolean completed =
-                effective.status() == EffectiveWorkflowState.WorkflowStatus.COMPLETED;
-
+    private void buildPanel(boolean canSign, boolean completed) {
+        resetPanelControls();
+        int total = state.steps().size();
+        panelPill.getStyleClass().removeAll("status-pill--pending", "status-pill--active",
+                "status-pill--error");
+        panelPill.setVisible(true);
         if (completed) {
-            signButton = new Button("Workflow Completed",
-                    new FontIcon(FontAwesomeSolid.CHECK_CIRCLE));
-            signButton.setDisable(true);
-            signReason.setText("All required signatures have been completed.");
-        } else if (!effective.canSign()) {
-            signButton = new Button("Sign Document");
-            signButton.setDisable(true);
-            signReason.setText("Signing is unavailable: "
-                    + String.join(" ", effective.signingBlockers()));
+            panelTitle.setText("Workflow complete");
+            panelPill.setText("Signed");
+            panelPill.getStyleClass().add("status-pill--active");
+        } else if (canSign) {
+            panelTitle.setText("Signer " + currentStep.order() + " of " + total);
+            panelPill.setText("Your turn");
+            panelPill.getStyleClass().add("status-pill--active");
         } else {
-            signButton = new Button("Sign Document",
-                    new FontIcon(FontAwesomeSolid.FEATHER_ALT));
-            signButton.getStyleClass().add("btn-primary");
-            signButton.setDefaultButton(true);
-            signButton.setOnAction(e -> confirmAndSign());
-            signReason.setText(stepSummary(effective));
+            panelTitle.setText("Workflow");
+            panelPill.setText("Can't sign");
+            panelPill.getStyleClass().add("status-pill--error");
         }
+        panelInner.getChildren().clear();
+
+        // ---- identity: who signs now, with which certificate ----------------
+        if (currentStep != null && !completed) {
+            Label name = new Label(currentStep.displayName());
+            name.getStyleClass().add("mws-identity-name");
+            Label details = new Label("Signing turn " + currentStep.order() + " of " + total
+                    + " · certificate " + currentStep.certificate().fingerprintShort());
+            details.getStyleClass().add("section-hint");
+            details.setWrapText(true);
+            VBox identity = new VBox(4, name, details);
+            identity.getStyleClass().add("mws-identity-box");
+            panelInner.getChildren().add(identity);
+        }
+
+        for (String warning : state.warnings()) {
+            panelInner.getChildren().add(SignFlowUi.note(FontAwesomeSolid.EXCLAMATION_TRIANGLE,
+                    SignFlowUi.Tone.WARN, warning));
+        }
+        if (!canSign && !completed) {
+            panelInner.getChildren().add(SignFlowUi.note(FontAwesomeSolid.BAN,
+                    SignFlowUi.Tone.ERROR, "Signing is unavailable: "
+                            + String.join(" ", state.signingBlockers())));
+        }
+
+        if (canSign) {
+            placementLabel = new Label();
+            placementLabel.getStyleClass().add("section-hint");
+            placementLabel.setWrapText(true);
+            overlapLabel = new Label("⚠ This placement overlaps an existing signature.");
+            overlapLabel.getStyleClass().add("mws-overlap-warning");
+            overlapLabel.setWrapText(true);
+            panelInner.getChildren().addAll(placementLabel, overlapLabel,
+                    pane("Actions", actionsBox()),
+                    pane("Smart card & PIN", tokenBox()),
+                    pane("Signature appearance", appearanceBox()));
+        }
+        if (document.verification() != null) {
+            panelInner.getChildren().add(signaturesPane(document.verification()));
+        }
+        refreshPanel();
+    }
+
+    /** Forgets the previous revision's panel controls before a rebuild. */
+    private void resetPanelControls() {
+        placementLabel = null;
+        overlapLabel = null;
+        placeButton = null;
+        clearButton = null;
+        signButton = null;
+        whyDisabled = null;
+        cardBox = null;
+        pinField = null;
+        unlockButton = null;
+        cardCheck = null;
+    }
+
+    private VBox actionsBox() {
+        placeButton = new Button("Place Signature", new FontIcon(FontAwesomeSolid.PEN_FANCY));
+        placeButton.getStyleClass().add("btn-secondary");
+        placeButton.setMaxWidth(Double.MAX_VALUE);
+        placeButton.setOnAction(e -> viewer.togglePlacing());
+        clearButton = new Button("Clear", new FontIcon(FontAwesomeSolid.ERASER));
+        clearButton.getStyleClass().add("btn-ghost");
+        clearButton.setOnAction(e -> viewer.clearPlacement());
+        signButton = new Button("Confirm & Sign…", new FontIcon(FontAwesomeSolid.FILE_SIGNATURE));
         signButton.getStyleClass().add("btn-primary");
-
-        HBox actionRow = new HBox(12, signButton, signReason);
-        actionRow.setAlignment(Pos.CENTER_LEFT);
-
-        Label tokenHeading = new Label("TOKEN & SIGNATURE");
-        tokenHeading.getStyleClass().add("section-title");
-        VBox actionCard = new VBox(10, tokenHeading, actionRow);
-        actionCard.getStyleClass().add("card");
-        refreshTokenPanel(actionCard, effective);
-        timelineBox.getChildren().add(actionCard);
-    }
-
-    private String stepSummary(EffectiveWorkflowState effective) {
-        WorkflowSignerStepView view = currentView(effective);
-        if (view == null) {
-            return "";
-        }
-        return "Step " + view.order() + " of " + effective.steps().size()
-                + " — " + view.name() + " · certificate "
-                + view.fingerprint();
-    }
-
-    private WorkflowSignerStepView currentView(EffectiveWorkflowState effective) {
-        Integer order = effective.currentStepOrder();
-        if (order == null) {
-            return null;
-        }
-        for (EffectiveWorkflowState.StepView step : effective.steps()) {
-            if (step.order() == order) {
-                return new WorkflowSignerStepView(step.order(), step.displayName(),
-                        step.certificate().fingerprintShort());
+        signButton.setMaxWidth(Double.MAX_VALUE);
+        signButton.setOnAction(e -> confirmAndSign());
+        whyDisabled = new Label();
+        whyDisabled.getStyleClass().add("section-hint");
+        whyDisabled.setWrapText(true);
+        if (viewer.isLocked()) {
+            for (Button b : List.of(placeButton, clearButton)) {
+                b.setVisible(false);
+                b.setManaged(false);
             }
         }
-        return null;
+        return new VBox(6, placeButton, clearButton, signButton, whyDisabled);
     }
 
-    private void refreshTokenPanel(VBox actionCard, EffectiveWorkflowState effective) {
-        TokenState tokenState = tokenService.getState();
-        boolean tokenReady = tokenState == TokenState.AUTHENTICATED
-                || tokenState == TokenState.SIGNATURE_COMPLETE;
-        if (tokenReady || pinField != null) {
-            return; // already satisfied / panel already built
-        }
-        Label tokenLabel = new Label("Token: not unlocked — enter the PIN to continue");
-        tokenLabel.getStyleClass().add("doc-meta");
-
+    private VBox tokenBox() {
+        cardBox = new VBox(6);
         pinField = new PasswordField();
-        pinField.setPromptText("Token PIN");
-        pinField.getStyleClass().add("login-field");
-        pinField.setPrefColumnCount(12);
-        pinField.setOnAction(e -> unlockToken(effective));
-
-        unlockButton = new Button("Unlock Token", new FontIcon(FontAwesomeSolid.KEY));
-        unlockButton.getStyleClass().addAll("btn-secondary", "btn-sm");
-        unlockButton.setOnAction(e -> unlockToken(effective));
-
+        pinField.setPromptText("Smart card PIN");
+        pinField.setOnAction(e -> unlock());
+        unlockButton = new Button("Unlock", new FontIcon(FontAwesomeSolid.UNLOCK_ALT));
+        unlockButton.getStyleClass().add("btn-secondary");
+        unlockButton.setOnAction(e -> unlock());
         HBox pinRow = new HBox(8, pinField, unlockButton);
-        pinRow.setAlignment(Pos.CENTER_LEFT);
-        actionCard.getChildren().add(new VBox(6, tokenLabel, pinRow));
+        HBox.setHgrow(pinField, Priority.ALWAYS);
+        return new VBox(8, cardBox, pinRow);
     }
 
-    private void unlockToken(EffectiveWorkflowState effective) {
-        if (pinField == null) {
+    private VBox appearanceBox() {
+        reasonCombo = new ComboBox<>();
+        reasonCombo.getItems().setAll(REASONS);
+        reasonCombo.getSelectionModel().selectFirst();
+        reasonCombo.setMaxWidth(Double.MAX_VALUE);
+        reasonOther = new TextField();
+        reasonOther.setPromptText("Custom reason");
+        reasonOther.setVisible(false);
+        reasonOther.setManaged(false);
+        reasonCombo.setOnAction(e -> {
+            boolean other = "Other…".equals(reasonCombo.getValue());
+            reasonOther.setVisible(other);
+            reasonOther.setManaged(other);
+        });
+        locationField = new TextField();
+        locationField.setPromptText("Location (optional, e.g. Rabat, Morocco)");
+        locationField.setMaxWidth(Double.MAX_VALUE);
+        return new VBox(4, new Label("Reason"), reasonCombo, reasonOther,
+                new Label("Location"), locationField);
+    }
+
+    private TitledPane signaturesPane(SignatureVerificationResult verification) {
+        List<SignatureVerificationResult.SignatureDetail> sigs =
+                verification.signatures() == null ? List.of() : verification.signatures();
+        VBox box = new VBox(6);
+        if (sigs.isEmpty()) {
+            Label none = new Label("None yet — you are the first to sign.");
+            none.getStyleClass().add("section-hint");
+            box.getChildren().add(none);
+        }
+        for (SignatureVerificationResult.SignatureDetail sig : sigs) {
+            SignatureStatus status = SignatureStatus.of(sig, verification);
+            String who = SignatureProperties.commonName(
+                    sig.properties() != null ? sig.properties().certSubject() : sig.signerSubject());
+            FontIcon icon = new FontIcon(status.isValid()
+                    ? FontAwesomeSolid.CHECK_CIRCLE : FontAwesomeSolid.EXCLAMATION_CIRCLE);
+            icon.getStyleClass().add(status.isValid() ? "sf-ok-icon" : "sf-error-icon");
+            Label name = new Label(who + " — " + status.title(), icon);
+            name.setWrapText(true);
+            Hyperlink details = new Hyperlink("Details");
+            details.setOnAction(e -> SignaturePropertiesView.show(stage, sig, verification, sigs.size()));
+            box.getChildren().add(new VBox(0, name, details));
+        }
+        return pane("Signatures in this document (" + sigs.size() + ")", box);
+    }
+
+    private static TitledPane pane(String title, VBox content) {
+        TitledPane pane = new TitledPane(title, content);
+        pane.setExpanded(true);
+        pane.setCollapsible(false);
+        return pane;
+    }
+
+    /** Keeps labels and buttons in line with the placement, card and busy state. */
+    private void refreshPanel() {
+        if (signButton == null || viewer == null) {
             return;
         }
+        SignaturePlacement p = viewer.getPlacement();
+        placementLabel.setText(p == null
+                ? "Signature: not placed yet — click Place Signature, then drag on the page."
+                : "Signature: page " + (p.pageIndex() + 1) + " · " + Math.round(p.width())
+                        + "×" + Math.round(p.height()) + " pt"
+                        + (viewer.isLocked() ? " (position set by the workflow)" : ""));
+        boolean overlap = viewer.overlapsExisting();
+        overlapLabel.setVisible(overlap);
+        overlapLabel.setManaged(overlap);
+        boolean unlocked = isUnlocked();
+        boolean cardOk = cardCheck != null && cardCheck.state().canSign();
+        String why = p == null ? "Place your signature on the document first."
+                : !cardOk ? "Insert the smart card holding this signer's certificate."
+                : !unlocked ? "Unlock the smart card with its PIN."
+                : "";
+        whyDisabled.setText(why);
+        signButton.setDisable(busy || !why.isEmpty());
+        placeButton.setDisable(busy);
+        clearButton.setDisable(busy || p == null);
+        pinField.setDisable(busy || unlocked || !cardOk);
+        unlockButton.setDisable(busy || unlocked || !cardOk);
+        unlockButton.setText(unlocked ? "Unlocked" : "Unlock");
+    }
+
+    private boolean isUnlocked() {
+        TokenState t = tokenService.getState();
+        return t == TokenState.AUTHENTICATED || t == TokenState.SIGNATURE_COMPLETE;
+    }
+
+    // ------------------------------------------------------------------ card
+
+    /** Looks for the card and checks it holds this signer's certificate (no PIN). */
+    private void checkCard() {
+        if (cardBox == null || currentStep == null) {
+            return;
+        }
+        cardBox.getChildren().setAll(SignFlowUi.note(FontAwesomeSolid.SYNC,
+                SignFlowUi.Tone.INFO, "Looking for your smart card…"));
+        Task<SigningCardCheck> task = new Task<>() {
+            @Override
+            protected SigningCardCheck call() {
+                return SigningCardCheck.run(tokenService, currentStep.certificate());
+            }
+        };
+        task.setOnSucceeded(e -> showCard(task.getValue()));
+        task.setOnFailed(e -> showCard(new SigningCardCheck(SigningCardCheck.State.ERROR, null)));
+        Background.run("wf-card", task);
+    }
+
+    private void showCard(SigningCardCheck result) {
+        cardCheck = result;
+        SigningCardCheck.State s = result.state();
+        SignFlowUi.Tone tone = s.canSign() ? SignFlowUi.Tone.OK
+                : s == SigningCardCheck.State.NOT_DETECTED ? SignFlowUi.Tone.INFO
+                : SignFlowUi.Tone.WARN;
+        cardBox.getChildren().setAll(SignFlowUi.note(
+                s.canSign() ? FontAwesomeSolid.ID_CARD : FontAwesomeSolid.CREDIT_CARD,
+                tone, s.title() + ". " + s.explanation()));
+        if (!s.canSign()) {
+            Button again = SignFlowUi.secondary("Check again");
+            again.setOnAction(e -> checkCard());
+            cardBox.getChildren().add(again);
+        }
+        refreshPanel();
+    }
+
+    private void unlock() {
         char[] pin = UiSupport.pinChars(pinField);
         if (pin == null || pin.length == 0) {
-            statusLabel.setText("Type the token PIN first.");
+            statusLabel.setText("Type the smart card PIN first.");
             return;
         }
-        unlockButton.setDisable(true);
-        pinField.setDisable(true);
-        statusLabel.setText("Authenticating to the token…");
-
+        setBusy(true);
+        statusLabel.setText("Unlocking the smart card…");
         Task<Void> task = new Task<>() {
             @Override
             protected Void call() {
-                tokenService.detect();
-                tokenService.startAuthentication();
-                tokenService.authenticate(pin); // PIN wiped by TokenService
+                tokenService.detect(); // no-op when the card is already handled
+                if (tokenService.getState() != TokenState.WAITING_FOR_PIN) {
+                    tokenService.startAuthentication();
+                }
+                tokenService.authenticate(pin); // the PIN array is wiped by TokenService
                 return null;
             }
         };
         task.setOnSucceeded(e -> {
-            statusLabel.setText("Token authenticated.");
             pinField.clear();
-            pinField.setDisable(true);
-            unlockButton.setVisible(false);
-            signButton.setDisable(false);
-            signReason.setText(stepSummary(state));
+            setBusy(false);
+            statusLabel.setText("✓ Smart card unlocked — you can sign.");
         });
         task.setOnFailed(e -> {
-            unlockButton.setDisable(false);
-            pinField.setDisable(false);
-            statusLabel.setText("Token authentication failed.");
-            showAlert(Alert.AlertType.ERROR, "Token error",
-                    "The token could not be unlocked. Check the PIN and try again.");
+            pinField.clear();
+            setBusy(false);
+            statusLabel.setText("The smart card could not be unlocked.");
+            Throwable t = task.getException();
+            boolean pinProblem = t instanceof TokenException te
+                    && (te.getErrorCode() == ErrorCode.TOKEN_PIN_INCORRECT
+                    || te.getErrorCode() == ErrorCode.TOKEN_PIN_LOCKED
+                    || te.getErrorCode() == ErrorCode.TOKEN_LOGIN_FAILED);
+            showAlert("The smart card could not be unlocked", pinProblem
+                    ? "Check the PIN and try again. Careful: cards lock after a few wrong PINs."
+                    : MultiSignerWorkspaceFlow.detectionProblem(t));
         });
-        new Thread(task, "wf-auth").start();
+        Background.run("wf-auth", task);
     }
 
-    /* ------------------------------------------------------------------
-     * signing (§38 pre-sign confirmation, §39 post-sign, §40 export)
-     * ------------------------------------------------------------------ */
+    // ------------------------------------------------------------------ sign
 
     private void confirmAndSign() {
-        EffectiveWorkflowState current = state;
-        if (current == null || !current.canSign()) {
+        SignaturePlacement placement = viewer.getPlacement();
+        WorkflowSignerStep step = currentStep;
+        if (placement == null || step == null || state == null || !state.canSign()) {
             return;
         }
-        WorkflowSignerStepView view = currentView(current);
-        if (view == null) {
+        WorkflowSigningService.SignatureAppearanceHint hint = appearanceHint();
+        SigningCertificate cert = cardCheck == null ? null : cardCheck.certificate();
+        String tokenLabel;
+        try {
+            tokenLabel = tokenService.getTokenInfo().label();
+        } catch (RuntimeException e) {
+            tokenLabel = null;
+        }
+        boolean confirmed = SigningCheckpoint.confirm(stage, stampPreview(step, cert, hint, placement),
+                List.of(new SigningCheckpoint.Row("Signer", step.displayName()),
+                        new SigningCheckpoint.Row("Certificate", cert != null
+                                ? SignatureProperties.commonName(cert.getSubject())
+                                : step.certificate().fingerprintShort()),
+                        new SigningCheckpoint.Row("Workflow", "Step " + step.order() + " of "
+                                + state.steps().size()),
+                        new SigningCheckpoint.Row("Page", String.valueOf(placement.pageIndex() + 1)),
+                        new SigningCheckpoint.Row("Reason", hint.reason()),
+                        new SigningCheckpoint.Row("Location", hint.location()),
+                        new SigningCheckpoint.Row("Token", tokenLabel)));
+        if (!confirmed) {
             return;
         }
-        String confirmText = "Document: " + pdf.getFileName() + "\n"
-                + "Signer: " + view.name() + "\n"
-                + "Certificate (SHA-256): " + view.fingerprint() + "\n"
-                + "Workflow: step " + view.order() + " of "
-                + current.steps().size() + "\n"
-                + "Previous signatures: "
-                + current.steps().stream().filter(
-                        EffectiveWorkflowState.StepView::fulfilled).count() + " verified";
 
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
-        confirm.setTitle("Ready to sign");
-        confirm.setHeaderText("Ready to sign");
-        confirm.setContentText(confirmText);
-        Optional<ButtonType> answer = confirm.showAndWait();
-        if (answer.isEmpty() || answer.get() != ButtonType.OK) {
-            return;
-        }
-
-        // §40: destination chosen BEFORE signing; the service writes atomically.
+        // Destination chosen BEFORE signing: the service writes atomically.
         FileChooser save = new FileChooser();
         save.setTitle("Save signed document");
-        save.getExtensionFilters().add(
-                new FileChooser.ExtensionFilter("PDF documents", "*.pdf"));
-        save.setInitialFileName(suggestedName(view.name()));
-        java.io.File target = save.showSaveDialog(dialog);
+        save.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF documents", "*.pdf"));
+        save.setInitialFileName(suggestedName(step.displayName()));
+        File target = save.showSaveDialog(stage);
         if (target == null) {
             return;
         }
+        Path output = target.toPath();
 
-        signButton.setDisable(true);
-        spinner.setVisible(true);
-        statusLabel.setText("Signing document…");
-
-        Path outputPath = target.toPath();
+        setBusy(true);
+        statusLabel.setText("Signing… keep your smart card connected.");
         Task<EffectiveWorkflowState> task = new Task<>() {
             @Override
             protected EffectiveWorkflowState call() {
-                return workflowService.signNextStep(pdf, null, outputPath);
+                return workflowService.signNextStep(pdf, hint, output, step.order(), placement);
             }
         };
         task.setOnSucceeded(e -> {
+            setBusy(false);
             signedHere = true;
-            pdf = outputPath;
-            renderAfterSign(task.getValue(), view, outputPath);
+            pdf = output;
+            EffectiveWorkflowState after = task.getValue();
+            boolean completed = after.status() == EffectiveWorkflowState.WorkflowStatus.COMPLETED;
+            String next = after.steps().stream().filter(EffectiveWorkflowState.StepView::yourTurn)
+                    .map(EffectiveWorkflowState.StepView::displayName).findFirst()
+                    .orElse("the next signer");
+            String message = "✓ Signed and saved to " + output.getFileName() + ". "
+                    + (completed ? "All signatures are complete."
+                    : "Next: pass the document to " + next + ".");
+            load(message);
         });
         task.setOnFailed(e -> {
-            spinner.setVisible(false);
-            signButton.setDisable(false);
+            setBusy(false);
             statusLabel.setText("Signing failed — the document was not modified.");
             Throwable error = task.getException();
-            showAlert(Alert.AlertType.ERROR, "Signing failed",
-                    error instanceof com.example.signer.exception.SignerException signer
-                            ? signer.getMessage()
-                            : com.example.signer.ui.ErrorMessages.generic(error));
+            log.warn("Workflow continuation signing failed", error);
+            showAlert("Signing failed", error instanceof SignerException signer
+                    ? signer.getMessage() : ErrorMessages.generic(error));
         });
-        new Thread(task, "wf-sign").start();
+        Background.run("wf-sign", task);
     }
 
-    private void renderAfterSign(EffectiveWorkflowState after,
-                                 WorkflowSignerStepView signedAs,
-                                 Path savedTo) {
-        this.state = after;
-        spinner.setVisible(false);
-        statusLabel.setText("Saved: " + savedTo.getFileName());
+    private WorkflowSigningService.SignatureAppearanceHint appearanceHint() {
+        String reason = "Other…".equals(reasonCombo.getValue())
+                ? reasonOther.getText() : reasonCombo.getValue();
+        String location = locationField.getText();
+        return new WorkflowSigningService.SignatureAppearanceHint(
+                reason == null || reason.isBlank() ? null : reason.trim(),
+                location == null || location.isBlank() ? null : location.trim());
+    }
 
-        renderTimeline(after);
-
-        boolean completed =
-                after.status() == EffectiveWorkflowState.WorkflowStatus.COMPLETED;
-        VBox success = new VBox(6);
-        success.getStyleClass().addAll("card", "wf-banner--success");
-        success.getChildren().addAll(
-                new Label("✓ Your signature is valid (" + signedAs.name() + ")."),
-                new Label("✓ All previous signatures remain valid."),
-                new Label("✓ Workflow updated and saved."));
-        if (completed) {
-            success.getChildren().add(
-                    new Label("All required signatures have been completed."));
-        } else {
-            String next = after.steps().stream()
-                    .filter(s -> s.yourTurn())
-                    .map(EffectiveWorkflowState.StepView::displayName)
-                    .findFirst().orElse("the next signer");
-            success.getChildren().add(new Label("→ Next: pass the document to " + next + "."));
-        }
-        timelineBox.getChildren().add(success);
-
-        signButton.setText(completed ? "Workflow Completed" : "Sign Document");
-        signButton.setDisable(true);
-        signReason.setText(completed
-                ? "All required signatures have been completed."
-                : "This turn is done — pass the document to the next signer.");
+    /** The real stamp, drawn by the same renderer the signing step uses. */
+    private javafx.scene.image.Image stampPreview(WorkflowSignerStep step, SigningCertificate cert,
+                                                  WorkflowSigningService.SignatureAppearanceHint hint,
+                                                  SignaturePlacement placement) {
+        String cn = cert != null ? SignatureProperties.commonName(cert.getSubject())
+                : step.displayName();
+        SigningAlgorithm algorithm = cert != null && "EC".equals(cert.getPublicKeyAlgorithm())
+                ? SigningAlgorithm.ECDSA_SHA256 : SigningAlgorithm.RSA_SHA256;
+        SignatureAppearance appearance = new SignatureAppearance(hint.reason(), hint.location(),
+                true, true, true, step.displayName());
+        float w = placement == null ? STAMP_W_PTS : placement.width();
+        float h = placement == null ? STAMP_H_PTS : placement.height();
+        return SwingFXUtils.toFXImage(SignatureStampRenderer.render(w, h, cn, algorithm, appearance),
+                null);
     }
 
     private String suggestedName(String signerName) {
@@ -566,62 +775,51 @@ public final class WorkflowContinuationDialog {
         return base + "_signed_by_" + safe + ".pdf";
     }
 
-    /* ------------------------------------------------------------------
-     * non-workflow / broken states (§19)
-     * ------------------------------------------------------------------ */
+    // ------------------------------------------------------------------ helpers
 
-    private void renderNoWorkflow() {
-        Label icon = new Label();
-        icon.setGraphic(new FontIcon(FontAwesomeSolid.FILE_PDF));
-        icon.getStyleClass().add("empty-state-icon");
-        Label title = new Label("No signing workflow in this document");
-        title.getStyleClass().add("empty-state-title");
-        Label hint = new Label(
-                "This PDF carries no portable workflow. Start a new workflow from"
-                        + " the workflow selection screen to sign it here.");
-        hint.getStyleClass().add("empty-state-hint");
-        hint.setWrapText(true);
-        timelineBox.getChildren().addAll(icon, title, hint);
+    private void setBusy(boolean value) {
+        busy = value;
+        spinner.setVisible(value);
+        if (viewer != null) {
+            viewer.setInteractive(!value);
+        }
+        refreshPanel();
     }
 
-    private void renderFatalWorkflow(String detail) {
-        VBox banner = new VBox(6);
-        banner.getStyleClass().addAll("card", "wf-banner--danger");
-        banner.getChildren().addAll(
-                new Label("This document contains an invalid or unsupported signing"
-                        + " workflow."),
-                new Label(detail));
-        timelineBox.getChildren().add(banner);
+    private void installKeys(Scene scene) {
+        scene.setOnKeyPressed(e -> {
+            if (viewer == null) {
+                return;
+            }
+            if (e.isControlDown()) {
+                switch (e.getCode()) {
+                    case EQUALS, ADD -> { e.consume(); viewer.zoomIn(); }
+                    case MINUS, SUBTRACT -> { e.consume(); viewer.zoomOut(); }
+                    case DIGIT0 -> { e.consume(); viewer.resetZoom(); }
+                    default -> { }
+                }
+                return;
+            }
+            switch (e.getCode()) {
+                case PAGE_UP -> { e.consume(); viewer.goToPage(viewer.currentPage() - 1); }
+                case PAGE_DOWN -> { e.consume(); viewer.goToPage(viewer.currentPage() + 1); }
+                case ESCAPE -> {
+                    if (viewer.placingProperty().get()) {
+                        e.consume();
+                        viewer.cancelPlacing();
+                    }
+                }
+                default -> { }
+            }
+        });
     }
 
-    private void showFatal(String header, String detail) {
-        showAlert(Alert.AlertType.ERROR, header, detail);
-    }
-
-    private String describeStatus(EffectiveWorkflowState effective,
-                                  WorkflowManifest manifest) {
-        return switch (effective.status()) {
-            case NOT_STARTED -> "Workflow detected — waiting for the first signature"
-                    + " (" + manifest.stepsInOrder().size() + " signer(s)).";
-            case IN_PROGRESS -> "Workflow detected — step "
-                    + effective.currentStepOrder() + " of "
-                    + manifest.stepsInOrder().size() + ".";
-            case COMPLETED -> "Workflow detected — all signatures completed.";
-            case SIGNATURE_INVALID, MANIFEST_INCONSISTENT ->
-                    "Workflow document detected — signing is disabled.";
-        };
-    }
-
-    private void showAlert(Alert.AlertType type, String header, String text) {
-        Alert alert = new Alert(type);
+    private void showAlert(String header, String text) {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
         alert.setTitle(header);
         alert.setHeaderText(header);
         alert.setContentText(text);
-        alert.initOwner(dialog);
+        alert.initOwner(stage);
         alert.showAndWait();
-    }
-
-    /** Minimal view of the current step for messages. */
-    private record WorkflowSignerStepView(int order, String name, String fingerprint) {
     }
 }

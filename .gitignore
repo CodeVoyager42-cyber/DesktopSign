@@ -19,3 +19,8 @@ Thumbs.db
 
 # Freebuff agent state
 .freebuff/
+
+# Local secrets (Gmail app password etc.) — never commit
+mail-secrets.env
+*.env
+!.env.example
