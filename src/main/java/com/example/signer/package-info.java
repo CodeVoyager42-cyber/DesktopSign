@@ -1,7 +1,7 @@
 /**
  * Root of the PDF digital-signer desktop application.
  *
- * <p>{@link com.example.signer.SignerApplication} bootstraps Spring Boot in
+ * <p>{@link SignerApplication} bootstraps Spring Boot in
  * {@code WebApplicationType.NONE} mode: the container exists purely for
  * dependency injection — there is no HTTP surface. The JavaFX layer
  * ({@code com.example.signer.ui}) starts the context from its

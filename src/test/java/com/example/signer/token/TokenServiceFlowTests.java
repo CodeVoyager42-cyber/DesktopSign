@@ -216,6 +216,54 @@ class TokenServiceFlowTests {
         assertThat(tokenService.getState()).isEqualTo(TokenState.AUTHENTICATED);
     }
 
+    @Test
+    void startAuthenticationIsNoOpWhenSessionAlreadyUnlocked() {
+        simulator.insertToken();
+        tokenService.detect();
+        tokenService.startAuthentication();
+        tokenService.authenticate(pin("1234"));
+        assertThat(tokenService.getState()).isEqualTo(TokenState.AUTHENTICATED);
+
+        // Retry paths (e.g. a re-run remote signing attempt) must not be
+        // blocked by the state machine: the session is already unlocked.
+        tokenService.startAuthentication();
+        assertThat(tokenService.getState()).isEqualTo(TokenState.AUTHENTICATED);
+    }
+
+    @Test
+    void authenticateIsNoOpWhenSessionAlreadyUnlocked() {
+        simulator.insertToken();
+        tokenService.detect();
+        tokenService.startAuthentication();
+        tokenService.authenticate(pin("1234"));
+
+        // A replayed authenticate() is ignored, PIN content is irrelevant.
+        tokenService.authenticate(pin("9999"));
+        assertThat(tokenService.getState()).isEqualTo(TokenState.AUTHENTICATED);
+        assertThat(tokenService.isAuthenticated()).isTrue();
+    }
+
+    @Test
+    void fullAuthFlowCanBeReplayedAfterASignature() {
+        simulator.insertToken();
+        tokenService.detect();
+        tokenService.startAuthentication();
+        tokenService.authenticate(pin("1234"));
+        tokenService.sign(new SigningRequest(
+                "hello".getBytes(StandardCharsets.UTF_8),
+                MockSigningToken.DEFAULT_ALIAS,
+                SigningAlgorithm.RSA_SHA256));
+        assertThat(tokenService.getState()).isEqualTo(TokenState.SIGNATURE_COMPLETE);
+
+        // A retried remote flow replays detect -> startAuthentication ->
+        // authenticate; all three are no-ops on an unlocked session.
+        tokenService.detect();
+        tokenService.startAuthentication();
+        tokenService.authenticate(pin("1234"));
+        assertThat(tokenService.getState()).isEqualTo(TokenState.SIGNATURE_COMPLETE);
+        assertThat(tokenService.isAuthenticated()).isFalse();
+    }
+
     private static char[] pin(String value) {
         return value.toCharArray();
     }

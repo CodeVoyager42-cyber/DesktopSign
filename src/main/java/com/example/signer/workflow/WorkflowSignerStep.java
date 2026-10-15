@@ -56,6 +56,13 @@ public record WorkflowSignerStep(
                 signedAt, revisionIndex);
     }
 
+    /** A copy with the given placement (used to stamp the signer's chosen
+     * visible-signature geometry onto the fulfilled step before embedding). */
+    public WorkflowSignerStep withPlacement(SignaturePlacement placement) {
+        return new WorkflowSignerStep(order, displayName, certificate, placement,
+                signedAt, revisionIndex);
+    }
+
     /** The step's cryptographic identity. */
     public CertificateIdentity identity() {
         return certificate;

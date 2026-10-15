@@ -101,9 +101,17 @@ public class TokenService {
 
     /**
      * Moves the flow to {@code WAITING_FOR_PIN} so the user can authenticate.
+     *
+     * <p>A no-op when the token session is already unlocked: an unlocked
+     * token needs no new PIN entry, and retry paths (e.g. a re-run remote
+     * signing attempt after a failed submission) replay this call.
      */
     public void startAuthentication() {
         synchronized (monitor) {
+            if (sessionUnlocked()) {
+                log.debug("Token session already unlocked; ignoring startAuthentication()");
+                return;
+            }
             requireState(TokenState.CERTIFICATE_AVAILABLE);
             transition(TokenState.WAITING_FOR_PIN);
             log.info("Waiting for token PIN");
@@ -122,6 +130,13 @@ public class TokenService {
     public void authenticate(char[] pin) {
         Objects.requireNonNull(pin, "pin must not be null");
         synchronized (monitor) {
+            if (sessionUnlocked()) {
+                // The session was already authenticated earlier (e.g. a
+                // retried flow): do not consume another PIN attempt.
+                log.debug("Token session already unlocked; ignoring authenticate()");
+                wipe(pin);
+                return;
+            }
             requireState(TokenState.WAITING_FOR_PIN);
             try {
                 currentToken.authenticate(pin);
@@ -237,6 +252,13 @@ public class TokenService {
 
     private void transition(TokenState target) {
         state = TokenStateMachine.transition(state, target);
+    }
+
+    /** True when a PIN login is in effect for the current token session. */
+    private boolean sessionUnlocked() {
+        return state == TokenState.AUTHENTICATED
+                || state == TokenState.SIGNATURE_COMPLETE
+                || state == TokenState.SIGNATURE_FAILED;
     }
 
     private void requireState(TokenState expected) {

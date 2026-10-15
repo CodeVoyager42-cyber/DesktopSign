@@ -103,8 +103,16 @@ The app ships with a **mock token** so you can try the full workflow immediately
 4. Open a PDF, place your signature, and confirm
 5. When prompted for the token PIN, use the mock token's dev PIN: **`1234`**
 6. Pick a signing certificate — the mock token offers:
-   - `mock-signing-key` — RSA 2048 (`CN=Mock Signer, O=Signer Dev, C=FR`)
-   - `mock-ec-signing-key` — EC P-256 (`CN=Mock EC Signer, O=Signer Dev, C=FR`)
+   - `mock-signing-key` — RSA 2048 (`CN=Mock Signer, OU=SignFlow DEVELOPMENT MOCK TOKEN - NOT FOR PRODUCTION, …`)
+   - `mock-ec-signing-key` — EC P-256 (`CN=Mock EC Signer, …`)
+
+The mock token exists only in the **`dev` Spring profile**, which
+`./mvnw javafx:run`, `run-app.cmd` and `run-server.cmd` activate. Its keys
+are random and generated once per installation
+(`~/.signflow/dev-mock-token.p12`, override with `SIGNER_MOCK_TOKEN_KEYSTORE`).
+Without `dev` the application requires a real PKCS#11 token and refuses
+to start otherwise; a production server rejects mock-token certificates.
+See [docs/TRANSPORT-SECURITY.md](docs/TRANSPORT-SECURITY.md).
 
 Each signer's turn repeats the same steps; after every signature the whole
 signature chain is re-verified and shown per-signer (signer, algorithm,
@@ -134,6 +142,21 @@ SIGNATURE_PKCS11_ENABLED=true \
 PKCS11_LIBRARY='C:\Program Files\Vendor\pkcs11.dll' \
 ./mvnw javafx:run
 ```
+
+### Server secrets (SMTP etc.)
+
+`run-server.cmd` loads secrets such as the SMTP settings from a file kept
+**outside the project folder**:
+
+1. `%SIGNFLOW_SECRETS_FILE%`, when that variable is set;
+2. otherwise `%USERPROFILE%\signflow-secrets\mail-secrets.env`.
+
+Lines are `KEY=VALUE` or `export KEY=VALUE`, values may be quoted, and `#`
+lines are comments. See [.env.example](.env.example) for the available keys.
+A `mail-secrets.env` left in the project folder is **not** loaded — the
+launcher prints a warning asking you to move it. Never commit secrets:
+`.gitignore` excludes `mail-secrets.env` and every `*.env` except
+`.env.example`.
 
 ## Project Structure
 
@@ -195,8 +218,9 @@ UI (JavaFX workspace)
 ## Security Notes
 
 - The default login credentials (`ISICOD`/`ISICOD`) and mock PIN (`1234`) are
-  **development conveniences only** — the mock token's keys are generated in
-  memory at runtime and are not hardware-backed
+  **development conveniences only** — the mock token exists only in the `dev`
+  profile, its keys are random per installation and are not hardware-backed;
+  production servers reject its certificates
 - Configure real credentials and a real PKCS#11 library via the environment
   variables above before any production use
 - The application makes no network connections; there is no HTTP surface

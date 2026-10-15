@@ -1,5 +1,17 @@
 package com.example.signer.verification;
 
+import com.example.signer.token.SigningCertificate;
+import java.security.NoSuchAlgorithmException;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.Locale;
+import org.apache.pdfbox.cos.COSArray;
+import org.apache.pdfbox.cos.COSDictionary;
+import org.apache.pdfbox.cos.COSName;
+import org.bouncycastle.asn1.cms.Attribute;
+import org.bouncycastle.asn1.pkcs.PKCSObjectIdentifiers;
+import org.bouncycastle.cms.SignerId;
+import org.bouncycastle.util.Store;
 import com.example.signer.token.SigningAlgorithm;
 import com.example.signer.verification.SignatureVerificationResult.SignatureDetail;
 import org.apache.pdfbox.Loader;
@@ -101,8 +113,10 @@ public class DefaultPdfVerificationService implements PdfVerificationService {
         }
 
         List<PDSignature> signatures;
+        Integer catalogDocMdp;
         try (PDDocument doc = Loader.loadPDF(signedPdf.toFile())) {
             signatures = doc.getSignatureDictionaries();
+            catalogDocMdp = readCatalogDocMdp(doc);
         }
         if (signatures.isEmpty()) {
             log.warn("PDF has no signature dictionary");
@@ -140,19 +154,26 @@ public class DefaultPdfVerificationService implements PdfVerificationService {
             SignatureAtRevision entry = chain.get(i);
             String label = total > 1 ? "signature " + (i + 1) + " of " + total : "signature";
             String[] signerFingerprint = new String[1];
+            SignatureProperties[] properties = new SignatureProperties[1];
             SignatureVerificationResult result =
                     verifySignatureCrypto(signedPdf, fileSize, entry.signature(),
-                            entry.range(), label, signerFingerprint);
+                            entry.range(), label, signerFingerprint, properties);
+            Integer docMdp = extractDocMdp(entry.signature());
+            if (docMdp == null && catalogDocMdp != null && i == 0) {
+                // Catalog-level /Perms/DocMDP (no per-signature /Reference):
+                // it certifies the original revision, i.e. the first signature.
+                docMdp = catalogDocMdp;
+            }
             if (result.valid()) {
                 details.add(SignatureDetail.of(i, result.signerSubject(),
                         result.algorithm(), entry.signature().getSignDate(), true,
-                        "Valid", signerFingerprint[0]));
+                        "Valid", signerFingerprint[0], docMdp, properties[0]));
                 lastSubject = result.signerSubject();
                 lastAlgorithm = result.algorithm();
             } else {
                 details.add(SignatureDetail.of(i, result.signerSubject(),
                         result.algorithm(), entry.signature().getSignDate(), false,
-                        result.message(), signerFingerprint[0]));
+                        result.message(), signerFingerprint[0], docMdp, properties[0]));
                 if (firstCryptoFailure == null) {
                     firstCryptoFailure = result.message();
                 }
@@ -199,6 +220,61 @@ public class DefaultPdfVerificationService implements PdfVerificationService {
     }
 
     /**
+     * DocMDP access-permission value declared by a certification signature's
+     * {@code /Reference} entry, or {@code null} for ordinary approval
+     * signatures. Per the PDF specification: 1 = no changes, 2 = form fill
+     * and further signatures, 3 = annotations, 4 = revocation info.
+     */
+    private static Integer extractDocMdp(PDSignature signature) {
+        COSDictionary dict = signature.getCOSObject();
+        COSArray refs = dict.getDictionaryObject(
+                COSName.getPDFName("Reference")) instanceof
+                COSArray array ? array : null;
+        if (refs == null) {
+            return null;
+        }
+        for (int i = 0; i < refs.size(); i++) {
+            if (!(refs.getObject(i) instanceof COSDictionary ref)) {
+                continue;
+            }
+            COSName transformMethod = ref.getCOSName(
+                    COSName.getPDFName("TransformMethod"));
+            if (!"DocMDP".equals(transformMethod == null ? null : transformMethod.getName())) {
+                continue;
+            }
+            if (ref.getDictionaryObject(
+                    COSName.getPDFName("TransformParams"))
+                    instanceof COSDictionary params) {
+                int p = params.getInt(COSName.getPDFName("P"), -1);
+                if (p >= 1 && p <= 4) {
+                    return p;
+                }
+            }
+            return 2; // DocMDP transform without explicit P: default is P=2
+        }
+        return null;
+    }
+
+    /**
+     * The catalog-level {@code /Perms/DocMDP} pointer, used by writers that
+     * place the certification permissions outside the signature dictionary.
+     * Returns {@code null} when absent.
+     */
+    private static Integer readCatalogDocMdp(PDDocument doc) {
+        COSDictionary catalog =
+                doc.getDocumentCatalog().getCOSObject();
+        if (catalog.getDictionaryObject(COSName.getPDFName("Perms"))
+                instanceof COSDictionary perms
+
+                && perms.getDictionaryObject(COSName.getPDFName("DocMDP"))
+                instanceof COSDictionary mdp) {
+            int p = mdp.getInt(COSName.getPDFName("P"), -1);
+            return p >= 1 && p <= 4 ? p : null;
+        }
+        return null;
+    }
+
+    /**
      * Extracts the covered byte window of a signature. Returns {@code null}
      * when the {@code /ByteRange} is missing or malformed.
      */
@@ -234,6 +310,14 @@ public class DefaultPdfVerificationService implements PdfVerificationService {
             Path pdfPath, long fileSize, PDSignature pd, int[] range, String label,
             String[] signerFingerprintOut)
             throws Exception {
+        return verifySignatureCrypto(pdfPath, fileSize, pd, range, label,
+                signerFingerprintOut, null);
+    }
+
+    private SignatureVerificationResult verifySignatureCrypto(
+            Path pdfPath, long fileSize, PDSignature pd, int[] range, String label,
+            String[] signerFingerprintOut, SignatureProperties[] propertiesOut)
+            throws Exception {
 
         byte[] cms = pd.getContents();
         if (cms == null || cms.length == 0) {
@@ -263,7 +347,7 @@ public class DefaultPdfVerificationService implements PdfVerificationService {
         String subject = signerCert.getSubjectX500Principal().getName();
         if (signerFingerprintOut != null) {
             signerFingerprintOut[0] =
-                    com.example.signer.token.SigningCertificate.fingerprintOf(signerCert);
+                    SigningCertificate.fingerprintOf(signerCert);
         }
 
         // Fail closed on unknown or weak digest algorithms.
@@ -275,6 +359,11 @@ public class DefaultPdfVerificationService implements PdfVerificationService {
                     null, subject);
         }
         SigningAlgorithm reportingAlgorithm = reportingAlgorithmFor(signerCert);
+        if (propertiesOut != null) {
+            propertiesOut[0] = propertiesOf(pd, signer, signerCert,
+                    digestAlgorithm.jcaName(),
+                    digestAlgorithm.signatureAlgorithmNameFor(signerCert));
+        }
 
         byte[] rangeDigest = digestRanges(pdfPath, digestAlgorithm.jcaName(), range);
 
@@ -322,7 +411,7 @@ public class DefaultPdfVerificationService implements PdfVerificationService {
      * the chunk size regardless of how large the document is.
      */
     private static byte[] digestRanges(Path pdfPath, String jcaDigestName, int[] range)
-            throws IOException, java.security.NoSuchAlgorithmException {
+            throws IOException, NoSuchAlgorithmException {
         long r1s = range[0] & 0xFFFFFFFFL;
         long r1l = range[1] & 0xFFFFFFFFL;
         long r2s = range[2] & 0xFFFFFFFFL;
@@ -369,7 +458,7 @@ public class DefaultPdfVerificationService implements PdfVerificationService {
         }
         int exponent = (int) (Math.log(bytes) / Math.log(1024));
         double value = bytes / Math.pow(1024, exponent);
-        return String.format(java.util.Locale.ROOT, "%.1f %sB", value,
+        return String.format(Locale.ROOT, "%.1f %sB", value,
                 new String[] {"", "K", "M", "G", "T"}[Math.min(exponent, 4)]);
     }
 
@@ -401,7 +490,7 @@ public class DefaultPdfVerificationService implements PdfVerificationService {
     }
 
     private static byte[] embeddedMessageDigest(SignerInformation signer) {
-        org.bouncycastle.asn1.cms.Attribute attr = signer.getSignedAttributes()
+        Attribute attr = signer.getSignedAttributes()
                 .get(OID_MESSAGE_DIGEST);
         if (attr == null) {
             return null;
@@ -417,12 +506,54 @@ public class DefaultPdfVerificationService implements PdfVerificationService {
     /**
      * Resolves the signer certificate from the CMS certificate store.
      *
-     * <p>BouncyCastle's {@link org.bouncycastle.util.Store} and
-     * {@link org.bouncycastle.cms.SignerId} are non-generic by design (no
+     * <p>BouncyCastle's {@link Store} and
+     * {@link SignerId} are non-generic by design (no
      * type-safe overload exists), so the selector match is inherently
      * unchecked; the suppression is scoped to this single lookup.</p>
      */
     @SuppressWarnings("unchecked")
+    /**
+     * Facts read from the signature dictionary and the signer certificate —
+     * only what the file really contains (optional entries stay null).
+     */
+    static SignatureProperties propertiesOf(PDSignature pd, SignerInformation signer,
+                                            X509Certificate cert, String digestName,
+                                            String signatureAlgorithm) {
+        Calendar signDate = pd.getSignDate();
+        Boolean validAtSigning = null;
+        if (signDate != null) {
+            Date when = signDate.getTime();
+            validAtSigning = !when.before(cert.getNotBefore())
+                    && !when.after(cert.getNotAfter());
+        }
+        boolean timestamped = signer.getUnsignedAttributes() != null
+                && signer.getUnsignedAttributes().get(
+                        PKCSObjectIdentifiers
+                                .id_aa_signatureTimeStampToken) != null;
+        String subject = cert.getSubjectX500Principal().getName();
+        String issuer = cert.getIssuerX500Principal().getName();
+        return new SignatureProperties(
+                blankToNull(pd.getSubFilter()),
+                blankToNull(pd.getReason()),
+                blankToNull(pd.getLocation()),
+                blankToNull(pd.getContactInfo()),
+                digestName,
+                signatureAlgorithm,
+                subject,
+                issuer,
+                cert.getSerialNumber().toString(16).toUpperCase(Locale.ROOT),
+                cert.getNotBefore().toInstant(),
+                cert.getNotAfter().toInstant(),
+                cert.getSubjectX500Principal().equals(cert.getIssuerX500Principal()),
+                validAtSigning,
+                timestamped,
+                SignatureProperties.TrustStatus.NOT_VERIFIED);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
     private static X509Certificate extractSignerCertificate(
             CMSSignedData signedData, SignerInformation signer) throws Exception {
         Collection<X509CertificateHolder> matches =

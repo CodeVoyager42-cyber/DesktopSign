@@ -1,5 +1,9 @@
 package com.example.signer.workflow;
 
+import com.example.signer.verification.SignatureVerificationResult;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.Objects;
 import org.springframework.stereotype.Service;
 
 import org.slf4j.Logger;
@@ -39,11 +43,11 @@ public class WorkflowReconciliationService {
      * @param verification result of verifying the whole PDF signature chain
      */
     public EffectiveWorkflowState reconcile(WorkflowManifest manifest,
-                                            com.example.signer.verification.SignatureVerificationResult verification) {
+                                            SignatureVerificationResult verification) {
         List<String> warnings = new ArrayList<>();
         List<String> blockers = new ArrayList<>();
 
-        List<com.example.signer.verification.SignatureVerificationResult.SignatureDetail>
+        List<SignatureVerificationResult.SignatureDetail>
                 signatures = verification.signatures();
 
         // ── cryptographic truth: the chain must be intact at all ──
@@ -62,15 +66,18 @@ public class WorkflowReconciliationService {
         // ── map signatures onto steps by certificate fingerprint ──
         // steps[i] corresponds to order i+1 by manifest validation.
         boolean[] fulfilled = new boolean[manifest.stepsInOrder().size()];
-        java.time.Instant[] fulfilledAt = new java.time.Instant[fulfilled.length];
+        Instant[] fulfilledAt = new Instant[fulfilled.length];
         int[] revisionOf = new int[fulfilled.length];
-        java.util.Arrays.fill(revisionOf, -1);
+        Arrays.fill(revisionOf, -1);
 
         Set<String> seenFingerprints = new HashSet<>();
         boolean unexpectedSigner = false;
         boolean duplicateSigner = false;
         boolean outOfOrder = false;
         int highestFulfilledOrder = 0;
+        // FLEXIBLE workflows legitimately produce signatures in any order;
+        // only SEQUENTIAL makes out-of-order evidence inconsistent.
+        boolean orderEnforced = manifest.policy() != WorkflowSigningPolicy.FLEXIBLE;
 
         for (int r = 0; r < signatures.size(); r++) {
             var sig = signatures.get(r);
@@ -95,7 +102,7 @@ public class WorkflowReconciliationService {
                 continue;
             }
             int order = manifest.stepsInOrder().get(stepIdx).order();
-            if (order > highestFulfilledOrder + 1) {
+            if (orderEnforced && order > highestFulfilledOrder + 1) {
                 outOfOrder = true;
             }
             highestFulfilledOrder = Math.max(highestFulfilledOrder, order);
@@ -139,12 +146,38 @@ public class WorkflowReconciliationService {
             status = EffectiveWorkflowState.WorkflowStatus.IN_PROGRESS;
         }
 
-        // ── whose turn: first unfulfilled step (manifest order) ──
+        // ── certification permissions (DocMDP) ──
+        // A document certified by an external tool with restrictive DocMDP
+        // permissions (anything stricter than "form fill / signatures
+        // allowed", P≠2) must not receive further workflow signatures:
+        // they would violate the certification policy. Fail closed.
+        Integer docMdp = signatures.stream()
+                .map(SignatureVerificationResult
+                        .SignatureDetail::docMdp)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+        boolean certificationBlocksSigning = docMdp != null && docMdp != 2
+                && status != EffectiveWorkflowState.WorkflowStatus.COMPLETED;
+        if (certificationBlocksSigning) {
+            warnings.add("The document carries a certification signature that "
+                    + "restricts further changes (DocMDP P=" + docMdp + ").");
+            blockers.add("The document's certification signature does not "
+                    + "allow additional signatures.");
+        }
+
+        // ── whose turn ──
+        // SEQUENTIAL: the first unfulfilled step in manifest order.
+        // FLEXIBLE: no server-independent "current" step exists — any pending
+        // signer may take the turn; the local domain resolves the step from
+        // the CONNECTED token's certificate (see WorkflowSigningService).
         Integer current = null;
-        for (int i = 0; i < fulfilled.length; i++) {
-            if (!fulfilled[i]) {
-                current = manifest.stepsInOrder().get(i).order();
-                break;
+        if (manifest.policy() != WorkflowSigningPolicy.FLEXIBLE) {
+            for (int i = 0; i < fulfilled.length; i++) {
+                if (!fulfilled[i]) {
+                    current = manifest.stepsInOrder().get(i).order();
+                    break;
+                }
             }
         }
 
@@ -160,23 +193,23 @@ public class WorkflowReconciliationService {
 
     /** Views for the simple (possibly broken chain) path. */
     private List<EffectiveWorkflowState.StepView> views(WorkflowManifest manifest,
-                                                        com.example.signer.verification.SignatureVerificationResult verification,
+                                                        SignatureVerificationResult verification,
                                                         List<String> warnings) {
         boolean[] none = new boolean[manifest.stepsInOrder().size()];
-        return views(manifest, verification, none, new java.time.Instant[none.length], null);
+        return views(manifest, verification, none, new Instant[none.length], null);
     }
 
     private List<EffectiveWorkflowState.StepView> views(WorkflowManifest manifest,
-                                                        com.example.signer.verification.SignatureVerificationResult verification,
+                                                        SignatureVerificationResult verification,
                                                         boolean[] fulfilled,
-                                                        java.time.Instant[] fulfilledAt,
+                                                        Instant[] fulfilledAt,
                                                         Integer current) {
         List<EffectiveWorkflowState.StepView> views = new ArrayList<>();
-        List<com.example.signer.verification.SignatureVerificationResult.SignatureDetail>
+        List<SignatureVerificationResult.SignatureDetail>
                 signatures = verification.signatures();
         for (int i = 0; i < manifest.stepsInOrder().size(); i++) {
             WorkflowSignerStep step = manifest.stepsInOrder().get(i);
-            java.time.Instant when = fulfilledAt[i];
+            Instant when = fulfilledAt[i];
             views.add(new EffectiveWorkflowState.StepView(
                     step.order(), step.displayName(), step.certificate(),
                     fulfilled[i], fulfilled[i] && when != null,
