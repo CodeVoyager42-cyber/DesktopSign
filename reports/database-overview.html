@@ -1,0 +1,2138 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>SignFlow database overview</title><style>
+ body{font:14px/1.5 "Segoe UI",system-ui,sans-serif;margin:0;background:#f4f6f8;color:#1c2530}
+ header{background:#12324f;color:#fff;padding:22px 28px}
+ header h1{margin:0;font-size:21px}
+ header p{margin:6px 0 0;opacity:.85;font-size:13px}
+ nav{background:#fff;padding:12px 28px;border-bottom:1px solid #dde3e9}
+ nav a{margin-right:16px;color:#12507d;text-decoration:none;font-weight:600;font-size:13px}
+ main{padding:20px 28px 60px}
+ section{background:#fff;border:1px solid #dde3e9;border-radius:8px;margin-bottom:22px;overflow:hidden}
+ h2{margin:0;padding:12px 16px;background:#eef2f6;font-size:16px;border-bottom:1px solid #dde3e9}
+ .meta{padding:8px 16px;color:#5a6672;font-size:12px;border-bottom:1px solid #eef2f6}
+ .scroll{overflow-x:auto}
+ table{border-collapse:collapse;width:100%;font-size:12.5px}
+ th,td{border-bottom:1px solid #eceff2;padding:6px 10px;text-align:left;white-space:nowrap}
+ th{background:#f7f9fb;font-weight:600}
+ tr:nth-child(even) td{background:#fbfcfd}
+ .pill{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:700}
+ .PENDING,.PENDING_INVITE{background:#fff3cd;color:#7a5b00}
+ .ACCEPTED,.ACTIVE{background:#d4edda;color:#155724}
+ .REVOKED{background:#f8d7da;color:#721c24}
+ footer{padding:14px 28px;color:#6b7683;font-size:12px}
+</style></head><body>
+<header><h1>SignFlow &mdash; PostgreSQL &quot;signer&quot; database</h1><p>localhost:5432 &middot; user postgres &middot; live query output (no credentials stored in this file)</p></header>
+<nav>
+<a href="#t-audit_events">audit_events</a>
+<a href="#t-document_versions">document_versions</a>
+<a href="#t-flyway_schema_history">flyway_schema_history</a>
+<a href="#t-invitations">invitations</a>
+<a href="#t-users">users</a>
+<a href="#t-workflow_signers">workflow_signers</a>
+<a href="#t-workflows">workflows</a>
+</nav><main>
+<section id="t-audit_events"><h2>audit_events</h2>
+<div class="meta">211 rows total &middot; showing up to 50 &middot; columns: id (bigint), workflow_id (bigint), event_seq (bigint), event_type (character varying), actor (character varying), detail (text), occurred_at (timestamp with time zone)</div>
+<div class="scroll"><table><tr>
+<th>id</th>
+<th>workflow_id</th>
+<th>event_seq</th>
+<th>event_type</th>
+<th>actor</th>
+<th>detail</th>
+<th>occurred_at</th>
+</tr>
+<tr>
+<td>1</td>
+<td>4</td>
+<td>1</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>Workflow created with 2 signer(s) (SEQUENTIAL policy)</td>
+<td>2026-10-02 00:59:44.43361+02</td>
+</tr>
+<tr>
+<td>2</td>
+<td>4</td>
+<td>2</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>2 signer(s) must bind a certificate before the document is prepared</td>
+<td>2026-10-02 00:59:44.435626+02</td>
+</tr>
+<tr>
+<td>3</td>
+<td>4</td>
+<td>3</td>
+<td>CERTIFICATE_BOUND</td>
+<td>alice</td>
+<td>Certificate bound to signer 1 (16D89039…39625D9A)</td>
+<td>2026-10-02 01:41:20.084532+02</td>
+</tr>
+<tr>
+<td>4</td>
+<td>4</td>
+<td>4</td>
+<td>CERTIFICATE_BOUND</td>
+<td>bob</td>
+<td>Certificate bound to signer 2 (9C63EEDB…A845542D)</td>
+<td>2026-10-02 18:42:30.38371+02</td>
+</tr>
+<tr>
+<td>5</td>
+<td>4</td>
+<td>5</td>
+<td>WORKFLOW_PREPARED</td>
+<td>alice</td>
+<td>Revision 0 stored (576976 bytes) — all certificates bound</td>
+<td>2026-10-02 18:42:30.595117+02</td>
+</tr>
+<tr>
+<td>6</td>
+<td>5</td>
+<td>1</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>Workflow created with 2 signer(s) (FLEXIBLE policy)</td>
+<td>2026-10-02 01:42:46.465931+02</td>
+</tr>
+<tr>
+<td>7</td>
+<td>5</td>
+<td>2</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>2 signer(s) must bind a certificate before the document is prepared</td>
+<td>2026-10-02 01:42:46.466932+02</td>
+</tr>
+<tr>
+<td>8</td>
+<td>5</td>
+<td>3</td>
+<td>CERTIFICATE_BOUND</td>
+<td>alice</td>
+<td>Certificate bound to signer 1 (16D89039…39625D9A)</td>
+<td>2026-10-02 01:42:54.028273+02</td>
+</tr>
+<tr>
+<td>9</td>
+<td>6</td>
+<td>1</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>Workflow created with 2 signer(s) (SEQUENTIAL policy)</td>
+<td>2026-10-02 01:47:05.556333+02</td>
+</tr>
+<tr>
+<td>10</td>
+<td>6</td>
+<td>2</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>2 signer(s) must bind a certificate before the document is prepared</td>
+<td>2026-10-02 01:47:05.556333+02</td>
+</tr>
+<tr>
+<td>11</td>
+<td>6</td>
+<td>3</td>
+<td>CERTIFICATE_BOUND</td>
+<td>alice</td>
+<td>Certificate bound to signer 1 (16D89039…39625D9A)</td>
+<td>2026-10-02 01:47:20.480262+02</td>
+</tr>
+<tr>
+<td>12</td>
+<td>7</td>
+<td>1</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>Workflow created with 2 signer(s) (FLEXIBLE policy)</td>
+<td>2026-10-02 02:42:38.13235+02</td>
+</tr>
+<tr>
+<td>13</td>
+<td>7</td>
+<td>2</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>2 signer(s) must bind a certificate before the document is prepared</td>
+<td>2026-10-02 02:42:38.134371+02</td>
+</tr>
+<tr>
+<td>14</td>
+<td>7</td>
+<td>3</td>
+<td>CERTIFICATE_BOUND</td>
+<td>alice</td>
+<td>Certificate bound to signer 1 (9C63EEDB…A845542D)</td>
+<td>2026-10-02 02:42:46.561017+02</td>
+</tr>
+<tr>
+<td>15</td>
+<td>8</td>
+<td>1</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>Workflow created with 2 signer(s) (FLEXIBLE policy)</td>
+<td>2026-10-02 02:51:24.847185+02</td>
+</tr>
+<tr>
+<td>16</td>
+<td>8</td>
+<td>2</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>1 signer(s) must bind a certificate before the document is prepared</td>
+<td>2026-10-02 02:51:24.847185+02</td>
+</tr>
+<tr>
+<td>17</td>
+<td>8</td>
+<td>3</td>
+<td>CERTIFICATE_BOUND</td>
+<td>bob</td>
+<td>Certificate bound to signer 2 (15B72B89…D7FE9E02)</td>
+<td>2026-10-02 02:51:24.904318+02</td>
+</tr>
+<tr>
+<td>18</td>
+<td>8</td>
+<td>4</td>
+<td>WORKFLOW_PREPARED</td>
+<td>alice</td>
+<td>Revision 0 stored (1718 bytes) — all certificates bound</td>
+<td>2026-10-02 02:51:25.232838+02</td>
+</tr>
+<tr>
+<td>19</td>
+<td>8</td>
+<td>5</td>
+<td>SIGNING_TURN_CLAIMED</td>
+<td>alice</td>
+<td>Signing turn claimed by alice</td>
+<td>2026-10-02 02:51:25.268348+02</td>
+</tr>
+<tr>
+<td>20</td>
+<td>8</td>
+<td>6</td>
+<td>SIGNING_TURN_CLAIMED</td>
+<td>alice</td>
+<td>Signing turn claimed by alice</td>
+<td>2026-10-02 18:40:36.132195+02</td>
+</tr>
+<tr>
+<td>21</td>
+<td>8</td>
+<td>7</td>
+<td>SIGNATURE_VALIDATED</td>
+<td>alice</td>
+<td>Signature validated for signer 1</td>
+<td>2026-10-02 18:40:45.309345+02</td>
+</tr>
+<tr>
+<td>22</td>
+<td>8</td>
+<td>8</td>
+<td>REVISION_CREATED</td>
+<td>alice</td>
+<td>Revision 1 accepted (23107 bytes)</td>
+<td>2026-10-02 18:40:45.315258+02</td>
+</tr>
+<tr>
+<td>23</td>
+<td>8</td>
+<td>9</td>
+<td>SIGNER_COMPLETED</td>
+<td>alice</td>
+<td>Signer 1 (alice) completed</td>
+<td>2026-10-02 18:40:45.316805+02</td>
+</tr>
+<tr>
+<td>24</td>
+<td>8</td>
+<td>10</td>
+<td>SIGNING_TURN_RELEASED</td>
+<td>alice</td>
+<td>Flexible turn is open for claims (1 pending)</td>
+<td>2026-10-02 18:40:45.317415+02</td>
+</tr>
+<tr>
+<td>25</td>
+<td>8</td>
+<td>11</td>
+<td>SIGNING_TURN_CLAIMED</td>
+<td>bob</td>
+<td>Signing turn claimed by bob</td>
+<td>2026-10-02 18:41:37.516704+02</td>
+</tr>
+<tr>
+<td>26</td>
+<td>8</td>
+<td>12</td>
+<td>SIGNATURE_VALIDATED</td>
+<td>bob</td>
+<td>Signature validated for signer 2</td>
+<td>2026-10-02 18:41:43.301522+02</td>
+</tr>
+<tr>
+<td>27</td>
+<td>8</td>
+<td>13</td>
+<td>REVISION_CREATED</td>
+<td>bob</td>
+<td>Revision 2 accepted (44679 bytes)</td>
+<td>2026-10-02 18:41:43.308476+02</td>
+</tr>
+<tr>
+<td>28</td>
+<td>8</td>
+<td>14</td>
+<td>SIGNER_COMPLETED</td>
+<td>bob</td>
+<td>Signer 2 (bob) completed</td>
+<td>2026-10-02 18:41:43.308476+02</td>
+</tr>
+<tr>
+<td>29</td>
+<td>8</td>
+<td>15</td>
+<td>WORKFLOW_COMPLETED</td>
+<td>bob</td>
+<td>All 2 signatures completed</td>
+<td>2026-10-02 18:41:43.308476+02</td>
+</tr>
+<tr>
+<td>30</td>
+<td>9</td>
+<td>1</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>Workflow created with 2 signer(s) (FLEXIBLE policy)</td>
+<td>2026-10-02 02:53:33.413666+02</td>
+</tr>
+<tr>
+<td>31</td>
+<td>9</td>
+<td>2</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>1 signer(s) must bind a certificate before the document is prepared</td>
+<td>2026-10-02 02:53:33.413666+02</td>
+</tr>
+<tr>
+<td>32</td>
+<td>9</td>
+<td>3</td>
+<td>CERTIFICATE_BOUND</td>
+<td>bob</td>
+<td>Certificate bound to signer 2 (15B72B89…D7FE9E02)</td>
+<td>2026-10-02 02:53:33.483731+02</td>
+</tr>
+<tr>
+<td>33</td>
+<td>9</td>
+<td>4</td>
+<td>WORKFLOW_PREPARED</td>
+<td>alice</td>
+<td>Revision 0 stored (1717 bytes) — all certificates bound</td>
+<td>2026-10-02 02:53:33.550566+02</td>
+</tr>
+<tr>
+<td>34</td>
+<td>9</td>
+<td>5</td>
+<td>SIGNING_TURN_CLAIMED</td>
+<td>alice</td>
+<td>Signing turn claimed by alice</td>
+<td>2026-10-02 02:53:33.629444+02</td>
+</tr>
+<tr>
+<td>35</td>
+<td>9</td>
+<td>6</td>
+<td>SIGNATURE_VALIDATED</td>
+<td>alice</td>
+<td>Signature validated for signer 1</td>
+<td>2026-10-02 02:53:35.744067+02</td>
+</tr>
+<tr>
+<td>36</td>
+<td>9</td>
+<td>7</td>
+<td>REVISION_CREATED</td>
+<td>alice</td>
+<td>Revision 1 accepted (23106 bytes)</td>
+<td>2026-10-02 02:53:35.754684+02</td>
+</tr>
+<tr>
+<td>37</td>
+<td>9</td>
+<td>8</td>
+<td>SIGNER_COMPLETED</td>
+<td>alice</td>
+<td>Signer 1 (alice) completed</td>
+<td>2026-10-02 02:53:35.757686+02</td>
+</tr>
+<tr>
+<td>38</td>
+<td>9</td>
+<td>9</td>
+<td>SIGNING_TURN_RELEASED</td>
+<td>alice</td>
+<td>Flexible turn is open for claims (1 pending)</td>
+<td>2026-10-02 02:53:35.758685+02</td>
+</tr>
+<tr>
+<td>39</td>
+<td>9</td>
+<td>10</td>
+<td>SIGNING_TURN_CLAIMED</td>
+<td>bob</td>
+<td>Signing turn claimed by bob</td>
+<td>2026-10-02 02:53:35.792098+02</td>
+</tr>
+<tr>
+<td>40</td>
+<td>9</td>
+<td>11</td>
+<td>SIGNATURE_VALIDATED</td>
+<td>bob</td>
+<td>Signature validated for signer 2</td>
+<td>2026-10-02 02:53:36.195362+02</td>
+</tr>
+<tr>
+<td>41</td>
+<td>9</td>
+<td>12</td>
+<td>REVISION_CREATED</td>
+<td>bob</td>
+<td>Revision 2 accepted (44678 bytes)</td>
+<td>2026-10-02 02:53:36.202662+02</td>
+</tr>
+<tr>
+<td>42</td>
+<td>9</td>
+<td>13</td>
+<td>SIGNER_COMPLETED</td>
+<td>bob</td>
+<td>Signer 2 (bob) completed</td>
+<td>2026-10-02 02:53:36.202662+02</td>
+</tr>
+<tr>
+<td>43</td>
+<td>9</td>
+<td>14</td>
+<td>WORKFLOW_COMPLETED</td>
+<td>bob</td>
+<td>All 2 signatures completed</td>
+<td>2026-10-02 02:53:36.203678+02</td>
+</tr>
+<tr>
+<td>44</td>
+<td>10</td>
+<td>1</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>Workflow created with 2 signer(s) (FLEXIBLE policy)</td>
+<td>2026-10-02 02:55:36.554441+02</td>
+</tr>
+<tr>
+<td>45</td>
+<td>10</td>
+<td>2</td>
+<td>WORKFLOW_CREATED</td>
+<td>alice</td>
+<td>1 signer(s) must bind a certificate before the document is prepared</td>
+<td>2026-10-02 02:55:36.55544+02</td>
+</tr>
+<tr>
+<td>46</td>
+<td>10</td>
+<td>3</td>
+<td>CERTIFICATE_BOUND</td>
+<td>bob</td>
+<td>Certificate bound to signer 2 (15B72B89…D7FE9E02)</td>
+<td>2026-10-02 02:55:36.607446+02</td>
+</tr>
+<tr>
+<td>47</td>
+<td>10</td>
+<td>4</td>
+<td>WORKFLOW_PREPARED</td>
+<td>alice</td>
+<td>Revision 0 stored (1718 bytes) — all certificates bound</td>
+<td>2026-10-02 02:55:36.667402+02</td>
+</tr>
+<tr>
+<td>48</td>
+<td>10</td>
+<td>5</td>
+<td>SIGNING_TURN_CLAIMED</td>
+<td>alice</td>
+<td>Signing turn claimed by alice</td>
+<td>2026-10-02 02:55:36.73351+02</td>
+</tr>
+<tr>
+<td>49</td>
+<td>10</td>
+<td>6</td>
+<td>SIGNATURE_VALIDATED</td>
+<td>alice</td>
+<td>Signature validated for signer 1</td>
+<td>2026-10-02 02:55:36.944618+02</td>
+</tr>
+<tr>
+<td>50</td>
+<td>10</td>
+<td>7</td>
+<td>REVISION_CREATED</td>
+<td>alice</td>
+<td>Revision 1 accepted (23107 bytes)</td>
+<td>2026-10-02 02:55:36.951619+02</td>
+</tr>
+</table></div></section>
+<section id="t-document_versions"><h2>document_versions</h2>
+<div class="meta">40 rows total &middot; showing up to 50 &middot; columns: id (bigint), workflow_id (bigint), revision_number (integer), parent_revision (integer), sha256 (character varying), size_bytes (bigint), created_by (character varying), created_at (timestamp with time zone)</div>
+<div class="scroll"><table><tr>
+<th>id</th>
+<th>workflow_id</th>
+<th>revision_number</th>
+<th>parent_revision</th>
+<th>sha256</th>
+<th>size_bytes</th>
+<th>created_by</th>
+<th>created_at</th>
+</tr>
+<tr>
+<td>1</td>
+<td>4</td>
+<td>0</td>
+<td>-1</td>
+<td>825c5318676ffd79317117447dd681bfc0bae87de0371ceec4e069f1bd3c46f5</td>
+<td>576976</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.27322+02</td>
+</tr>
+<tr>
+<td>2</td>
+<td>5</td>
+<td>0</td>
+<td>-1</td>
+<td>0000000000000000000000000000000000000000000000000000000000000000</td>
+<td>0</td>
+<td>system</td>
+<td>2026-10-03 16:06:37.331286+02</td>
+</tr>
+<tr>
+<td>3</td>
+<td>6</td>
+<td>0</td>
+<td>-1</td>
+<td>0000000000000000000000000000000000000000000000000000000000000000</td>
+<td>0</td>
+<td>system</td>
+<td>2026-10-03 16:06:37.399512+02</td>
+</tr>
+<tr>
+<td>4</td>
+<td>7</td>
+<td>0</td>
+<td>-1</td>
+<td>0000000000000000000000000000000000000000000000000000000000000000</td>
+<td>0</td>
+<td>system</td>
+<td>2026-10-03 16:06:37.466701+02</td>
+</tr>
+<tr>
+<td>5</td>
+<td>8</td>
+<td>0</td>
+<td>-1</td>
+<td>bad7c88d63c9857717e0c8b2e06c80a78329aadd51934689b2fc87c5ed4c9ef3</td>
+<td>1718</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.510432+02</td>
+</tr>
+<tr>
+<td>6</td>
+<td>8</td>
+<td>1</td>
+<td>0</td>
+<td>ba1a4069bcc29194e227cc1a0b9415247dcf73ef3cbac7958e2cbf2b4528184d</td>
+<td>23107</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.511659+02</td>
+</tr>
+<tr>
+<td>7</td>
+<td>8</td>
+<td>2</td>
+<td>1</td>
+<td>22991490bbaf9593eab40cb14072af27f13c7d2825e2479f701cdaf2f6d261de</td>
+<td>44679</td>
+<td>bob</td>
+<td>2026-10-03 16:06:37.514194+02</td>
+</tr>
+<tr>
+<td>8</td>
+<td>9</td>
+<td>0</td>
+<td>-1</td>
+<td>5f817c441003518de57cdda5fc5643cb698bec10450b3282335e2fd2db5b95ca</td>
+<td>1717</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.57493+02</td>
+</tr>
+<tr>
+<td>9</td>
+<td>9</td>
+<td>1</td>
+<td>0</td>
+<td>0bbd6b5d0378de03e919dde560c2744451d0835ec8b80f49a16223662e8058e4</td>
+<td>23106</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.576293+02</td>
+</tr>
+<tr>
+<td>10</td>
+<td>9</td>
+<td>2</td>
+<td>1</td>
+<td>5fda1b36760f61fdeb066755967b20af15ba00d0e5e12f9380546d724ca98147</td>
+<td>44678</td>
+<td>bob</td>
+<td>2026-10-03 16:06:37.577735+02</td>
+</tr>
+<tr>
+<td>11</td>
+<td>10</td>
+<td>0</td>
+<td>-1</td>
+<td>9fb60b2990874c537e969daf6e18682c550191f0302e4e9451c1b26ddf3ab93e</td>
+<td>1718</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.642353+02</td>
+</tr>
+<tr>
+<td>12</td>
+<td>10</td>
+<td>1</td>
+<td>0</td>
+<td>04ae7225764cb236e2f1e0457ff052f983d7b88dbefa32ea16be62186d2f3c84</td>
+<td>23107</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.643876+02</td>
+</tr>
+<tr>
+<td>13</td>
+<td>10</td>
+<td>2</td>
+<td>1</td>
+<td>edf286fa5035690b7c6f28155c8c21a308f816c67c082dc04a2b5d781c6e5a43</td>
+<td>44679</td>
+<td>bob</td>
+<td>2026-10-03 16:06:37.646388+02</td>
+</tr>
+<tr>
+<td>14</td>
+<td>11</td>
+<td>0</td>
+<td>-1</td>
+<td>e2f4983496af344b9c238fc44e2eb1c2b84c83e1adb8c4de83f5f65bf0a4e5e7</td>
+<td>1718</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.725779+02</td>
+</tr>
+<tr>
+<td>15</td>
+<td>11</td>
+<td>1</td>
+<td>0</td>
+<td>6dc9eefdeed909dabe903f47e663eb5407fb3210f0c48571b1b4c63376886ed6</td>
+<td>23107</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.727794+02</td>
+</tr>
+<tr>
+<td>16</td>
+<td>11</td>
+<td>2</td>
+<td>1</td>
+<td>72a1adc631962c3d712b091bb3f1970dc2cbae1ce837fffd2be97c7bf63a7440</td>
+<td>44679</td>
+<td>bob</td>
+<td>2026-10-03 16:06:37.728792+02</td>
+</tr>
+<tr>
+<td>17</td>
+<td>12</td>
+<td>0</td>
+<td>-1</td>
+<td>0000000000000000000000000000000000000000000000000000000000000000</td>
+<td>0</td>
+<td>system</td>
+<td>2026-10-03 16:06:37.783724+02</td>
+</tr>
+<tr>
+<td>18</td>
+<td>13</td>
+<td>0</td>
+<td>-1</td>
+<td>69c6dc43a40ad57f65c4eaaf65afe7b332ddd011131228ca233338563d3f47ee</td>
+<td>1721</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.819528+02</td>
+</tr>
+<tr>
+<td>19</td>
+<td>13</td>
+<td>1</td>
+<td>0</td>
+<td>5c97eb36019b0c1983d609c5713f5da4a5a7115f40068f986d24587481c2d1e6</td>
+<td>23110</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.820596+02</td>
+</tr>
+<tr>
+<td>20</td>
+<td>13</td>
+<td>2</td>
+<td>1</td>
+<td>8b46abf92443f7dd816408cee77daa806276c3387ebcf1fe6cd1b0584ad946ac</td>
+<td>44682</td>
+<td>bob</td>
+<td>2026-10-03 16:06:37.823096+02</td>
+</tr>
+<tr>
+<td>21</td>
+<td>14</td>
+<td>0</td>
+<td>-1</td>
+<td>0000000000000000000000000000000000000000000000000000000000000000</td>
+<td>0</td>
+<td>system</td>
+<td>2026-10-03 16:06:37.868191+02</td>
+</tr>
+<tr>
+<td>22</td>
+<td>15</td>
+<td>0</td>
+<td>-1</td>
+<td>a3c45ecbc59b8b76e765f93a3f85b839bce3aac5dbd81a0a529d77eeea740371</td>
+<td>1718</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.893979+02</td>
+</tr>
+<tr>
+<td>23</td>
+<td>15</td>
+<td>1</td>
+<td>0</td>
+<td>0ca07a87b4734268b692106c0e2b83882245e16f0442b702ce6f99bd2786f486</td>
+<td>23107</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.895199+02</td>
+</tr>
+<tr>
+<td>24</td>
+<td>15</td>
+<td>2</td>
+<td>1</td>
+<td>9d116b5a0942e362146219d05e7f01b52a0f11060545a4e3c4c5314b47fcc5e0</td>
+<td>44679</td>
+<td>bob</td>
+<td>2026-10-03 16:06:37.897761+02</td>
+</tr>
+<tr>
+<td>25</td>
+<td>16</td>
+<td>0</td>
+<td>-1</td>
+<td>ea2367b0c0f418e2f1e7298ed4054c8a5ced97719aca2afe08f1d91b3c5838d8</td>
+<td>1718</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.974899+02</td>
+</tr>
+<tr>
+<td>26</td>
+<td>16</td>
+<td>1</td>
+<td>0</td>
+<td>236bf81af521874d878a90e24476e1a2d8ef11b0263aff9c0c745f3ff434b4a1</td>
+<td>23107</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.975889+02</td>
+</tr>
+<tr>
+<td>27</td>
+<td>16</td>
+<td>2</td>
+<td>1</td>
+<td>34feb98fbca829ec76c6ac70bd2e58f06e7893d8471931733f5e1afad2035dcc</td>
+<td>44679</td>
+<td>bob</td>
+<td>2026-10-03 16:06:37.976913+02</td>
+</tr>
+<tr>
+<td>28</td>
+<td>17</td>
+<td>0</td>
+<td>-1</td>
+<td>06b71d6b9398072a75339502a7b31ab29e5d3c529f1078c7196f7e08a9bf288c</td>
+<td>1717</td>
+<td>alice</td>
+<td>2026-10-03 16:06:38.089915+02</td>
+</tr>
+<tr>
+<td>29</td>
+<td>17</td>
+<td>1</td>
+<td>0</td>
+<td>e2cd79ebdd095483551f8e8e2d715e52aa6282864cf7a30a27192b086b953594</td>
+<td>23106</td>
+<td>alice</td>
+<td>2026-10-03 16:06:38.093977+02</td>
+</tr>
+<tr>
+<td>30</td>
+<td>17</td>
+<td>2</td>
+<td>1</td>
+<td>17ba9de881cccf8873afb643042c2ec343dd31f3cbf220c31841964828a58b14</td>
+<td>44678</td>
+<td>bob</td>
+<td>2026-10-03 16:06:38.098442+02</td>
+</tr>
+<tr>
+<td>31</td>
+<td>24</td>
+<td>0</td>
+<td>-1</td>
+<td>6632181c30a9f0e7b30502c1f088506003c43c178f2d60773ced2064e15cd279</td>
+<td>1718</td>
+<td>alice</td>
+<td>2026-10-03 16:45:32.111831+02</td>
+</tr>
+<tr>
+<td>32</td>
+<td>24</td>
+<td>1</td>
+<td>0</td>
+<td>f3d6354c815d39a6c939880b5ea5fa4839951342a6f971af4272c229ea48de01</td>
+<td>23107</td>
+<td>alice</td>
+<td>2026-10-03 16:45:33.590388+02</td>
+</tr>
+<tr>
+<td>33</td>
+<td>24</td>
+<td>2</td>
+<td>1</td>
+<td>13e8301b8e62e17a1d19a31914397e76bf5763eb5e5f3b8f9c3a89569d5e0ad1</td>
+<td>44679</td>
+<td>bob</td>
+<td>2026-10-03 16:45:34.009601+02</td>
+</tr>
+<tr>
+<td>34</td>
+<td>28</td>
+<td>0</td>
+<td>-1</td>
+<td>0000000000000000000000000000000000000000000000000000000000000000</td>
+<td>0</td>
+<td>system</td>
+<td>2026-10-03 17:53:07.620929+02</td>
+</tr>
+<tr>
+<td>35</td>
+<td>41</td>
+<td>0</td>
+<td>-1</td>
+<td>b70ee6ea6370d45e18c82d37e332140506cabe7dfa77a8abf12f74668014ca13</td>
+<td>1718</td>
+<td>alice</td>
+<td>2026-10-04 17:23:18.490259+02</td>
+</tr>
+<tr>
+<td>36</td>
+<td>41</td>
+<td>1</td>
+<td>0</td>
+<td>93eab0a8ab5fcae5f49a1b0a5ec51eceab014acdafc265c32a7c0944215dc735</td>
+<td>23107</td>
+<td>alice</td>
+<td>2026-10-04 17:23:20.441431+02</td>
+</tr>
+<tr>
+<td>37</td>
+<td>41</td>
+<td>2</td>
+<td>1</td>
+<td>3021576ae53a13a7299cf856990a4bccb22d28658f3b550cf3efd224e92446de</td>
+<td>44679</td>
+<td>bob</td>
+<td>2026-10-04 17:23:20.964322+02</td>
+</tr>
+<tr>
+<td>38</td>
+<td>51</td>
+<td>0</td>
+<td>-1</td>
+<td>7c3c506e389f9e4b98923caf8228e204ce29611d97dafa64320f298983622cca</td>
+<td>1718</td>
+<td>alice</td>
+<td>2026-10-04 17:57:31.433628+02</td>
+</tr>
+<tr>
+<td>39</td>
+<td>51</td>
+<td>1</td>
+<td>0</td>
+<td>c9185b2ac85f7833ce1e3d5f03e7a625905320a7a26fc61baacc69e29e327475</td>
+<td>23107</td>
+<td>alice</td>
+<td>2026-10-04 17:57:32.742536+02</td>
+</tr>
+<tr>
+<td>40</td>
+<td>51</td>
+<td>2</td>
+<td>1</td>
+<td>3387f7f931fe18045ae67e92db395b720ff599c7787ecea39d39e24ec681fb98</td>
+<td>44679</td>
+<td>bob</td>
+<td>2026-10-04 17:57:33.101471+02</td>
+</tr>
+</table></div></section>
+<section id="t-flyway_schema_history"><h2>flyway_schema_history</h2>
+<div class="meta">1 rows total &middot; showing up to 50 &middot; columns: installed_rank (integer), version (character varying), description (character varying), type (character varying), script (character varying), checksum (integer), installed_by (character varying), installed_on (timestamp without time zone), execution_time (integer), success (boolean)</div>
+<div class="scroll"><table><tr>
+<th>installed_rank</th>
+<th>version</th>
+<th>description</th>
+<th>type</th>
+<th>script</th>
+<th>checksum</th>
+<th>installed_by</th>
+<th>installed_on</th>
+<th>execution_time</th>
+<th>success</th>
+</tr>
+<tr>
+<td>1</td>
+<td>1</td>
+<td>initial schema</td>
+<td>SQL</td>
+<td>V1__initial_schema.sql</td>
+<td>-1585243469</td>
+<td>postgres</td>
+<td>2026-10-03 14:06:31.908601</td>
+<td>99</td>
+<td>t</td>
+</tr>
+</table></div></section>
+<section id="t-invitations"><h2>invitations</h2>
+<div class="meta">16 rows total &middot; showing up to 50 &middot; columns: id (bigint), workflow_id (bigint), signer_order (integer), email (character varying), token_hash (character varying), status (character varying), invited_by (character varying), created_at (timestamp with time zone), expires_at (timestamp with time zone), accepted_at (timestamp with time zone), accepted_by (character varying)</div>
+<div class="scroll"><table><tr>
+<th>id</th>
+<th>workflow_id</th>
+<th>signer_order</th>
+<th>email</th>
+<th>token_hash</th>
+<th>status</th>
+<th>invited_by</th>
+<th>created_at</th>
+<th>expires_at</th>
+<th>accepted_at</th>
+<th>accepted_by</th>
+</tr>
+<tr>
+<td>1</td>
+<td>4</td>
+<td>2</td>
+<td>bob@example.test</td>
+<td>61ae12172511bacc3f6faa052913fb755fec051052ef43cc8fbfd268f4bf8b89</td>
+<td><span class="pill ACCEPTED">ACCEPTED</span></td>
+<td>alice</td>
+<td>2026-10-03 16:42:34.316031+02</td>
+<td>2026-10-05 16:42:34.314413+02</td>
+<td>2026-10-03 16:43:23.225446+02</td>
+<td>bob</td>
+</tr>
+<tr>
+<td>2</td>
+<td>12</td>
+<td>1</td>
+<td>mouadm7c7@gmail.com</td>
+<td>c4a5ac0e1aa912f950b6e64ccf8f67b03d2e9edb2f55a92597adf62b2e776a7b</td>
+<td><span class="pill REVOKED">REVOKED</span></td>
+<td>alice</td>
+<td>2026-10-03 16:48:53.160614+02</td>
+<td>2026-10-05 16:48:53.160614+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>3</td>
+<td>4</td>
+<td>1</td>
+<td>mouadm7c7@gmail.com</td>
+<td>5a0a15e528addef31b973bfcb7db9bbfbe0b79aff82ad45879c65f66b239b1f6</td>
+<td><span class="pill REVOKED">REVOKED</span></td>
+<td>alice</td>
+<td>2026-10-03 16:51:44.531524+02</td>
+<td>2026-10-05 16:51:44.530168+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>4</td>
+<td>28</td>
+<td>2</td>
+<td>mouadm7c7@gmail.com</td>
+<td>8a0b213cff5e1aaddec9b99ed0452f1380c2fb72c334604b4654433e39b6b37a</td>
+<td><span class="pill REVOKED">REVOKED</span></td>
+<td>alice</td>
+<td>2026-10-03 17:53:07.686005+02</td>
+<td>2026-10-05 17:53:07.684962+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>7</td>
+<td>28</td>
+<td>2</td>
+<td>mouadm7c7@gmail.com</td>
+<td>6357251c5b4ef29c7c6657c158263fa7b66019cbe1bad5f0c2391bf82542a892</td>
+<td><span class="pill PENDING">PENDING</span></td>
+<td>alice</td>
+<td>2026-10-04 17:18:52.675987+02</td>
+<td>2026-10-06 17:18:52.673991+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>10</td>
+<td>6</td>
+<td>2</td>
+<td>mouadm7c7@gmail.com</td>
+<td>eba9273f2a052712dac6970983fb086e2b6752c7bc6a51683918d8af25e4193d</td>
+<td><span class="pill REVOKED">REVOKED</span></td>
+<td>alice</td>
+<td>2026-10-04 18:12:28.388751+02</td>
+<td>2026-10-06 18:12:28.388235+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>11</td>
+<td>6</td>
+<td>2</td>
+<td>mouadm7c7@gmail.com</td>
+<td>d429c7d50b1d44d0d345b0680dd68af7e0878323c8acaec2c62af16a522bbc92</td>
+<td><span class="pill REVOKED">REVOKED</span></td>
+<td>alice</td>
+<td>2026-10-04 18:16:25.436013+02</td>
+<td>2026-10-06 18:16:25.434596+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>13</td>
+<td>6</td>
+<td>2</td>
+<td>mouadm7c7@gmail.com</td>
+<td>5bbbd74068cef58b932e7cc79b3601e3375a6c81688abd2a09352957f3dfce0d</td>
+<td><span class="pill REVOKED">REVOKED</span></td>
+<td>alice</td>
+<td>2026-10-04 18:25:58.043755+02</td>
+<td>2026-10-06 18:25:58.043755+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>9</td>
+<td>7</td>
+<td>2</td>
+<td>mouadm7c7@gmail.com</td>
+<td>f614e4ee6142a3ea40f1306ed37b5409fd703929d3115b2dfc99e2ebde84072b</td>
+<td><span class="pill REVOKED">REVOKED</span></td>
+<td>alice</td>
+<td>2026-10-04 18:11:55.450035+02</td>
+<td>2026-10-06 18:11:55.448511+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>15</td>
+<td>7</td>
+<td>2</td>
+<td>mouadm7c7@gmail.com</td>
+<td>6bc54ff1d6320b7da7c8deb1850ad8f97247d094d40b42ad3b37085e3f0a1ef7</td>
+<td><span class="pill REVOKED">REVOKED</span></td>
+<td>alice</td>
+<td>2026-10-04 18:32:15.033384+02</td>
+<td>2026-10-06 18:32:15.031347+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>16</td>
+<td>7</td>
+<td>2</td>
+<td>mouadm7c7@gmail.com</td>
+<td>2476b32dc27aab28b963e2c9999948926b8eb828f2be1031fff04b8803744f78</td>
+<td><span class="pill PENDING">PENDING</span></td>
+<td>alice</td>
+<td>2026-10-04 19:19:58.166462+02</td>
+<td>2026-10-06 19:19:58.160036+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>14</td>
+<td>6</td>
+<td>2</td>
+<td>mouadm7c7@gmail.com</td>
+<td>2dfa55f49b96580e183cec2ef15df03d6abaa76cca11514f163768206fb38b44</td>
+<td><span class="pill REVOKED">REVOKED</span></td>
+<td>alice</td>
+<td>2026-10-04 18:29:58.020316+02</td>
+<td>2026-10-06 18:29:58.019229+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>17</td>
+<td>6</td>
+<td>2</td>
+<td>mouadm7c7@gmail.com</td>
+<td>8cfa0c7818baf0246a70649f3b5c0a72a57353faea344d65a39958963c3ffc1a</td>
+<td><span class="pill PENDING">PENDING</span></td>
+<td>alice</td>
+<td>2026-10-04 19:22:05.278398+02</td>
+<td>2026-10-06 19:22:05.278398+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>18</td>
+<td>5</td>
+<td>2</td>
+<td>mouadm7c7@gmail.com</td>
+<td>515b25b969f416a6dc30aeabdb5833273c5d46bd95210446b1a389effd3d68a8</td>
+<td><span class="pill PENDING">PENDING</span></td>
+<td>alice</td>
+<td>2026-10-04 19:58:25.632935+02</td>
+<td>2026-10-06 19:58:25.63192+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>8</td>
+<td>4</td>
+<td>2</td>
+<td>mouadm7c7@gmail.com</td>
+<td>7482fed8e975e7fcbe71ea4df73f0534df4555577c564fbc419a18bb038a3662</td>
+<td><span class="pill REVOKED">REVOKED</span></td>
+<td>alice</td>
+<td>2026-10-04 17:52:50.202009+02</td>
+<td>2026-10-06 17:52:50.199552+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>19</td>
+<td>4</td>
+<td>2</td>
+<td>mouadm7c7@gmail.com</td>
+<td>0445c152944a633187568bfcc8774a27be107b9ec1bbea759f4cd2dafcb961d3</td>
+<td><span class="pill PENDING">PENDING</span></td>
+<td>alice</td>
+<td>2026-10-04 20:01:41.866731+02</td>
+<td>2026-10-06 20:01:41.865725+02</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+</tr>
+</table></div></section>
+<section id="t-users"><h2>users</h2>
+<div class="meta">4 rows total &middot; showing up to 50 &middot; columns: id (bigint), username (character varying), email (character varying), password_hash (character varying), display_name (character varying), status (character varying), created_at (timestamp with time zone), updated_at (timestamp with time zone), last_login_at (timestamp with time zone)</div>
+<div class="scroll"><table><tr>
+<th>id</th>
+<th>username</th>
+<th>email</th>
+<th>password_hash</th>
+<th>display_name</th>
+<th>status</th>
+<th>created_at</th>
+<th>updated_at</th>
+<th>last_login_at</th>
+</tr>
+<tr>
+<td>3</td>
+<td>charlie</td>
+<td>charlie@example.test</td>
+<td>$2a$10$B7dOYwsje7BG.723mMi9VOv61VgdfXYij5auvZG7LFz/zP1wtNvou</td>
+<td>Charlie</td>
+<td><span class="pill ACTIVE">ACTIVE</span></td>
+<td>2026-10-03 16:06:38.284402+02</td>
+<td>2026-10-03 16:06:38.284402+02</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>4</td>
+<td>mouadm7c7</td>
+<td>mouadm7c7@gmail.com</td>
+<td>&nbsp;</td>
+<td>Mouadm7c7</td>
+<td><span class="pill PENDING_INVITE">PENDING_INVITE</span></td>
+<td>2026-10-03 17:53:07.577573+02</td>
+<td>2026-10-03 17:53:07.577573+02</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>2</td>
+<td>bob</td>
+<td>bob@example.test</td>
+<td>$2a$10$1hVoa04WC1tEMXuCklVcteuC8tqCz6l7nh4kjDLWV/BXbvVwqMHFS</td>
+<td>Bob</td>
+<td><span class="pill ACTIVE">ACTIVE</span></td>
+<td>2026-10-03 16:06:37.11575+02</td>
+<td>2026-10-04 17:57:30.996787+02</td>
+<td>2026-10-04 17:57:30.996787+02</td>
+</tr>
+<tr>
+<td>1</td>
+<td>alice</td>
+<td>&nbsp;</td>
+<td>$2a$10$MRZfbB9EDSCi04OUGByrse3TuEZmwb/4H42MVKUZHwZVt/.O78sfG</td>
+<td>Alice</td>
+<td><span class="pill ACTIVE">ACTIVE</span></td>
+<td>2026-10-03 16:06:37.032163+02</td>
+<td>2026-10-04 20:01:28.505657+02</td>
+<td>2026-10-04 20:01:28.505657+02</td>
+</tr>
+</table></div></section>
+<section id="t-workflow_signers"><h2>workflow_signers</h2>
+<div class="meta">36 rows total &middot; showing up to 50 &middot; columns: id (bigint), workflow_id (bigint), signer_order (integer), username (character varying), certificate_sha256 (character varying), bound_at (timestamp with time zone), signed (boolean), signed_at (timestamp with time zone), signing_operation_id (character varying), invited_at (timestamp with time zone), signature_page (integer), signature_x (numeric), signature_y (numeric), signature_width (numeric), signature_height (numeric), created_at (timestamp with time zone)</div>
+<div class="scroll"><table><tr>
+<th>id</th>
+<th>workflow_id</th>
+<th>signer_order</th>
+<th>username</th>
+<th>certificate_sha256</th>
+<th>bound_at</th>
+<th>signed</th>
+<th>signed_at</th>
+<th>signing_operation_id</th>
+<th>invited_at</th>
+<th>signature_page</th>
+<th>signature_x</th>
+<th>signature_y</th>
+<th>signature_width</th>
+<th>signature_height</th>
+<th>created_at</th>
+</tr>
+<tr>
+<td>1</td>
+<td>4</td>
+<td>1</td>
+<td>alice</td>
+<td>16D89039B79AE052804FB1E6910F185F7EA32227D3546FAFDAA0315739625D9A</td>
+<td>2026-10-02 01:41:20.079539+02</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.259454+02</td>
+</tr>
+<tr>
+<td>2</td>
+<td>4</td>
+<td>2</td>
+<td>bob</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-02 18:42:30.38371+02</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.2662+02</td>
+</tr>
+<tr>
+<td>3</td>
+<td>5</td>
+<td>1</td>
+<td>alice</td>
+<td>16D89039B79AE052804FB1E6910F185F7EA32227D3546FAFDAA0315739625D9A</td>
+<td>2026-10-02 01:42:54.028273+02</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.322856+02</td>
+</tr>
+<tr>
+<td>4</td>
+<td>5</td>
+<td>2</td>
+<td>bob</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.325464+02</td>
+</tr>
+<tr>
+<td>5</td>
+<td>6</td>
+<td>1</td>
+<td>alice</td>
+<td>16D89039B79AE052804FB1E6910F185F7EA32227D3546FAFDAA0315739625D9A</td>
+<td>2026-10-02 01:47:20.480262+02</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.382584+02</td>
+</tr>
+<tr>
+<td>6</td>
+<td>6</td>
+<td>2</td>
+<td>bob</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.389658+02</td>
+</tr>
+<tr>
+<td>7</td>
+<td>7</td>
+<td>1</td>
+<td>alice</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-02 02:42:46.558018+02</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.450133+02</td>
+</tr>
+<tr>
+<td>8</td>
+<td>7</td>
+<td>2</td>
+<td>bob</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.453668+02</td>
+</tr>
+<tr>
+<td>9</td>
+<td>8</td>
+<td>1</td>
+<td>alice</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-02 02:51:24.846162+02</td>
+<td>t</td>
+<td>2026-10-02 18:40:45.315258+02</td>
+<td>a546cee7-445d-4325-af88-4420c6a99351</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.503867+02</td>
+</tr>
+<tr>
+<td>10</td>
+<td>8</td>
+<td>2</td>
+<td>bob</td>
+<td>15B72B89E54339A9DF3B9F6746943A089EC8FC2F391C5B6C8898DF64D7FE9E02</td>
+<td>2026-10-02 02:51:24.904318+02</td>
+<td>t</td>
+<td>2026-10-02 18:41:43.308476+02</td>
+<td>c776c9d1-3c20-4900-bd0c-1745e593bfba</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.506087+02</td>
+</tr>
+<tr>
+<td>11</td>
+<td>9</td>
+<td>1</td>
+<td>alice</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-02 02:53:33.413666+02</td>
+<td>t</td>
+<td>2026-10-02 02:53:35.75666+02</td>
+<td>live-e2e-alice-8f6afb9d-2d11-43d4-8989-f1be14d1f6cd</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.568302+02</td>
+</tr>
+<tr>
+<td>12</td>
+<td>9</td>
+<td>2</td>
+<td>bob</td>
+<td>15B72B89E54339A9DF3B9F6746943A089EC8FC2F391C5B6C8898DF64D7FE9E02</td>
+<td>2026-10-02 02:53:33.483731+02</td>
+<td>t</td>
+<td>2026-10-02 02:53:36.202662+02</td>
+<td>live-e2e-bob-b486c6da-8db5-47ca-b4e0-02c83574b8bb</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.570295+02</td>
+</tr>
+<tr>
+<td>13</td>
+<td>10</td>
+<td>1</td>
+<td>alice</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-02 02:55:36.554441+02</td>
+<td>t</td>
+<td>2026-10-02 02:55:36.951619+02</td>
+<td>live-e2e-alice-46352a2d-3e6d-4fc0-82a2-f07f44b94736</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.637003+02</td>
+</tr>
+<tr>
+<td>14</td>
+<td>10</td>
+<td>2</td>
+<td>bob</td>
+<td>15B72B89E54339A9DF3B9F6746943A089EC8FC2F391C5B6C8898DF64D7FE9E02</td>
+<td>2026-10-02 02:55:36.607446+02</td>
+<td>t</td>
+<td>2026-10-02 02:55:37.264934+02</td>
+<td>live-e2e-bob-b81f1d6d-8309-482b-8892-04d4103fef31</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.639391+02</td>
+</tr>
+<tr>
+<td>15</td>
+<td>11</td>
+<td>1</td>
+<td>alice</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-02 19:09:53.61723+02</td>
+<td>t</td>
+<td>2026-10-02 19:09:53.87442+02</td>
+<td>live-e2e-alice-323b5274-27e8-451d-98ea-c17b47f71fe1</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.721155+02</td>
+</tr>
+<tr>
+<td>16</td>
+<td>11</td>
+<td>2</td>
+<td>bob</td>
+<td>15B72B89E54339A9DF3B9F6746943A089EC8FC2F391C5B6C8898DF64D7FE9E02</td>
+<td>2026-10-02 19:09:53.644436+02</td>
+<td>t</td>
+<td>2026-10-02 19:09:54.109204+02</td>
+<td>live-e2e-bob-2352c43c-9e0e-43b3-8e58-5a7af65cac88</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.722191+02</td>
+</tr>
+<tr>
+<td>17</td>
+<td>12</td>
+<td>1</td>
+<td>alice</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-02 19:37:14.089218+02</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.777192+02</td>
+</tr>
+<tr>
+<td>18</td>
+<td>12</td>
+<td>2</td>
+<td>bob</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.778202+02</td>
+</tr>
+<tr>
+<td>19</td>
+<td>13</td>
+<td>1</td>
+<td>alice</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-02 22:31:02.176961+02</td>
+<td>t</td>
+<td>2026-10-02 22:31:06.978886+02</td>
+<td>live-e2e-alice-e4af123f-c0f5-46c9-869b-d2ee4a1e7a4b</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.809152+02</td>
+</tr>
+<tr>
+<td>20</td>
+<td>13</td>
+<td>2</td>
+<td>bob</td>
+<td>15B72B89E54339A9DF3B9F6746943A089EC8FC2F391C5B6C8898DF64D7FE9E02</td>
+<td>2026-10-02 22:31:02.417784+02</td>
+<td>t</td>
+<td>2026-10-02 22:31:07.53919+02</td>
+<td>live-e2e-bob-0dcbe816-376f-45cb-9060-e6ac8ea6291f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.811263+02</td>
+</tr>
+<tr>
+<td>21</td>
+<td>14</td>
+<td>1</td>
+<td>alice</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.861849+02</td>
+</tr>
+<tr>
+<td>22</td>
+<td>14</td>
+<td>2</td>
+<td>bob</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.863848+02</td>
+</tr>
+<tr>
+<td>23</td>
+<td>15</td>
+<td>1</td>
+<td>alice</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-02 23:27:55.389761+02</td>
+<td>t</td>
+<td>2026-10-02 23:27:56.761101+02</td>
+<td>live-e2e-alice-65dbb7d9-0c8a-4314-8a66-7a6fe4131e59</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.889928+02</td>
+</tr>
+<tr>
+<td>24</td>
+<td>15</td>
+<td>2</td>
+<td>bob</td>
+<td>15B72B89E54339A9DF3B9F6746943A089EC8FC2F391C5B6C8898DF64D7FE9E02</td>
+<td>2026-10-02 23:27:55.444299+02</td>
+<td>t</td>
+<td>2026-10-02 23:27:57.193295+02</td>
+<td>live-e2e-bob-cd198109-62ce-4129-b8c2-7f7bef950657</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.890935+02</td>
+</tr>
+<tr>
+<td>25</td>
+<td>16</td>
+<td>1</td>
+<td>alice</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-03 00:09:58.053078+02</td>
+<td>t</td>
+<td>2026-10-03 00:09:58.336635+02</td>
+<td>live-e2e-alice-2b58f428-1207-4382-8da3-bc63ceec5cfc</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.969232+02</td>
+</tr>
+<tr>
+<td>26</td>
+<td>16</td>
+<td>2</td>
+<td>bob</td>
+<td>15B72B89E54339A9DF3B9F6746943A089EC8FC2F391C5B6C8898DF64D7FE9E02</td>
+<td>2026-10-03 00:09:58.093762+02</td>
+<td>t</td>
+<td>2026-10-03 00:09:58.527236+02</td>
+<td>live-e2e-bob-5a011529-e234-4694-8a95-500e37bb9524</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:37.971234+02</td>
+</tr>
+<tr>
+<td>27</td>
+<td>17</td>
+<td>1</td>
+<td>alice</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-03 00:14:20.622049+02</td>
+<td>t</td>
+<td>2026-10-03 00:14:21.036889+02</td>
+<td>live-e2e-alice-a8a24e8a-9004-4a61-97c0-d7f8d533885a</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:38.077169+02</td>
+</tr>
+<tr>
+<td>28</td>
+<td>17</td>
+<td>2</td>
+<td>bob</td>
+<td>15B72B89E54339A9DF3B9F6746943A089EC8FC2F391C5B6C8898DF64D7FE9E02</td>
+<td>2026-10-03 00:14:20.670981+02</td>
+<td>t</td>
+<td>2026-10-03 00:14:21.450894+02</td>
+<td>live-e2e-bob-9eb4a713-59ac-4a2f-b3cc-dad045d71ad1</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:06:38.082747+02</td>
+</tr>
+<tr>
+<td>29</td>
+<td>24</td>
+<td>1</td>
+<td>alice</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-03 16:45:32.090306+02</td>
+<td>t</td>
+<td>2026-10-03 16:45:33.574911+02</td>
+<td>live-e2e-alice-6957c15f-cce6-4eff-a7d3-fd3ced8223ce</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:45:32.104999+02</td>
+</tr>
+<tr>
+<td>30</td>
+<td>24</td>
+<td>2</td>
+<td>bob</td>
+<td>15B72B89E54339A9DF3B9F6746943A089EC8FC2F391C5B6C8898DF64D7FE9E02</td>
+<td>2026-10-03 16:45:32.360306+02</td>
+<td>t</td>
+<td>2026-10-03 16:45:33.998806+02</td>
+<td>live-e2e-bob-b525f982-bf2f-480d-b3e8-88bba2b74271</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 16:45:32.107526+02</td>
+</tr>
+<tr>
+<td>31</td>
+<td>28</td>
+<td>1</td>
+<td>alice</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 17:53:07.605761+02</td>
+</tr>
+<tr>
+<td>32</td>
+<td>28</td>
+<td>2</td>
+<td>mouadm7c7</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-03 17:53:07.610299+02</td>
+</tr>
+<tr>
+<td>33</td>
+<td>41</td>
+<td>1</td>
+<td>alice</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-04 17:23:18.461031+02</td>
+<td>t</td>
+<td>2026-10-04 17:23:20.425749+02</td>
+<td>live-e2e-alice-ab3ead60-c502-4758-8116-a561dcfaa309</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-04 17:23:18.479292+02</td>
+</tr>
+<tr>
+<td>34</td>
+<td>41</td>
+<td>2</td>
+<td>bob</td>
+<td>15B72B89E54339A9DF3B9F6746943A089EC8FC2F391C5B6C8898DF64D7FE9E02</td>
+<td>2026-10-04 17:23:18.821387+02</td>
+<td>t</td>
+<td>2026-10-04 17:23:20.9465+02</td>
+<td>live-e2e-bob-c5245f42-b96d-4e63-9964-2f4444b965c3</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-04 17:23:18.486115+02</td>
+</tr>
+<tr>
+<td>35</td>
+<td>51</td>
+<td>1</td>
+<td>alice</td>
+<td>9C63EEDBFBAE3F9EE58DE7EABE3366AFF8DA544826CAB4AD8D38BB33A845542D</td>
+<td>2026-10-04 17:57:31.415777+02</td>
+<td>t</td>
+<td>2026-10-04 17:57:32.731551+02</td>
+<td>live-e2e-alice-7a26e74b-1a2b-45bd-99ae-9f9819e3425f</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-04 17:57:31.427029+02</td>
+</tr>
+<tr>
+<td>36</td>
+<td>51</td>
+<td>2</td>
+<td>bob</td>
+<td>15B72B89E54339A9DF3B9F6746943A089EC8FC2F391C5B6C8898DF64D7FE9E02</td>
+<td>2026-10-04 17:57:31.619433+02</td>
+<td>t</td>
+<td>2026-10-04 17:57:33.089834+02</td>
+<td>live-e2e-bob-40f4d182-f178-453f-918b-476652954caf</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2026-10-04 17:57:31.430029+02</td>
+</tr>
+</table></div></section>
+<section id="t-workflows"><h2>workflows</h2>
+<div class="meta">18 rows total &middot; showing up to 50 &middot; columns: id (bigint), workflow_id (character varying), document_name (character varying), policy (character varying), status (character varying), blocked_reason (text), claimed_turn_username (character varying), claimed_turn_at (timestamp with time zone), created_by (character varying), created_at (timestamp with time zone), updated_at (timestamp with time zone)</div>
+<div class="scroll"><table><tr>
+<th>id</th>
+<th>workflow_id</th>
+<th>document_name</th>
+<th>policy</th>
+<th>status</th>
+<th>blocked_reason</th>
+<th>claimed_turn_username</th>
+<th>claimed_turn_at</th>
+<th>created_by</th>
+<th>created_at</th>
+<th>updated_at</th>
+</tr>
+<tr>
+<td>4</td>
+<td>WF-1790893837501</td>
+<td>CV-multi-signed.pdf</td>
+<td>SEQUENTIAL</td>
+<td>WAITING_FOR_SIGNER</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.250371+02</td>
+<td>2026-10-03 16:06:37.250371+02</td>
+</tr>
+<tr>
+<td>5</td>
+<td>WF-1790898023826</td>
+<td>CV-signed.pdf</td>
+<td>FLEXIBLE</td>
+<td>DRAFT</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.317409+02</td>
+<td>2026-10-03 16:06:37.317409+02</td>
+</tr>
+<tr>
+<td>6</td>
+<td>WF-1790898023827</td>
+<td>CV.pdf</td>
+<td>SEQUENTIAL</td>
+<td>DRAFT</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.372185+02</td>
+<td>2026-10-03 16:06:37.372185+02</td>
+</tr>
+<tr>
+<td>7</td>
+<td>WF-1790901688390</td>
+<td>CV.pdf</td>
+<td>FLEXIBLE</td>
+<td>DRAFT</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.441049+02</td>
+<td>2026-10-03 16:06:37.441049+02</td>
+</tr>
+<tr>
+<td>8</td>
+<td>WF-1790901688391</td>
+<td>live-e2e-smoke-1790902284672.pdf</td>
+<td>FLEXIBLE</td>
+<td>COMPLETED</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.500135+02</td>
+<td>2026-10-03 16:06:37.500135+02</td>
+</tr>
+<tr>
+<td>9</td>
+<td>WF-1790901688392</td>
+<td>live-e2e-smoke-1790902413185.pdf</td>
+<td>FLEXIBLE</td>
+<td>COMPLETED</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.562117+02</td>
+<td>2026-10-03 16:06:37.562117+02</td>
+</tr>
+<tr>
+<td>10</td>
+<td>WF-1790901688393</td>
+<td>live-e2e-smoke-1790902536528.pdf</td>
+<td>FLEXIBLE</td>
+<td>COMPLETED</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.628973+02</td>
+<td>2026-10-03 16:06:37.628973+02</td>
+</tr>
+<tr>
+<td>11</td>
+<td>WF-1790959212960</td>
+<td>live-e2e-smoke-1790960993597.pdf</td>
+<td>FLEXIBLE</td>
+<td>COMPLETED</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.715537+02</td>
+<td>2026-10-03 16:06:37.715537+02</td>
+</tr>
+<tr>
+<td>12</td>
+<td>WF-1790962537529</td>
+<td>CV.pdf</td>
+<td>SEQUENTIAL</td>
+<td>DRAFT</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.773501+02</td>
+<td>2026-10-03 16:06:37.773501+02</td>
+</tr>
+<tr>
+<td>13</td>
+<td>WF-1790962537530</td>
+<td>live-e2e-smoke-1790973062075.pdf</td>
+<td>FLEXIBLE</td>
+<td>COMPLETED</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.805176+02</td>
+<td>2026-10-03 16:06:37.805176+02</td>
+</tr>
+<tr>
+<td>14</td>
+<td>WF-1790975600208</td>
+<td>CV-signed.pdf</td>
+<td>SEQUENTIAL</td>
+<td>DRAFT</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.858891+02</td>
+<td>2026-10-03 16:06:37.858891+02</td>
+</tr>
+<tr>
+<td>15</td>
+<td>WF-1790975600209</td>
+<td>live-e2e-smoke-1790976475374.pdf</td>
+<td>FLEXIBLE</td>
+<td>COMPLETED</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.885921+02</td>
+<td>2026-10-03 16:06:37.885921+02</td>
+</tr>
+<tr>
+<td>16</td>
+<td>WF-1790975600210</td>
+<td>live-e2e-smoke-1790978998032.pdf</td>
+<td>FLEXIBLE</td>
+<td>COMPLETED</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:37.963858+02</td>
+<td>2026-10-03 16:06:37.963858+02</td>
+</tr>
+<tr>
+<td>17</td>
+<td>WF-1790975600211</td>
+<td>live-e2e-smoke-1790979260605.pdf</td>
+<td>FLEXIBLE</td>
+<td>COMPLETED</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:06:38.062969+02</td>
+<td>2026-10-03 16:06:38.062969+02</td>
+</tr>
+<tr>
+<td>24</td>
+<td>WF-1791038535893</td>
+<td>live-e2e-smoke-1791038732046.pdf</td>
+<td>FLEXIBLE</td>
+<td>COMPLETED</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 16:45:32.099558+02</td>
+<td>2026-10-03 16:45:34.02553+02</td>
+</tr>
+<tr>
+<td>28</td>
+<td>WF-1791040937686</td>
+<td>mouadm-signing.pdf</td>
+<td>SEQUENTIAL</td>
+<td>DRAFT</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-03 17:53:07.596792+02</td>
+<td>2026-10-03 17:53:07.596792+02</td>
+</tr>
+<tr>
+<td>41</td>
+<td>WF-1791127110161</td>
+<td>live-e2e-smoke-1791127398390.pdf</td>
+<td>FLEXIBLE</td>
+<td>COMPLETED</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-04 17:23:18.472264+02</td>
+<td>2026-10-04 17:23:20.981937+02</td>
+</tr>
+<tr>
+<td>51</td>
+<td>WF-1791129130763</td>
+<td>live-e2e-smoke-1791129451355.pdf</td>
+<td>FLEXIBLE</td>
+<td>COMPLETED</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>alice</td>
+<td>2026-10-04 17:57:31.421826+02</td>
+<td>2026-10-04 17:57:33.119666+02</td>
+</tr>
+</table></div></section>
+<footer>Generated from the live database. Raw invitation tokens are never stored &mdash; only their SHA-256 hashes.</footer>
+</main></body></html>

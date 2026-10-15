@@ -47,9 +47,15 @@ JLINK_MODULES="java.se,jdk.unsupported,jdk.crypto.cryptoki,jdk.crypto.ec,jdk.cha
 
 # --sun-misc-unsafe-memory-access exists only on JDK 23+; passing it to a
 # JDK 21 runtime would make every launch fail with an unrecognized option.
+# signflow.packaged: an installed build can never run the 'dev' profile
+# (mock token, default accounts, plain HTTP) — ProductionSafetyValidator.
+# WINDOWS-ROOT: trust the coordination server's TLS certificate through the
+# Windows certificate store (see docs/TRANSPORT-SECURITY.md).
 JAVA_OPTS=(
     "--add-modules=jdk.crypto.cryptoki"
     "--enable-native-access=ALL-UNNAMED"
+    "-Dsignflow.packaged=true"
+    "-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT"
 )
 JAVA_MAJOR="$("$JAVA_HOME/bin/java" -XshowSettings:properties -version 2>&1 | awk -F'= ' '/java.specification.version/ {print $2; exit}')"
 if [[ "${JAVA_MAJOR%%.*}" -ge 23 ]]; then

@@ -1,14 +1,24 @@
 package com.example.signer.ui.workspace;
 
+import com.example.signer.exception.ErrorCode;
+import com.example.signer.token.TokenException;
+import java.io.File;
+import java.io.IOException;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+import javafx.beans.binding.Bindings;
+import javafx.geometry.Rectangle2D;
+import javafx.scene.control.OverrunStyle;
+import javafx.stage.FileChooser;
+import javafx.stage.Screen;
+import com.example.signer.ui.support.Background;
 import com.example.signer.pdf.DocumentAnalysis;
-import com.example.signer.pdf.DocumentRenderer;
 import com.example.signer.pdf.PdfDocumentService;
 import com.example.signer.pdf.PdfRenderService;
-import com.example.signer.pdf.RenderedPdfPage;
 import com.example.signer.signing.SignatureAppearance;
 import com.example.signer.signing.SignaturePlacement;
 import com.example.signer.signing.SignatureStampRenderer;
-import com.example.signer.signing.SigningResult;
 import com.example.signer.token.SigningAlgorithm;
 import com.example.signer.token.SigningCertificate;
 import com.example.signer.token.TokenService;
@@ -29,7 +39,6 @@ import org.kordamp.ikonli.javafx.FontIcon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javafx.animation.FadeTransition;
 import javafx.animation.PauseTransition;
 import javafx.animation.ScaleTransition;
 import javafx.application.Platform;
@@ -37,48 +46,36 @@ import javafx.concurrent.Task;
 import javafx.embed.swing.SwingFXUtils;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.Cursor;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
-import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
-import javafx.scene.control.PasswordField;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
-import javafx.scene.control.TitledPane;
-import javafx.scene.control.ToggleButton;
 import javafx.scene.control.Tooltip;
-import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.Node;
-import javafx.scene.input.KeyCode;
-import javafx.scene.input.MouseEvent;
-import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.scene.shape.Rectangle;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
 import javafx.util.Duration;
 
-import java.awt.image.BufferedImage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -100,8 +97,8 @@ MultiSignerWorkspaceFlow {
     private static final double MIN_ZOOM = 0.5;
     private static final double MAX_ZOOM = 4.0;
     private static final double MIN_BOX_SIZE_PX = 12;
-    private static final float DEFAULT_BOX_W_PTS = 170f;
-    private static final float DEFAULT_BOX_H_PTS = 55f;
+    static final float DEFAULT_BOX_W_PTS = 170f;
+    static final float DEFAULT_BOX_H_PTS = 55f;
 
     private final SigningWorkflow workflow;
     private final WorkflowSigningEngine engine;
@@ -117,47 +114,18 @@ MultiSignerWorkspaceFlow {
     private final List<SignaturePlacement> placements = new ArrayList<>();
     private final List<SigningStatus> signerStatuses = new ArrayList<>();
     private Path latestRevision;
-    private DocumentRenderer renderer;
-
-    // ---- viewer state ----
-    private RenderedPdfPage rendered;
-    private int currentPage;
-    private double zoom = 1.0;
-    private double renderScale = 1.0;
-    private boolean fitWidthMode = true;
-    private boolean fitPageMode;
-    private boolean renderInFlight;
-    private int renderGeneration;
-    private boolean renderQueued;
-    private int autoFitLaps;
-    private boolean placingMode;
-
-    private enum DragMode { NONE, CREATE, MOVE, RESIZE }
-    private DragMode dragMode = DragMode.NONE;
-    private double pressX;
-    private double pressY;
-    private double startX;
-    private double startY;
-    private double startW;
-    private double startH;
+    /** The shared document viewer for the current revision (one per revision). */
+    private PlacementViewer viewer;
+    private final StackPane viewerHolder = new StackPane();
+    /** Host buttons shown at the end of every viewer's toolbar. */
+    private Button docInfoButton;
+    private Button signaturesButton;
     private boolean busy;
 
     // ---- UI ----
     private Stage stage;
     private BorderPane root;
-    private ThumbnailPane thumbnails;
-    private ScrollPane scrollPane;
-    private AnchorPane pageLayer;
-    private ImageView pageView;
-    private Rectangle pendingBox;
-    private final List<Rectangle> previousBoxes = new ArrayList<>();
-    private Label zoomLabel;
-    private Label pageLabel;
-    private ToggleButton fitWidthButton;
-    private ToggleButton fitPageButton;
-    private ToggleButton placeButton;
     private Label statusLabel;
-    private Label placeHint;
     private ProgressIndicator busyIndicator;
     private final List<Label> signerChips = new ArrayList<>();
     private SignerPanel panel;
@@ -197,7 +165,8 @@ MultiSignerWorkspaceFlow {
         if (owner != null) {
             stage.initOwner(owner);
         }
-        stage.setTitle("Multi-Signer Workspace — " + documentName);
+        stage.setTitle((workflow.signerCount() == 1 ? "Sign — " : "Multi-Signer Workspace — ")
+                + documentName);
         // Responsive floors: 900x600 fits a 1366x768 laptop even at 125%
         // OS scaling (logical height ~614px) — the layout adapts below
         // (thumbnails collapse, the signer panel scrolls internally) instead
@@ -214,7 +183,7 @@ MultiSignerWorkspaceFlow {
         Label docChip = new Label(documentName);
         docChip.getStyleClass().add("mws-doc-chip");
         docChip.setMaxWidth(240);
-        docChip.setTextOverrun(javafx.scene.control.OverrunStyle.ELLIPSIS);
+        docChip.setTextOverrun(OverrunStyle.ELLIPSIS);
         docChip.setTooltip(new Tooltip(documentName + " · " + analysis.pageCount()
                 + " page(s)" + (analysis.hasExistingSignatures()
                         ? " · " + analysis.existingSignatures().size()
@@ -233,97 +202,24 @@ MultiSignerWorkspaceFlow {
         stripRow.setAlignment(Pos.CENTER);
         stripRow.getStyleClass().add("mws-strip-row");
 
-        // ---- viewer toolbar --------------------------------------------------
-        Button prevButton = new Button("", new FontIcon(FontAwesomeSolid.CHEVRON_LEFT));
-        Button nextButton = new Button("", new FontIcon(FontAwesomeSolid.CHEVRON_RIGHT));
-        styleNavButton(prevButton, "Previous page (Page Up)");
-        styleNavButton(nextButton, "Next page (Page Down)");
-        prevButton.setOnAction(e -> goToPage(currentPage - 1));
-        nextButton.setOnAction(e -> goToPage(currentPage + 1));
-        pageLabel = new Label("Page – of –");
-        pageLabel.getStyleClass().add("mws-page-label");
-
-        Button zoomOutButton = new Button("", new FontIcon(FontAwesomeSolid.MINUS));
-        Button zoomInButton = new Button("", new FontIcon(FontAwesomeSolid.PLUS));
-        styleNavButton(zoomOutButton, "Zoom out (Ctrl+−)");
-        styleNavButton(zoomInButton, "Zoom in (Ctrl++)");
-        zoomOutButton.setOnAction(e -> setZoom(zoom - 0.25));
-        zoomInButton.setOnAction(e -> setZoom(zoom + 0.25));
-        zoomLabel = new Label("100%");
-        zoomLabel.getStyleClass().add("mws-zoom-label");
-        fitWidthButton = new ToggleButton("Fit width");
-        fitPageButton = new ToggleButton("Fit page");
-        for (ToggleButton b : List.of(fitWidthButton, fitPageButton)) {
-            b.getStyleClass().add("nav-btn");
-        }
-        fitWidthButton.setSelected(true);
-        fitWidthButton.setOnAction(e -> toggleFitWidth());
-        fitPageButton.setOnAction(e -> toggleFitPage());
-
-        // Icon-only with tooltips: text buttons here overflow the toolbar
-        // once the window approaches its minimum width.
-        Button docInfoButton = new Button("", new FontIcon(FontAwesomeSolid.FILE_ALT));
+        // ---- document viewer: the shared PlacementViewer (thumbnails, page
+        // navigation, zoom/fit, signature box gestures). It is recreated for
+        // each revision in loadRevision(); these host buttons are added to
+        // its toolbar each time.
+        docInfoButton = new Button("", new FontIcon(FontAwesomeSolid.FILE_ALT));
         docInfoButton.getStyleClass().add("nav-btn");
         docInfoButton.setTooltip(new Tooltip("Document info — metadata and analysis"));
         docInfoButton.setOnAction(e -> showDocumentInfo());
-        Button signaturesButton = new Button("",
-                new FontIcon(FontAwesomeSolid.FILE_SIGNATURE));
+        signaturesButton = new Button("", new FontIcon(FontAwesomeSolid.FILE_SIGNATURE));
         signaturesButton.getStyleClass().add("nav-btn");
         signaturesButton.setTooltip(new Tooltip("Signatures — details and revision history"));
         signaturesButton.setOnAction(e -> showSignaturesDialog());
-
-        Region toolbarSpacer = new Region();
-        HBox.setHgrow(toolbarSpacer, Priority.ALWAYS);
-        HBox toolbar = new HBox(8, prevButton, pageLabel, nextButton,
-                new Separator(javafx.geometry.Orientation.VERTICAL),
-                zoomOutButton, zoomLabel, zoomInButton,
-                new Separator(javafx.geometry.Orientation.VERTICAL),
-                fitWidthButton, fitPageButton,
-                toolbarSpacer, docInfoButton, signaturesButton);
-        toolbar.setAlignment(Pos.CENTER_LEFT);
-        toolbar.getStyleClass().add("mws-toolbar");
-        toolbar.setPadding(new Insets(6, 10, 6, 10));
-
-        // ---- viewer ----------------------------------------------------------
-        pageView = new ImageView();
-        pageView.setPreserveRatio(true);
-        pendingBox = new Rectangle();
-        pendingBox.getStyleClass().add("mws-pending-box");
-        pendingBox.setVisible(false);
-        pageLayer = new AnchorPane();
-        pageLayer.getChildren().addAll(pageView, pendingBox);
-        pageLayer.getStyleClass().add("mws-page-layer");
-        pageLayer.setOnMousePressed(this::onMousePressed);
-        pageLayer.setOnMouseDragged(this::onMouseDragged);
-        pageLayer.setOnMouseReleased(this::onMouseReleased);
-
-        scrollPane = new ScrollPane(new StackPane(pageLayer));
-        scrollPane.setFitToWidth(false);
-        scrollPane.setFitToHeight(false);
-        scrollPane.setPannable(true);
-        scrollPane.getStyleClass().add("mws-viewer");
-
-        // Floating hint over the page while the user is drawing a signature.
-        Label hint = new Label("Drag on the page to draw your signature box  ·  Esc to cancel");
-        hint.getStyleClass().add("mws-place-hint");
-        hint.setVisible(false);
-        hint.setManaged(false);
-        placeHint = hint;
-        StackPane viewerStack = new StackPane(scrollPane, placeHint);
-        StackPane.setAlignment(placeHint, Pos.TOP_CENTER);
-        StackPane.setMargin(placeHint, new Insets(14, 0, 0, 0));
-        VBox.setVgrow(viewerStack, Priority.ALWAYS);
+        HBox.setHgrow(viewerHolder, Priority.ALWAYS);
 
         // ---- assembly --------------------------------------------------------
-        panel = new SignerPanel();
-        thumbnails = new ThumbnailPane(renderService);
-        thumbnails.setPageClickListener(this::goToPage);
+        panel = new SignerPanel(new PanelHost(), tokenService);
 
-        VBox viewerColumn = new VBox(toolbar, viewerStack);
-        viewerColumn.getStyleClass().add("mws-viewer-column");
-        HBox.setHgrow(viewerColumn, Priority.ALWAYS);
-
-        HBox center = new HBox(10, thumbnails, viewerColumn, panel.getRoot());
+        HBox center = new HBox(10, viewerHolder, panel.getRoot());
         center.getStyleClass().add("mws-center");
         center.setPadding(new Insets(10, 12, 10, 12));
 
@@ -355,27 +251,29 @@ MultiSignerWorkspaceFlow {
         double[] winSize = fitToScreen(1280, 820);
         Scene scene = new Scene(root, winSize[0], winSize[1]);
         ThemeManager.instance().attach(scene);
-        // Responsive: collapse the thumbnail rail when the window gets tight;
-        // the viewer reclaims the space and thumbnails come back on widen.
-        scene.widthProperty().addListener((obs, was, now) -> {
-            boolean showThumbs = now.doubleValue() >= 1040;
-            thumbnails.setVisible(showThumbs);
-            thumbnails.setManaged(showThumbs);
-        });
+        // (The viewer collapses its own thumbnail rail on narrow windows.)
         scene.setOnKeyPressed(e -> {
+            if (viewer == null) {
+                return;
+            }
             if (e.isControlDown()) {
                 switch (e.getCode()) {
-                    case EQUALS, ADD -> { e.consume(); setZoom(zoom + 0.25); }
-                    case MINUS, SUBTRACT -> { e.consume(); setZoom(zoom - 0.25); }
-                    case DIGIT0 -> { e.consume(); setZoom(1.0); }
+                    case EQUALS, ADD -> { e.consume(); viewer.zoomIn(); }
+                    case MINUS, SUBTRACT -> { e.consume(); viewer.zoomOut(); }
+                    case DIGIT0 -> { e.consume(); viewer.resetZoom(); }
                     default -> { }
                 }
                 return;
             }
             switch (e.getCode()) {
-                case PAGE_UP -> { e.consume(); goToPage(currentPage - 1); }
-                case PAGE_DOWN -> { e.consume(); goToPage(currentPage + 1); }
-                case ESCAPE -> { if (placingMode) { e.consume(); togglePlacing(); } }
+                case PAGE_UP -> { e.consume(); viewer.goToPage(viewer.currentPage() - 1); }
+                case PAGE_DOWN -> { e.consume(); viewer.goToPage(viewer.currentPage() + 1); }
+                case ESCAPE -> {
+                    if (viewer.placingProperty().get()) {
+                        e.consume();
+                        viewer.cancelPlacing();
+                    }
+                }
                 default -> { }
             }
         });
@@ -409,7 +307,7 @@ MultiSignerWorkspaceFlow {
             // Long names ellipsize instead of stretching the strip; the
             // tooltip always carries the full name and status.
             chip.setMaxWidth(180);
-            chip.setTextOverrun(javafx.scene.control.OverrunStyle.ELLIPSIS);
+            chip.setTextOverrun(OverrunStyle.ELLIPSIS);
             signerChips.add(chip);
             strip.getChildren().add(chip);
             if (i < workflow.signerCount() - 1) {
@@ -482,210 +380,71 @@ MultiSignerWorkspaceFlow {
         engine.prepareCurrentSigner(workflow); // release the token slot for this signer
         detectInBackground();
         panel.refreshFor(current);
-        setStatus("Now signing: " + current.getDisplayName() + " (turn "
-                + current.getOrder() + " of " + workflow.signerCount()
-                + ") — review the document, place your signature, then unlock your token.");
+        setStatus((workflow.signerCount() == 1
+                ? "Review the document, place your signature, then unlock your token."
+                : "Now signing: " + current.getDisplayName() + " (turn "
+                        + current.getOrder() + " of " + workflow.signerCount()
+                        + ") — review the document, place your signature, then unlock your token."));
         audit.record("Signer " + current.getOrder() + " turn started");
         updateStrip();
     }
 
-    /** Loads the current revision: opens a reusable renderer, redraws pages. */
-    private void loadRevision(Path pdf, boolean resetPage) {
-        closeRenderer();
-        // Invalidate any render still in flight against the OLD renderer:
-        // its result must be discarded, or it would draw a stale page and/or
-        // crash on the closed document.
-        renderGeneration++;
-        Task<DocumentRenderer> task = new Task<>() {
-            @Override
-            protected DocumentRenderer call() throws Exception {
-                return renderService.openDocument(pdf);
-            }
-        };
-        task.setOnSucceeded(e -> {
-            DocumentRenderer opened = task.getValue();
-            if (opened == null) {
-                return;
-            }
-            renderer = opened;
-            int pages = renderer.pageCount();
-            thumbnails.load(pdf, pages);
-            if (resetPage || currentPage >= pages) {
-                currentPage = 0;
-            }
-            renderCurrentPage();
-        });
-        task.setOnFailed(e -> {
-            log.warn("Opening the document failed", task.getException());
-            setError("Could not open the document: "
-                    + ErrorMessages.generic(task.getException()));
-        });
-        new Thread(task, "mws-open").start();
-    }
-
-    // ---------------------------------------------------------- page rendering
-    private void renderCurrentPage() {
-        if (renderer == null) {
-            return;
-        }
-        if (renderInFlight) {
-            renderQueued = true;
-            return;
-        }
-        startRenderTask();
-    }
-
-    private void startRenderTask() {
-        if (renderer == null) {
-            return;
-        }
-        renderInFlight = true;
-        renderQueued = false;
-        setBusy(true);
-        // Capture the renderer instance and generation: if the document is
-        // swapped (next signer's revision) while this render runs, the result
-        // of the stale task is discarded instead of crashing on the closed
-        // document or overwriting the new page.
-        final DocumentRenderer taskRenderer = renderer;
-        final int generation = renderGeneration;
-        int index = currentPage;
-        renderScale = effectiveZoom();
-        Task<RenderedPdfPage> task = new Task<>() {
-            @Override
-            protected RenderedPdfPage call() throws Exception {
-                return taskRenderer.renderPage(index, 72f * (float) renderScale);
-            }
-        };
-        task.setOnSucceeded(e -> {
-            if (generation != renderGeneration) {
-                // The document was swapped while this render ran (next
-                // signer's revision): discard the stale result. The new
-                // document's own render pass is already scheduled.
-                renderInFlight = false;
-                return;
-            }
-            RenderedPdfPage previous = rendered;
-            rendered = task.getValue();
-            currentPage = rendered.pageIndex();
-            swapPageImage(previous == null ? null : previous.image(),
-                    SwingFXUtils.toFXImage(rendered.image(), null));
-            pageLayer.setPrefSize(rendered.imageWidth(), rendered.imageHeight());
-            pageLayer.setMinSize(rendered.imageWidth(), rendered.imageHeight());
-            pageLabel.setText("Page " + (currentPage + 1) + " of "
-                    + rendered.pageCount());
-            thumbnails.highlight(currentPage);
-            drawOverlays();
-            if (fitWidthMode || fitPageMode) {
-                double fit = effectiveZoom();
-                zoomLabel.setText(percentLabel(fit));
-                if (Math.abs(fit - renderScale) > 0.02 * fit && autoFitLaps < 2) {
-                    autoFitLaps++;
-                    startRenderTask();
-                    return;
-                }
-            } else {
-                zoomLabel.setText(percentLabel(zoom));
-            }
-            autoFitLaps = 0;
-            renderInFlight = false;
-            setBusy(false);
-            if (renderQueued) {
-                renderCurrentPage();
-            }
-        });
-        task.setOnFailed(e -> {
-            if (generation == renderGeneration) {
-                renderInFlight = false;
-                autoFitLaps = 0;
-                setBusy(false);
-                log.warn("Page render failed", task.getException());
-                setError("Could not render the page: "
-                        + ErrorMessages.generic(task.getException()));
-                if (renderQueued) {
-                    renderCurrentPage();
-                }
-            }
-        });
-        new Thread(task, "mws-render").start();
-    }
-
-    private void goToPage(int index) {
-        if (renderer == null || index < 0 || index >= renderer.pageCount()) {
-            return;
-        }
-        currentPage = index;
-        renderCurrentPage();
-    }
-
-    private void setZoom(double newZoom) {
-        zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newZoom));
-        fitWidthMode = false;
-        fitPageMode = false;
-        fitWidthButton.setSelected(false);
-        fitPageButton.setSelected(false);
-        zoomLabel.setText(percentLabel(zoom));
-        renderCurrentPage();
-    }
-
-    private double effectiveZoom() {
-        if (!fitWidthMode && !fitPageMode || rendered == null) {
-            return zoom;
-        }
-        double visibleW = Math.max(1, scrollPane.getViewportBounds().getWidth());
-        double visibleH = Math.max(1, scrollPane.getViewportBounds().getHeight());
-        double fitW = visibleW / rendered.viewportWidthPoints();
-        double fitH = visibleH / rendered.viewportHeightPoints();
-        double fit = fitWidthMode ? fitW : Math.min(fitW, fitH);
-        return Math.max(0.1, Math.min(MAX_ZOOM, fit));
-    }
-
-    private void toggleFitWidth() {
-        fitWidthMode = fitWidthButton.isSelected();
-        if (fitWidthMode) {
-            fitPageMode = false;
-            fitPageButton.setSelected(false);
-        }
-        renderCurrentPage();
-    }
-
-    private void toggleFitPage() {
-        fitPageMode = fitPageButton.isSelected();
-        if (fitPageMode) {
-            fitWidthMode = false;
-            fitWidthButton.setSelected(false);
-        }
-        renderCurrentPage();
-    }
-
-    private static String percentLabel(double value) {
-        return Math.round(value * 100) + "%";
-    }
-
-    // ------------------------------------------------------ overlays & gestures
-    /** Draws previous signatures (read-only) and the pending placement. */
     /**
-     * Swaps the rendered page image with a soft crossfade: the previous
-     * revision/page dissolves out above the new render instead of
-     * hard-clipping between documents.
+     * Shows {@code pdf} (the current revision) in a fresh shared viewer.
+     * Earlier signers' boxes are drawn read-only; the current signer's box
+     * (if any) is restored; the page stays where it was unless
+     * {@code resetPage}.
      */
-    private void swapPageImage(BufferedImage previous, Image next) {
-        pageView.setImage(next);
-        if (previous == null) {
+    private void loadRevision(Path pdf, boolean resetPage) {
+        int page = viewer == null || resetPage ? 0 : viewer.currentPage();
+        closeRenderer();
+        int currentOrder = currentOrder();
+        List<SignaturePlacement> earlier = new ArrayList<>();
+        for (int i = 0; i < placements.size(); i++) {
+            if (placements.get(i) != null && i + 1 < currentOrder) {
+                earlier.add(placements.get(i));
+            }
+        }
+        viewer = new PlacementViewer(renderService, pdf, earlier, null, currentPlacement());
+        viewer.startAtPage(page);
+        viewer.addToolbarActions(docInfoButton, signaturesButton);
+        viewer.setInteractive(!busy);
+        viewer.statusProperty().addListener((o, was, text) -> {
+            if (text != null && !text.isBlank()) {
+                setStatus(text);
+            }
+        });
+        viewer.placementProperty().addListener((o, was, placement) -> onPlacementChanged(placement));
+        viewer.placingProperty().addListener((o, was, now) -> panel.showPlacing(now));
+        viewerHolder.getChildren().setAll(viewer.getRoot());
+    }
+
+    /** The box was drawn, moved, resized or cleared in the viewer. */
+    private void onPlacementChanged(SignaturePlacement placement) {
+        int idx = currentOrder() - 1;
+        if (placement == null) {
+            if (idx >= 0 && idx < placements.size()) {
+                placements.set(idx, null);
+            }
+            panel.setPlacementLabelCleared();
+            panel.showOverlapWarning(false);
+            panel.refreshButtons();
             return;
         }
-        ImageView ghost = new ImageView(SwingFXUtils.toFXImage(previous, null));
-        ghost.setMouseTransparent(true);
-        ghost.setManaged(false);
-        pageLayer.getChildren().add(ghost);
-        FadeTransition fade = new FadeTransition(Duration.millis(280), ghost);
-        fade.setFromValue(1.0);
-        fade.setToValue(0.0);
-        fade.setOnFinished(e -> pageLayer.getChildren().remove(ghost));
-        fade.play();
+        placements.set(idx, placement);
+        panel.setPlacement(placement);
+        boolean overlap = viewer.overlapsExisting();
+        panel.showOverlapWarning(overlap);
+        if (!overlap) {
+            setStatus("\u2713 Signature placed — Page " + (placement.pageIndex() + 1)
+                    + ". You can drag to move it, or drag its corner to resize.");
+        }
+        audit.record("Signer " + currentOrder() + " selected a signature location (page "
+                + (placement.pageIndex() + 1) + ")");
     }
 
     /** One-shot scale pulse marking a node as freshly succeeded. */
-    private void pulseSuccess(Node node) {
+    static void pulseSuccess(Node node) {
         ScaleTransition grow = new ScaleTransition(Duration.millis(140), node);
         grow.setToX(1.12);
         grow.setToY(1.12);
@@ -696,176 +455,10 @@ MultiSignerWorkspaceFlow {
         grow.playFromStart();
     }
 
-    private void drawOverlays() {
-        if (rendered == null) {
-            return;
-        }
-        for (Rectangle old : previousBoxes) {
-            pageLayer.getChildren().remove(old);
-        }
-        previousBoxes.clear();
-        Signer current = workflow.getCurrentSigner();
-        int currentOrder = current == null ? Integer.MAX_VALUE : current.getOrder();
-        for (int i = 0; i < placements.size(); i++) {
-            SignaturePlacement p = placements.get(i);
-            if (p == null || p.pageIndex() != currentPage || i + 1 >= currentOrder) {
-                continue;
-            }
-            double[] r = CoordinateMapper.toPixels(rendered, p);
-            Rectangle box = new Rectangle(r[0], r[1], r[2], r[3]);
-            box.getStyleClass().add("mws-previous-box");
-            box.setMouseTransparent(true);
-            pageLayer.getChildren().add(box);
-            previousBoxes.add(box);
-        }
-        updatePendingBox();
-    }
-
-    private void updatePendingBox() {
-        SignaturePlacement p = currentPlacement();
-        if (rendered == null || p == null || p.pageIndex() != currentPage) {
-            pendingBox.setVisible(false);
-            return;
-        }
-        double[] r = CoordinateMapper.toPixels(rendered, p);
-        pendingBox.setX(r[0]);
-        pendingBox.setY(r[1]);
-        pendingBox.setWidth(r[2]);
-        pendingBox.setHeight(r[3]);
-        pendingBox.setVisible(true);
-    }
-
-    private void onMousePressed(MouseEvent e) {
-        if (busy || rendered == null) {
-            return;
-        }
-        pressX = e.getX();
-        pressY = e.getY();
-        if (placingMode) {
-            dragMode = DragMode.CREATE;
-            pendingBox.setX(pressX);
-            pendingBox.setY(pressY);
-            pendingBox.setWidth(0);
-            pendingBox.setHeight(0);
-            pendingBox.setVisible(true);
-            scrollPane.setPannable(false);
-        } else if (pendingBox.isVisible()
-                && nearBottomRightCorner(pressX, pressY)) {
-            startX = pendingBox.getX();
-            startY = pendingBox.getY();
-            startW = pendingBox.getWidth();
-            startH = pendingBox.getHeight();
-            dragMode = DragMode.RESIZE;
-            scrollPane.setPannable(false);
-        } else if (pendingBox.isVisible() && isInsideBox(pressX, pressY)) {
-            startX = pendingBox.getX();
-            startY = pendingBox.getY();
-            dragMode = DragMode.MOVE;
-            scrollPane.setPannable(false);
-            pageLayer.setCursor(Cursor.MOVE);
-        } else {
-            scrollPane.setPannable(true);
-        }
-    }
-
-    private void onMouseDragged(MouseEvent e) {
-        if (dragMode == DragMode.NONE || rendered == null) {
-            return;
-        }
-        double px = e.getX();
-        double py = e.getY();
-        if (dragMode == DragMode.CREATE) {
-            pendingBox.setX(Math.min(pressX, px));
-            pendingBox.setY(Math.min(pressY, py));
-            pendingBox.setWidth(Math.abs(px - pressX));
-            pendingBox.setHeight(Math.abs(py - pressY));
-        } else if (dragMode == DragMode.MOVE) {
-            pendingBox.setX(Math.max(0, startX + (px - pressX)));
-            pendingBox.setY(Math.max(0, startY + (py - pressY)));
-        } else if (dragMode == DragMode.RESIZE) {
-            pendingBox.setWidth(Math.max(MIN_BOX_SIZE_PX, startW + (px - startX)));
-            pendingBox.setHeight(Math.max(MIN_BOX_SIZE_PX, startH + (py - startY)));
-        }
-    }
-
-    private void onMouseReleased(MouseEvent e) {
-        if (dragMode == DragMode.NONE) {
-            return;
-        }
-        if (dragMode == DragMode.CREATE
-                && pendingBox.isVisible()
-                && pendingBox.getWidth() >= 4
-                && pendingBox.getHeight() >= 4) {
-            commitPlacement();
-        } else if (dragMode == DragMode.CREATE) {
-            pendingBox.setVisible(false);
-        }
-        dragMode = DragMode.NONE;
-        placingMode = false;
-        if (placeButton != null) {
-            placeButton.setSelected(false);
-            placeButton.setText("Place Signature");
-        }
-        if (placeHint != null) {
-            placeHint.setVisible(false);
-            placeHint.setManaged(false);
-        }
-        scrollPane.setPannable(true);
-        pageLayer.setCursor(Cursor.DEFAULT);
-    }
-
-    /** Converts the drawn rectangle into PDF points via the shared mapper. */
-    private void commitPlacement() {
-        SignaturePlacement placement = CoordinateMapper.toPlacement(
-                currentPage, rendered,
-                pendingBox.getX(), pendingBox.getY(),
-                pendingBox.getWidth(), pendingBox.getHeight());
-        panel.setPlacement(placement);
-        boolean overlap = false;
-        for (int i = 0; i < placements.size(); i++) {
-            if (i + 1 != currentOrder() && placements.get(i) != null
-                    && placements.get(i).overlaps(placement)) {
-                overlap = true;
-            }
-        }
-        panel.showOverlapWarning(overlap);
-        if (overlap) {
-            setStatus("\u26A0 This signature overlaps an existing signature — "
-                    + "consider choosing another location.");
-        } else {
-            setStatus("\u2713 Signature placed — Page " + (placement.pageIndex() + 1)
-                    + ", " + Math.round(placement.x()) + "×"
-                    + Math.round(placement.y()) + " pt. You can drag to move, "
-                    + "drag the corner to resize.");
-        }
-        audit.record("Signer " + currentOrder() + " selected a signature location (page "
-                + (placement.pageIndex() + 1) + ")");
-    }
-
-    private boolean isInsideBox(double px, double py) {
-        return px >= pendingBox.getX() - 2
-                && px <= pendingBox.getX() + pendingBox.getWidth() + 2
-                && py >= pendingBox.getY() - 2
-                && py <= pendingBox.getY() + pendingBox.getHeight() + 2;
-    }
-
-    private boolean nearBottomRightCorner(double px, double py) {
-        double hit = Math.max(8, Math.min(14, pendingBox.getWidth() / 5));
-        double bx = pendingBox.getX() + pendingBox.getWidth();
-        double by = pendingBox.getY() + pendingBox.getHeight();
-        return Math.abs(px - bx) <= hit && Math.abs(py - by) <= hit;
-    }
-
     private void togglePlacing() {
-        placingMode = !placingMode;
-        placeButton.setSelected(placingMode);
-        placeButton.setText(placingMode ? "Click on the page…" : "Place Signature");
-        placeHint.setVisible(placingMode);
-        placeHint.setManaged(placingMode);
-        pageLayer.setCursor(placingMode ? Cursor.CROSSHAIR : Cursor.DEFAULT);
-        setStatus(placingMode
-                ? "Drag on the page to draw your signature box. Esc cancels."
-                : "Placement cancelled.");
+        if (viewer != null) {
+            viewer.togglePlacing();
+        }
     }
 
     // ------------------------------------------------------------- token / sign
@@ -879,10 +472,12 @@ MultiSignerWorkspaceFlow {
         };
         task.setOnSucceeded(e -> panel.refreshTokenUi());
         task.setOnFailed(e -> {
-            log.debug("Token detection failed", task.getException());
+            Throwable t = task.getException();
+            log.warn("Token detection failed: {}", t == null ? "unknown" : t.toString());
+            setError(detectionProblem(t));
             panel.refreshTokenUi();
         });
-        new Thread(task, "mws-detect").start();
+        Background.run("mws-detect", task);
     }
 
     private int currentOrder() {
@@ -957,11 +552,11 @@ MultiSignerWorkspaceFlow {
             updateStrip(); // the strip chip must show the failure, not stay active
             panel.refreshTokenUi();
             showAlert(Alert.AlertType.ERROR, "Authentication failed",
-                    t instanceof com.example.signer.token.TokenException te
+                    t instanceof TokenException te
                             ? ErrorMessages.token(te)
                             : ErrorMessages.generic(t));
         });
-        new Thread(task, "mws-auth-" + current.getOrder()).start();
+        Background.run("mws-auth-" + current.getOrder(), task);
     }
 
     /** Opens the review checkpoint (§31/§32/§57) and signs on confirmation. */
@@ -992,7 +587,7 @@ MultiSignerWorkspaceFlow {
         Path output;
         try {
             output = Files.createTempFile("signed-" + order + "-", ".pdf");
-        } catch (java.io.IOException ex) {
+        } catch (IOException ex) {
             setBusy(false);
             setError("Could not create the revision file: " + ex.getMessage());
             return;
@@ -1051,7 +646,7 @@ MultiSignerWorkspaceFlow {
                                 + ErrorMessages.generic(t));
             }
         });
-        new Thread(task, "mws-sign-" + order).start();
+        Background.run("mws-sign-" + order, task);
     }
 
     private void completeWorkflow() {
@@ -1066,77 +661,26 @@ MultiSignerWorkspaceFlow {
         updateStrip();
         celebrateWorkflow();
         showCompletion();
-        setStatus("\u2713 Document successfully signed by all "
-                + workflow.signerCount() + " signer(s).");
+        setStatus(workflow.signerCount() == 1
+                ? "\u2713 Document signed and verified."
+                : "\u2713 Document successfully signed by all "
+                        + workflow.signerCount() + " signer(s).");
     }
 
     // ---------------------------------------------------------------- dialogs
     private boolean showCheckpoint(Signer signer, SignaturePlacement placement) {
-        var dialog = new Stage(StageStyle.DECORATED);
-        dialog.initOwner(stage);
-        dialog.initModality(Modality.APPLICATION_MODAL);
-        dialog.setTitle("Ready to Sign");
-
-        ImageView preview = new ImageView(SwingFXUtils.toFXImage(
-                SignatureStampRenderer.render(DEFAULT_BOX_W_PTS, DEFAULT_BOX_H_PTS,
-                        certificateName(signer), algorithmFor(signer),
-                        panel.appearance()),
-                null));
-        preview.setFitWidth(400);
-        preview.setPreserveRatio(true);
-        preview.getStyleClass().add("mws-checkpoint-preview");
-
-        VBox summary = new VBox(6,
-                row("Signer", signer.getDisplayName()),
-                row("Certificate", certificateName(signer)),
-                row("Page", String.valueOf(placement.pageIndex() + 1)),
-                row("Position", positionLabel(placement)),
-                row("Reason", orNotSpecified(panel.appearance().reason())),
-                row("Location", orNotSpecified(panel.appearance().location())),
-                row("Token", tokenService.getTokenInfo().label()));
-        summary.getStyleClass().add("mws-checkpoint-summary");
-
-        Label warning = new Label("Once signed, this document revision cannot be "
-                + "modified without affecting the signature.");
-        warning.getStyleClass().add("mws-checkpoint-warning");
-        warning.setWrapText(true);
-
-        CheckBox reviewed = new CheckBox(
-                "I have reviewed the document and my signature placement.");
-        reviewed.getStyleClass().add("mws-checkpoint-confirm");
-        Button signButton = new Button("Sign Document",
-                new FontIcon(FontAwesomeSolid.FILE_SIGNATURE));
-        signButton.getStyleClass().add("btn-primary");
-        signButton.setDisable(true);
-        reviewed.selectedProperty().addListener((o, was, now) ->
-                signButton.setDisable(!now));
-        final boolean[] confirmed = { false };
-        signButton.setOnAction(e -> {
-            confirmed[0] = true;
-            dialog.close();
-        });
-        Button backButton = new Button("Back");
-        backButton.getStyleClass().add("btn-ghost");
-        backButton.setOnAction(e -> dialog.close());
-        HBox buttons = new HBox(10, backButton, signButton);
-        buttons.setAlignment(Pos.CENTER_RIGHT);
-
-        VBox content = new VBox(14, preview, summary, warning, reviewed, buttons);
-        content.setFillWidth(true);
-        VBox.setVgrow(summary, Priority.ALWAYS);
-        content.getStyleClass().add("mws-checkpoint");
-        content.setPadding(new Insets(18));
-        double[] dlgSize = fitToScreen(460, 560);
-        Scene scene = new Scene(content, dlgSize[0], dlgSize[1]);
-        ThemeManager.instance().attach(scene);
-        // The real stamp preview shrinks with the dialog instead of forcing
-        // a fixed 400px width onto small screens.
-        preview.fitWidthProperty().bind(javafx.beans.binding.Bindings.min(
-                400.0, scene.widthProperty().subtract(56)));
-        dialog.setScene(scene);
-        UiSupport.applyAppIcon(dialog);
-        dialog.showAndWait();
-        return confirmed[0];
+        SignatureAppearance appearance = panel.appearance();
+        return SigningCheckpoint.confirm(stage,
+                SwingFXUtils.toFXImage(SignatureStampRenderer.render(DEFAULT_BOX_W_PTS,
+                        DEFAULT_BOX_H_PTS, certificateName(signer), algorithmFor(signer),
+                        appearance), null),
+                List.of(new SigningCheckpoint.Row("Signer", signer.getDisplayName()),
+                        new SigningCheckpoint.Row("Certificate", certificateName(signer)),
+                        new SigningCheckpoint.Row("Page", String.valueOf(placement.pageIndex() + 1)),
+                        new SigningCheckpoint.Row("Position", positionLabel(placement)),
+                        new SigningCheckpoint.Row("Reason", appearance.reason()),
+                        new SigningCheckpoint.Row("Location", appearance.location()),
+                        new SigningCheckpoint.Row("Token", tokenService.getTokenInfo().label())));
     }
 
     private void showDocumentInfo() {
@@ -1251,15 +795,15 @@ MultiSignerWorkspaceFlow {
     }
 
     private void saveFinalPdf() {
-        javafx.stage.FileChooser chooser = new javafx.stage.FileChooser();
+        FileChooser chooser = new FileChooser();
         chooser.setTitle("Save signed PDF");
         chooser.getExtensionFilters().add(
-                new javafx.stage.FileChooser.ExtensionFilter("PDF documents", "*.pdf"));
+                new FileChooser.ExtensionFilter("PDF documents", "*.pdf"));
         String base = documentName;
         int dot = base.lastIndexOf('.');
         chooser.setInitialFileName((dot > 0 ? base.substring(0, dot) : base)
                 + "-multi-signed.pdf");
-        java.io.File target = chooser.showSaveDialog(stage);
+        File target = chooser.showSaveDialog(stage);
         if (target == null) {
             return;
         }
@@ -1276,403 +820,71 @@ MultiSignerWorkspaceFlow {
         }
     }
 
-    // ------------------------------------------------------------------ panel
-    /** Right rail: certificate, appearance, token, placement, progress. */
-    private final class SignerPanel {
-
-        private final VBox root;
-        private final Label title = new Label();
-        private final Label statePill = new Label();
-        private final ComboBox<String> certCombo = new ComboBox<>();
-        private final Label certDetails = new Label(" ");
-        private final ComboBox<String> reasonCombo = new ComboBox<>();
-        private final javafx.scene.control.TextField reasonOther = new javafx.scene.control.TextField();
-        private final javafx.scene.control.TextField locationField = new javafx.scene.control.TextField();
-        private final CheckBox showDateBox = new CheckBox("Show signing date");
-        private final CheckBox showCertBox = new CheckBox("Show certificate line");
-        private final ImageView preview = new ImageView();
-        private final Label placementLabel = new Label("Signature: not placed");
-        private final Label overlapLabel = new Label();
-        private final Label tokenLabel = new Label("Waiting for token…");
-        private final PasswordField pinField = new PasswordField();
-        private final Button unlockButton = new Button("Unlock Token",
-                new FontIcon(FontAwesomeSolid.UNLOCK_ALT));
-        private final Button placeBtn = new Button("Place Signature",
-                new FontIcon(FontAwesomeSolid.PEN_FANCY));
-        private final Button clearButton = new Button("Clear",
-                new FontIcon(FontAwesomeSolid.ERASER));
-        private final Button signButton = new Button("Confirm & Sign…",
-                new FontIcon(FontAwesomeSolid.FILE_SIGNATURE));
-        private final Label progressLabel = new Label(" ");
-        private final javafx.scene.control.TextField nameField = new javafx.scene.control.TextField();
-        private final Label identityName = new Label();
-        private final Label identityDetails = new Label();
-        private Signer boundSigner;
-
-        SignerPanel() {
-            title.getStyleClass().add("mws-panel-title");
-            statePill.getStyleClass().addAll("status-pill", "status-pill--pending");
-            HBox head = new HBox(8, title, statePill);
-            head.setAlignment(Pos.CENTER_LEFT);
-
-            // ---- identity block: the right person must know it is their turn
-            identityName.getStyleClass().add("mws-identity-name");
-            identityDetails.getStyleClass().add("section-hint");
-            identityDetails.setWrapText(true);
-            nameField.setPromptText("Your name (optional — shown on the signature)");
-            nameField.setMaxWidth(Double.MAX_VALUE);
-            nameField.textProperty().addListener((obs, was, now) -> {
-                if (boundSigner != null) {
-                    boundSigner.setDisplayName(now);
-                    updateStrip();
-                    // The stamp preview must track the typed name live:
-                    // what the signer sees is what will be embedded.
-                    updatePreview();
-                }
-            });
-            VBox identityBox = new VBox(4, identityName, identityDetails, nameField);
-            identityBox.getStyleClass().add("mws-identity-box");
-
-            certCombo.setMaxWidth(Double.MAX_VALUE);
-            certCombo.setPromptText("Choose certificate");
-            certDetails.getStyleClass().add("section-hint");
-            certDetails.setWrapText(true);
-            VBox certBox = new VBox(4, certCombo, certDetails);
-
-            reasonCombo.getItems().setAll("Document approval", "Contract approval",
-                    "Reviewed", "Accepted", "Authorized", "Other…");
-            reasonCombo.getSelectionModel().selectFirst();
-            reasonCombo.setMaxWidth(Double.MAX_VALUE);
-            reasonOther.setPromptText("Custom reason");
-            reasonOther.setVisible(false);
-            reasonOther.setManaged(false);
-            reasonCombo.setOnAction(e -> {
-                boolean other = "Other…".equals(reasonCombo.getValue());
-                reasonOther.setVisible(other);
-                reasonOther.setManaged(other);
-                updatePreview();
-            });
-            locationField.setPromptText("Location (optional, e.g. Rabat, Morocco)");
-            locationField.setMaxWidth(Double.MAX_VALUE);
-            locationField.textProperty().addListener((o, w, n) -> updatePreview());
-            showDateBox.setSelected(true);
-            showDateBox.setOnAction(e -> updatePreview());
-            showCertBox.setOnAction(e -> updatePreview());
-            VBox appearanceBox = new VBox(4,
-                    new Label("Reason"), reasonCombo, reasonOther,
-                    new Label("Location"), locationField,
-                    showDateBox, showCertBox);
-
-            preview.setFitWidth(180);
-            preview.setPreserveRatio(true);
-            preview.getStyleClass().add("mws-preview");
-            VBox previewBox = new VBox(4, new Label("Signature preview"), preview);
-
-            placementLabel.getStyleClass().add("section-hint");
-            overlapLabel.getStyleClass().add("mws-overlap-warning");
-            overlapLabel.setWrapText(true);
-            overlapLabel.setVisible(false);
-            overlapLabel.setManaged(false);
-
-            tokenLabel.getStyleClass().add("section-hint");
-            tokenLabel.setWrapText(true);
-            pinField.setPromptText("Token PIN");
-            pinField.setOnAction(e -> authenticateCurrent());
-            unlockButton.getStyleClass().add("btn-secondary");
-            unlockButton.setMaxWidth(Double.MAX_VALUE);
-            unlockButton.setOnAction(e -> authenticateCurrent());
-            HBox pinRow = new HBox(8, pinField, unlockButton);
-            HBox.setHgrow(pinField, Priority.ALWAYS);
-            VBox tokenBox = new VBox(4, tokenLabel, pinRow);
-
-            placeBtn.getStyleClass().add("btn-secondary");
-            placeBtn.setMaxWidth(Double.MAX_VALUE);
-            placeBtn.setOnAction(e -> togglePlacing());
-            clearButton.getStyleClass().add("btn-ghost");
-            clearButton.setOnAction(e -> clearPlacement());
-            signButton.getStyleClass().add("btn-primary");
-            signButton.setMaxWidth(Double.MAX_VALUE);
-            signButton.setOnAction(e -> confirmAndSign());
-            progressLabel.getStyleClass().add("section-hint");
-            progressLabel.setWrapText(true);
-            VBox actionsBox = new VBox(6, placeBtn, clearButton, signButton,
-                    progressLabel);
-
-            TitledPane certPane = new TitledPane("Certificate", certBox);
-            TitledPane appearancePane = new TitledPane("Signature appearance",
-                    appearanceBox);
-            TitledPane previewPane = new TitledPane("Preview", previewBox);
-            TitledPane tokenPane = new TitledPane("Token & PIN", tokenBox);
-            TitledPane actionsPane = new TitledPane("Actions", actionsBox);
-            for (TitledPane pane : List.of(certPane, appearancePane, previewPane,
-                    tokenPane, actionsPane)) {
-                pane.setExpanded(true);
-                pane.setCollapsible(false);
-            }
-            VBox inner = new VBox(8, identityBox, placementLabel, overlapLabel,
-                    certPane, appearancePane, previewPane, tokenPane, actionsPane);
-            inner.getStyleClass().add("mws-panel");
-            ScrollPane scroll = new ScrollPane(inner);
-            scroll.setFitToWidth(true);
-            scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-            scroll.getStyleClass().add("mws-panel-scroll");
-            // The panel must scroll internally: without the vertical grow the
-            // ScrollPane sizes to its content and overflows the window.
-            VBox.setVgrow(scroll, Priority.ALWAYS);
-            root = new VBox(head, scroll);
-            root.getStyleClass().add("mws-panel-root");
-            root.setPrefWidth(310);
-            root.setMinWidth(280);
+    /** The workspace's side of {@link SignerPanel.Host}. */
+    private final class PanelHost implements SignerPanel.Host {
+        @Override
+        public SigningWorkflow workflow() {
+            return workflow;
         }
 
-        VBox getRoot() {
-            return root;
+        @Override
+        public SignaturePlacement currentPlacement() {
+            return MultiSignerWorkspaceFlow.this.currentPlacement();
         }
 
-        void refreshFor(Signer signer) {
-            title.setText("Signer " + signer.getOrder());
-            boundSigner = signer;
-            refreshStatePill();
-            nameField.setText(signer.hasCustomName() ? signer.getDisplayName() : "");
-            identityName.setText(signer.getDisplayName());
-            identityDetails.setText("Signing turn " + signer.getOrder() + " of "
-                    + workflow.signerCount()
-                    + " — your certificate appears here once your token is unlocked.");
-            certCombo.getItems().clear();
-            certDetails.setText(" ");
-            tokenLabel.setText("Waiting for the signer's token…");
-            // A new turn always begins locked: restore the PIN entry, which
-            // the previous signer's AUTHENTICATED state had hidden. Without
-            // this, signers 2 and 3 had nowhere to type their PIN.
-            pinField.clear();
-            pinField.setVisible(true);
-            pinField.setManaged(true);
-            pinField.setDisable(false);
-            unlockButton.setDisable(false);
-            placementLabel.setText("Signature: not placed");
-            overlapLabel.setVisible(false);
-            overlapLabel.setManaged(false);
-            progressLabel.setText(" ");
-            updatePreview();
+        @Override
+        public boolean isBusy() {
+            return busy;
         }
 
-        /** Keeps the header pill in sync with the signer's live status. */
-        void refreshStatePill() {
-            Signer signer = boundSigner;
-            if (signer == null) {
-                return;
-            }
-            statePill.getStyleClass().removeAll("status-pill--pending",
-                    "status-pill--active", "status-pill--error");
-            SigningStatus status = signer.getStatus();
-            switch (status) {
-                case AUTHENTICATING, SIGNING ->
-                    statePill.getStyleClass().add("status-pill--active");
-                case FAILED, CANCELLED ->
-                    statePill.getStyleClass().add("status-pill--error");
-                default -> statePill.getStyleClass().add("status-pill--pending");
-            }
-            statePill.setText(switch (status) {
-                case READY -> "Ready";
-                case AUTHENTICATING -> "Authenticating";
-                case SIGNING -> "Signing";
-                case SIGNED -> "Signed";
-                case FAILED -> "Failed";
-                case CANCELLED -> "Cancelled";
-                default -> "Pending";
-            });
+        @Override
+        public void togglePlacing() {
+            MultiSignerWorkspaceFlow.this.togglePlacing();
         }
 
-        /** One-shot success pulse so "just signed" reads at a glance. */
-        void celebratePill() {
-            pulseSuccess(statePill);
+        @Override
+        public void clearPlacement() {
+            MultiSignerWorkspaceFlow.this.clearPlacement();
         }
 
-        void refreshTokenUi() {
-            TokenState state = tokenService.getState();
-            switch (state) {
-                case CERTIFICATE_AVAILABLE -> {
-                    tokenLabel.setText("\u2713 Token detected — choose the "
-                            + "certificate and enter the PIN.");
-                    fillCerts();
-                    // Explicitly restore PIN entry: a previous signer's
-                    // unlocked state hid it, and each signer must type
-                    // their own PIN.
-                    pinField.setVisible(true);
-                    pinField.setManaged(true);
-                }
-                case WAITING_FOR_PIN -> {
-                    tokenLabel.setText("\u2713 Token detected — enter the PIN.");
-                    fillCerts();
-                    pinField.setVisible(true);
-                    pinField.setManaged(true);
-                }
-                case AUTHENTICATED, SIGNATURE_COMPLETE, SIGNATURE_FAILED -> {
-                    tokenLabel.setText("\u2713 Token unlocked — ready to sign.");
-                    fillCerts();
-                    pinField.setVisible(false);
-                    pinField.setManaged(false);
-                }
-                default -> tokenLabel.setText("\u26A0 Token not detected. Connect "
-                        + "the signer's USB token.");
-            }
-            refreshButtons();
+        @Override
+        public void confirmAndSign() {
+            MultiSignerWorkspaceFlow.this.confirmAndSign();
         }
 
-        private void fillCerts() {
-            List<SigningCertificate> certs;
-            try {
-                certs = tokenService.getCertificates();
-            } catch (IllegalStateException e) {
-                return;
-            }
-            List<String> labels = certs.stream()
-                    .map(c -> certificateName(c.getSubject()) + " ["
-                            + c.getAlias() + "]")
-                    .toList();
-            if (!labels.equals(certCombo.getItems())) {
-                certCombo.getItems().setAll(labels);
-                if (!labels.isEmpty()
-                        && certCombo.getSelectionModel().getSelectedIndex() < 0) {
-                    certCombo.getSelectionModel().select(0);
-                }
-            }
-            int index = certCombo.getSelectionModel().getSelectedIndex();
-            if (index >= 0 && index < certs.size()) {
-                SigningCertificate cert = certs.get(index);
-                Instant until = cert.getValidUntil();
-                String validity = until.isBefore(Instant.now())
-                        ? "\u2715 expired "
-                        : until.isBefore(Instant.now().plusSeconds(30L * 86_400))
-                                ? "\u26A0 expires soon "
-                                : "\u2713 valid ";
-                certDetails.setText(validity + "— until "
-                        + dateLabel(until) + "\n" + cert.getIssuer()
-                        + "\n" + cert.getPublicKeyAlgorithm() + " "
-                        + cert.getKeySize() + " bit");
-            }
-            updatePreview();
+        @Override
+        public void authenticateCurrent() {
+            MultiSignerWorkspaceFlow.this.authenticateCurrent();
         }
 
-        void refreshButtons() {
-            Signer current = workflow.getCurrentSigner();
-            TokenState state = tokenService.getState();
-            boolean unlocked = state == TokenState.AUTHENTICATED
-                    || state == TokenState.SIGNATURE_COMPLETE;
-            signButton.setDisable(!unlocked || currentPlacement() == null || busy);
-            pinField.setDisable(unlocked);
-            unlockButton.setDisable(unlocked || busy);
+        @Override
+        public void signerNameChanged() {
+            updateStrip();
         }
 
-        void setPlacement(SignaturePlacement placement) {
-            placements.set(currentOrder() - 1, placement);
-            placementLabel.setText("Signature: Page "
-                    + (placement.pageIndex() + 1) + " · "
-                    + Math.round(placement.width()) + "×"
-                    + Math.round(placement.height()) + " pt");
-            refreshButtons();
-            updatePreview();
-        }
-
-        void setPlacementLabelCleared() {
-            placementLabel.setText("Signature: not placed");
-        }
-
-        void showOverlapWarning(boolean show) {
-            overlapLabel.setText(show
-                    ? "\u26A0 This placement overlaps an existing signature."
-                    : null);
-            overlapLabel.setVisible(show);
-            overlapLabel.setManaged(show);
-        }
-
-        void setProgress(String text) {
-            progressLabel.setText(text);
-            setStatus(text);
-        }
-
-        /** Refreshes the identity block once the signer's certificate is known. */
-        void refreshIdentityAfterAuth() {
-            Signer signer = boundSigner;
-            if (signer == null) {
-                return;
-            }
-            identityName.setText(signer.getDisplayName());
-            String certName = signer.getCertificate()
-                    .map(cert -> certificateName(cert.getSubject()))
-                    .orElse(null);
-            identityDetails.setText("Signing turn " + signer.getOrder() + " of "
-                    + workflow.signerCount()
-                    + (certName != null ? "  ·  certificate: " + certName : ""));
-        }
-
-        void clearPin() {
-            pinField.clear();
-        }
-
-        char[] pinChars() {
-            return UiSupport.pinChars(pinField);
-        }
-
-        String selectedAlias() {
-            int index = certCombo.getSelectionModel().getSelectedIndex();
-            List<SigningCertificate> certs;
-            try {
-                certs = tokenService.getCertificates();
-            } catch (IllegalStateException e) {
-                return null;
-            }
-            return index >= 0 && index < certs.size()
-                    ? certs.get(index).getAlias() : null;
-        }
-
-        SignatureAppearance appearance() {
-            String reason = "Other…".equals(reasonCombo.getValue())
-                    ? reasonOther.getText()
-                    : reasonCombo.getValue();
-            String location = locationField.getText();
-            // The stamp's name line carries the signer's typed display name;
-            // the engine re-applies it at signing time from the domain signer,
-            // so preview and embedded stamp always agree.
-            String displayName = boundSigner == null
-                    ? null : boundSigner.getDisplayName();
-            return new SignatureAppearance(
-                    reason == null || reason.isBlank() ? null : reason,
-                    location == null || location.isBlank() ? null : location,
-                    true, showDateBox.isSelected(), showCertBox.isSelected(),
-                    displayName);
-        }
-
-        private void updatePreview() {
-            Signer current = workflow.getCurrentSigner();
-            if (current == null) {
-                return;
-            }
-            try {
-                BufferedImage stamp = SignatureStampRenderer.render(
-                        DEFAULT_BOX_W_PTS, DEFAULT_BOX_H_PTS,
-                        certificateName(current), algorithmFor(current),
-                        appearance());
-                preview.setImage(SwingFXUtils.toFXImage(stamp, null));
-            } catch (RuntimeException e) {
-                log.debug("Preview update skipped: {}", e.getMessage());
-            }
+        @Override
+        public void setStatus(String text) {
+            MultiSignerWorkspaceFlow.this.setStatus(text);
         }
     }
 
     // ---------------------------------------------------------------- helpers
     private void clearPlacement() {
         int idx = currentOrder() - 1;
-        if (idx >= 0 && idx < placements.size()) {
+        if (viewer != null) {
+            viewer.clearPlacement(); // fires onPlacementChanged(null)
+        } else if (idx >= 0 && idx < placements.size()) {
             placements.set(idx, null);
         }
-        pendingBox.setVisible(false);
         panel.setPlacementLabelCleared();
         panel.refreshButtons();
     }
 
     private void setBusy(boolean value) {
         busy = value;
+        if (viewer != null) {
+            viewer.setInteractive(!value);
+        }
         if (busyIndicator != null) {
             busyIndicator.setVisible(value);
         }
@@ -1681,6 +893,17 @@ MultiSignerWorkspaceFlow {
 
     private void setStatus(String text) {
         Platform.runLater(() -> statusLabel.setText(text));
+    }
+
+    /** What the user sees when looking for the smart card fails (never silent). */
+    static String detectionProblem(Throwable t) {
+        if (t instanceof TokenException te
+                && (te.getErrorCode() == ErrorCode.PKCS11_LIBRARY_NOT_FOUND
+                || te.getErrorCode() == ErrorCode.PKCS11_INITIALIZATION_FAILED)) {
+            return "Smart card driver problem: " + te.getMessage();
+        }
+        return "The smart card could not be read"
+                + (t == null || t.getMessage() == null ? "." : ": " + t.getMessage());
     }
 
     private void setError(String text) {
@@ -1699,9 +922,8 @@ MultiSignerWorkspaceFlow {
     }
 
     private void closeRenderer() {
-        if (renderer != null) {
-            renderer.close();
-            renderer = null;
+        if (viewer != null) {
+            viewer.close();
         }
     }
 
@@ -1782,11 +1004,11 @@ MultiSignerWorkspaceFlow {
         return value == null || value.isBlank() ? "Not specified" : value;
     }
 
-    private static String dateLabel(Instant instant) {
+    static String dateLabel(Instant instant) {
         return instant == null ? null
-                : java.time.format.DateTimeFormatter
+                : DateTimeFormatter
                         .ofPattern("dd MMM yyyy HH:mm")
-                        .withZone(java.time.ZoneId.systemDefault())
+                        .withZone(ZoneId.systemDefault())
                         .format(instant);
     }
 
@@ -1795,15 +1017,15 @@ MultiSignerWorkspaceFlow {
             return bytes + " B";
         }
         if (bytes < 1024 * 1024) {
-            return String.format(java.util.Locale.ROOT, "%.1f KB", bytes / 1024.0);
+            return String.format(Locale.ROOT, "%.1f KB", bytes / 1024.0);
         }
-        return String.format(java.util.Locale.ROOT, "%.1f MB", bytes / 1048576.0);
+        return String.format(Locale.ROOT, "%.1f MB", bytes / 1048576.0);
     }
 
     /** Largest (w, h) that fits the screen's visual bounds with a margin. */
     private static double[] fitToScreen(double width, double height) {
-        javafx.geometry.Rectangle2D bounds =
-                javafx.stage.Screen.getPrimary().getVisualBounds();
+        Rectangle2D bounds =
+                Screen.getPrimary().getVisualBounds();
         return new double[] {
                 Math.max(320, Math.min(width, bounds.getWidth() - 48)),
                 Math.max(240, Math.min(height, bounds.getHeight() - 48)),
@@ -1817,18 +1039,18 @@ MultiSignerWorkspaceFlow {
                 + Math.round(p.width()) + "×" + Math.round(p.height()) + " pt";
     }
 
-    private static String certificateName(Signer signer) {
+    static String certificateName(Signer signer) {
         return signer.getCertificate()
                 .map(cert -> certificateName(cert.getSubject()))
                 .orElse("Signer " + signer.getOrder());
     }
 
-    private static String certificateName(String subject) {
+    static String certificateName(String subject) {
         Matcher matcher = Pattern.compile("(?:^|,)CN=([^,]+)").matcher(subject);
         return matcher.find() ? matcher.group(1) : subject;
     }
 
-    private static SigningAlgorithm algorithmFor(Signer signer) {
+    static SigningAlgorithm algorithmFor(Signer signer) {
         String keyAlgorithm = signer.getCertificate()
                 .map(SigningCertificate::getPublicKeyAlgorithm)
                 .orElse("RSA");

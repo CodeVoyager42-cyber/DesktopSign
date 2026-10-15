@@ -1,5 +1,6 @@
 package com.example.signer.signing;
 
+import org.apache.pdfbox.pdmodel.PDDocument;
 import com.example.signer.token.SigningAlgorithm;
 
 import java.nio.file.Path;
@@ -76,7 +77,7 @@ public interface PdfSigningService {
      * covers it and previous signatures stay valid.
      */
     interface DocumentCustomizer {
-        void apply(org.apache.pdfbox.pdmodel.PDDocument document) throws Exception;
+        void apply(PDDocument document) throws Exception;
     }
 
     /** As the 6-arg overload, plus the pre-save document hook above. */
