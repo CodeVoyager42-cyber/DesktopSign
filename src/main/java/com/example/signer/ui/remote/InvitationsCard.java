@@ -159,7 +159,7 @@ final class InvitationsCard {
     /** "Mar 4, 17:20" from an ISO-8601 instant; the raw text if it can't be read. */
     static String shortDate(String isoInstant) {
         try {
-            return DateTimeFormatter.ofPattern("MMM d, HH:mm")
+            return DateTimeFormatter.ofPattern("MMM d, HH:mm", Locale.ENGLISH)
                     .withZone(ZoneId.systemDefault())
                     .format(Instant.parse(isoInstant));
         } catch (Exception e) {

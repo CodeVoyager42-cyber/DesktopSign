@@ -285,7 +285,7 @@ public final class SigningTaskModels {
         Instant updated = parse(item.updatedAt());
         String expiresText = expires == null ? null
                 : (expires.isBefore(Instant.now()) ? "Expired " : "Expires ")
-                        + DateTimeFormatter.ofPattern("MMM d, yyyy")
+                        + DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH)
                                 .withZone(ZoneId.systemDefault()).format(expires);
         boolean expiresSoon = expires != null && expires.isAfter(Instant.now())
                 && expires.isBefore(Instant.now().plus(48, ChronoUnit.HOURS));
@@ -356,7 +356,7 @@ public final class SigningTaskModels {
             case COMPLETED -> "All required signatures have been completed.";
             case EXPIRED -> expires == null ? "This signing request has expired."
                     : "This signing request expired on " + DateTimeFormatter
-                            .ofPattern("MMMM d, yyyy").withZone(ZoneId.systemDefault())
+                            .ofPattern("MMMM d, yyyy", Locale.ENGLISH).withZone(ZoneId.systemDefault())
                             .format(expires) + ".";
             case DECLINED -> "This signing request was declined.";
             case CANCELLED -> "The requester withdrew this signing request.";
@@ -536,7 +536,7 @@ public final class SigningTaskModels {
         if (days < 7) {
             return days + " days ago";
         }
-        return DateTimeFormatter.ofPattern("MMM d, yyyy")
+        return DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH)
                 .withZone(ZoneId.systemDefault())
                 .format(instant);
     }
