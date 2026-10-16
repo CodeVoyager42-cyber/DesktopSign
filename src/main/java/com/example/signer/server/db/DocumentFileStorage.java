@@ -1,6 +1,6 @@
 package com.example.signer.server.db;
 
-import com.example.signer.server.WorkflowIds;
+import com.example.signer.server.workflow.WorkflowIds;
 import com.example.signer.exception.ErrorCode;
 import com.example.signer.exception.SignerException;
 

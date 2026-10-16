@@ -10,10 +10,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.security.crypto.bcrypt.BCrypt;
+import com.example.signer.server.auth.PasswordHashing;
+import com.example.signer.server.db.entity.AccountStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Locale;
 
 /**
@@ -51,15 +53,15 @@ public class DevUserSeeder implements ApplicationRunner {
         boolean created = false;
         for (var entry : properties.getUsers().entrySet()) {
             String username = entry.getKey().toLowerCase(Locale.ROOT);
-            if (users.existsByUsername(username)) {
+            if (users.existsByUsernameIgnoreCase(username)) {
                 continue;
             }
             UserEntity user = new UserEntity();
             user.setUsername(username);
             user.setEmail(devEmail(username));
             user.setDisplayName(capitalize(username));
-            user.setPasswordHash(BCrypt.hashpw(entry.getValue(), BCrypt.gensalt()));
-            user.setStatus("ACTIVE");
+            user.changePasswordHash(PasswordHashing.hash(entry.getValue()), Instant.now());
+            user.setStatus(AccountStatus.ACTIVE);
             users.save(user);
             created = true;
             log.info("Dev seed: created account '{}' ({}@…)", username, username);

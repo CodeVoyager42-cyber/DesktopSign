@@ -1,6 +1,6 @@
 package com.example.signer.server.api;
 
-import com.example.signer.server.RemoteWorkflowService;
+import com.example.signer.server.workflow.RemoteWorkflowService;
 import com.example.signer.server.api.ApiContracts.AuditView;
 import com.example.signer.server.api.ApiContracts.BindCertificateRequest;
 import com.example.signer.server.api.ApiContracts.CreateInvitationRequest;

@@ -1,7 +1,7 @@
 package com.example.signer.server.invites;
 
 import com.example.signer.server.db.AuditLog;
-import com.example.signer.server.AuditEventType;
+import com.example.signer.server.workflow.AuditEventType;
 import com.example.signer.server.db.entity.AuditEventEntity;
 import com.example.signer.server.db.entity.InvitationEntity;
 import com.example.signer.server.db.repository.AuditEventRepository;

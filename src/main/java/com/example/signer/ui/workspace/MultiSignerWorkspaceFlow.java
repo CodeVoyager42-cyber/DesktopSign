@@ -23,7 +23,7 @@ import com.example.signer.token.SigningAlgorithm;
 import com.example.signer.token.SigningCertificate;
 import com.example.signer.token.TokenService;
 import com.example.signer.token.TokenState;
-import com.example.signer.ui.ErrorMessages;
+import com.example.signer.ui.support.ErrorMessages;
 import com.example.signer.ui.ThemeManager;
 import com.example.signer.ui.support.UiSupport;
 import com.example.signer.workflow.Signer;

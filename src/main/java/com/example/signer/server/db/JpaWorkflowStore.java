@@ -1,17 +1,17 @@
 package com.example.signer.server.db;
 
-import com.example.signer.server.AuditEventType;
+import com.example.signer.server.workflow.AuditEventType;
 import com.example.signer.workflow.WorkflowSigningPolicy;
 import java.math.BigDecimal;
-import com.example.signer.server.AuditEventRecord;
-import com.example.signer.server.DocumentRevisionRecord;
+import com.example.signer.server.workflow.AuditEventRecord;
+import com.example.signer.server.workflow.DocumentRevisionRecord;
 import com.example.signer.signing.SignaturePlacement;
-import com.example.signer.server.SigningWorkflowAggregate;
-import com.example.signer.server.WorkflowSignerRecord;
-import com.example.signer.server.WorkflowState;
-import com.example.signer.server.WorkflowConflictException;
-import com.example.signer.server.WorkflowRegressionGuard;
-import com.example.signer.server.WorkflowStore;
+import com.example.signer.server.workflow.SigningWorkflowAggregate;
+import com.example.signer.server.workflow.WorkflowSignerRecord;
+import com.example.signer.server.workflow.WorkflowState;
+import com.example.signer.server.workflow.WorkflowConflictException;
+import com.example.signer.server.workflow.WorkflowRegressionGuard;
+import com.example.signer.server.workflow.WorkflowStore;
 import com.example.signer.server.db.entity.AuditEventEntity;
 import com.example.signer.server.db.entity.DocumentVersionEntity;
 import com.example.signer.server.db.entity.WorkflowEntity;

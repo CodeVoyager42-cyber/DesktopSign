@@ -1,6 +1,9 @@
 package com.example.signer.ui;
 
-import com.example.signer.remote.RemoteWorkflowDialog;
+import com.example.signer.ui.dialog.InvitationDialog;
+import com.example.signer.ui.dialog.LoginDialog;
+import com.example.signer.ui.dialog.WorkflowSelectionDialog;
+import com.example.signer.ui.remote.RemoteWorkflowDialog;
 import com.example.signer.ui.workspace.MultiSignerWorkspaceFlow;
 import com.example.signer.ui.workspace.WorkflowContinuationDialog;
 import com.example.signer.workflow.SigningMode;

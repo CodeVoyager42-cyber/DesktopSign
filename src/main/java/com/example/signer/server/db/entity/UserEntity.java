@@ -3,6 +3,8 @@ package com.example.signer.server.db.entity;
 import java.util.Locale;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
@@ -15,8 +17,8 @@ import java.time.Instant;
 /**
  * Persistent account (brief §8). {@code username} is the workflow identity
  * the existing API uses; {@code email} is the invitation identity. Both are
- * unique at the database level. {@code passwordHash} is bcrypt
- * ({@code $2a$...}); it is {@code null} only while the row exists as an
+ * unique at the database level; since V5 usernames are unique ignoring
+ * letter case. {@code passwordHash} is bcrypt ({@code $2a$...}); it is {@code null} only while the row exists as an
  * invited placeholder ({@code status = PENDING_INVITE}) that cannot log in.
  *
  * <p>Never log the password hash, invitations tokens, or any token value.
@@ -41,9 +43,30 @@ public class UserEntity {
     @Column(name = "display_name", length = 200)
     private String displayName;
 
-    /** ACTIVE | DISABLED | PENDING_INVITE. */
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private String status = "ACTIVE";
+    private AccountStatus status = AccountStatus.ACTIVE;
+
+    /** Account-wide role (V5). Defaults to USER; ADMIN is never implied. */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private AccountRole role = AccountRole.USER;
+
+    /** When the account proved it controls {@link #email} (V5); null = not proven. */
+    @Column(name = "email_verified_at")
+    private Instant emailVerifiedAt;
+
+    /** When the password was last set (V5); null for accounts without one. */
+    @Column(name = "password_changed_at")
+    private Instant passwordChangedAt;
+
+    /** Consecutive failed sign-ins (V5). Stored now, enforced from Phase 2. */
+    @Column(name = "failed_login_count", nullable = false)
+    private int failedLoginCount;
+
+    /** Sign-in blocked until this instant (V5). Stored now, enforced from Phase 2. */
+    @Column(name = "locked_until")
+    private Instant lockedUntil;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -58,7 +81,7 @@ public class UserEntity {
     }
 
     public UserEntity(String username, String email, String passwordHash,
-                      String displayName, String status) {
+                      String displayName, AccountStatus status) {
         this.username = username;
         this.email = email;
         this.passwordHash = passwordHash;
@@ -116,12 +139,57 @@ public class UserEntity {
         this.displayName = displayName;
     }
 
-    public String getStatus() {
+    public AccountStatus getStatus() {
         return status;
     }
 
-    public void setStatus(String status) {
+    public void setStatus(AccountStatus status) {
         this.status = status;
+    }
+
+    public AccountRole getRole() {
+        return role;
+    }
+
+    public void setRole(AccountRole role) {
+        this.role = role;
+    }
+
+    public Instant getEmailVerifiedAt() {
+        return emailVerifiedAt;
+    }
+
+    public void setEmailVerifiedAt(Instant emailVerifiedAt) {
+        this.emailVerifiedAt = emailVerifiedAt;
+    }
+
+    public Instant getPasswordChangedAt() {
+        return passwordChangedAt;
+    }
+
+    public int getFailedLoginCount() {
+        return failedLoginCount;
+    }
+
+    public void setFailedLoginCount(int failedLoginCount) {
+        this.failedLoginCount = failedLoginCount;
+    }
+
+    public Instant getLockedUntil() {
+        return lockedUntil;
+    }
+
+    public void setLockedUntil(Instant lockedUntil) {
+        this.lockedUntil = lockedUntil;
+    }
+
+    /**
+     * Stores a new password hash and records when it changed. Use this rather
+     * than {@link #setPasswordHash} whenever a user sets or rehashes a password.
+     */
+    public void changePasswordHash(String passwordHash, Instant when) {
+        this.passwordHash = passwordHash;
+        this.passwordChangedAt = when;
     }
 
     public Instant getCreatedAt() {
@@ -142,7 +210,7 @@ public class UserEntity {
 
     /** Whether this row can authenticate (active account with a password). */
     public boolean isActive() {
-        return "ACTIVE".equals(status) && passwordHash != null;
+        return status == AccountStatus.ACTIVE && passwordHash != null;
     }
 
     /**

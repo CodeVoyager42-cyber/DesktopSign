@@ -1,7 +1,7 @@
 package com.example.signer.ui;
 
 import com.example.signer.SignerApplication;
-import com.example.signer.remote.WorkflowApiClient;
+import com.example.signer.client.WorkflowApiClient;
 import com.example.signer.ui.support.UiSupport;
 
 import javafx.animation.PauseTransition;

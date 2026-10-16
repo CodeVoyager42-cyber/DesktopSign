@@ -3,7 +3,7 @@ package com.example.signer.server.invites;
 import com.example.signer.server.db.AuditLog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.example.signer.server.AuditEventType;
+import com.example.signer.server.workflow.AuditEventType;
 import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
 import com.example.signer.server.api.ApiErrorType.ApiException;
 import com.example.signer.server.db.entity.InvitationEntity;
@@ -18,7 +18,8 @@ import com.example.signer.server.db.repository.WorkflowRepository;
 import com.example.signer.server.db.repository.WorkflowSignerRepository;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.security.crypto.bcrypt.BCrypt;
+import com.example.signer.server.auth.PasswordHashing;
+import com.example.signer.server.db.entity.AccountStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -116,8 +117,14 @@ public class RegistrationService {
 
         account.setDisplayName(displayName == null || displayName.isBlank()
                 ? account.getDisplayName() : displayName.trim());
-        account.setPasswordHash(BCrypt.hashpw(password, BCrypt.gensalt()));
-        account.setStatus("ACTIVE");
+        Instant now = Instant.now();
+        account.changePasswordHash(PasswordHashing.hash(password), now);
+        account.setStatus(AccountStatus.ACTIVE);
+        // Redeeming the invitation proves control of the address it was sent
+        // to, and the account email is that same address (checked above).
+        if (account.getEmailVerifiedAt() == null) {
+            account.setEmailVerifiedAt(now);
+        }
         users.save(account);
 
         invitation.setStatus(InvitationEntity.STATUS_ACCEPTED);
@@ -155,9 +162,9 @@ public class RegistrationService {
     }
 
     private static void validatePassword(String password) {
-        if (password == null || password.length() < 8 || password.length() > 200) {
-            throw new ApiException(ApiErrorCode.BAD_REQUEST,
-                    "The password must be between 8 and 200 characters");
+        String problem = PasswordHashing.validateNewPassword(password);
+        if (problem != null) {
+            throw new ApiException(ApiErrorCode.BAD_REQUEST, problem);
         }
     }
 }
