@@ -4,7 +4,9 @@
 #
 # Produces:
 #   build/dist/SignFlow-<version>-windows.zip   portable build (app-image + bundled JRE)
-#   build/dist/*.msi                            installer — only when WiX 3.x is installed
+#   build/dist/*.msi                            per-user installer (Start Menu shortcut,
+#                                                no admin/UAC needed) — only when WiX 3.x
+#                                                is installed
 #   build/jpackage/SignFlow/                    raw app-image (SignFlow.exe inside)
 #
 # Usage:
@@ -109,6 +111,8 @@ if command -v candle >/dev/null 2>&1; then
         --input build/jpkg-input \
         --main-jar "$(basename "$JAR")" \
         --icon build/SignFlow.ico \
+        --win-per-user-install \
+        --win-menu \
         $(for opt in "${JAVA_OPTS[@]}"; do echo --java-options "\"$opt\""; done) \
         --dest build/dist
     echo "MSI built."
