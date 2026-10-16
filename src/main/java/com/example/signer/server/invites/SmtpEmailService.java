@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 /**
  * Production email delivery through {@code spring.mail.*} (brief §18) —
@@ -30,7 +31,7 @@ public class SmtpEmailService implements EmailService {
     private static final Logger log = LoggerFactory.getLogger(SmtpEmailService.class);
 
     private static final DateTimeFormatter DATE =
-            DateTimeFormatter.ofPattern("MMMM d, yyyy").withZone(ZoneId.systemDefault());
+            DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.ENGLISH).withZone(ZoneId.systemDefault());
 
     private final JavaMailSender mailSender;
     private final String from;

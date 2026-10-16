@@ -3,6 +3,7 @@ package com.example.signer.server.invites;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 /**
  * Renders the "signature required" invitation email.
@@ -18,7 +19,7 @@ public final class InvitationEmailTemplate {
     public static final String CTA_TEXT = "Review &amp; Sign Document";
 
     private static final DateTimeFormatter DATE =
-            DateTimeFormatter.ofPattern("MMMM d, yyyy").withZone(ZoneId.systemDefault());
+            DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.ENGLISH).withZone(ZoneId.systemDefault());
 
     private InvitationEmailTemplate() {
     }

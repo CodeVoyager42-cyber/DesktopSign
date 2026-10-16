@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 /**
  * Public signing page for emailed invitations: {@code GET /sign/{token}}.
@@ -44,7 +45,7 @@ public class SignPageController {
             LoggerFactory.getLogger(SignPageController.class);
 
     private static final DateTimeFormatter DATE =
-            DateTimeFormatter.ofPattern("MMMM d, yyyy HH:mm")
+            DateTimeFormatter.ofPattern("MMMM d, yyyy HH:mm", Locale.ENGLISH)
                     .withZone(ZoneId.systemDefault());
 
     private final InvitationService invitations;

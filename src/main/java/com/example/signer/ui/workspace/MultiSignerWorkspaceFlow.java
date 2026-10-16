@@ -1007,7 +1007,7 @@ MultiSignerWorkspaceFlow {
     static String dateLabel(Instant instant) {
         return instant == null ? null
                 : DateTimeFormatter
-                        .ofPattern("dd MMM yyyy HH:mm")
+                        .ofPattern("dd MMM yyyy HH:mm", Locale.ENGLISH)
                         .withZone(ZoneId.systemDefault())
                         .format(instant);
     }
