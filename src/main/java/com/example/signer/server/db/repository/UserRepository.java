@@ -15,5 +15,12 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
     boolean existsByUsername(String username);
 
+    /**
+     * Whether a username is taken ignoring letter case — the rule the V5
+     * {@code uq_users_username_ci} index enforces. Use it before creating an
+     * account so a case-only clash is a clean "taken", not a constraint error.
+     */
+    boolean existsByUsernameIgnoreCase(String username);
+
     boolean existsByEmail(String email);
 }

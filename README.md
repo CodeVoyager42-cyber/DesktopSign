@@ -57,7 +57,7 @@ carries its own Java runtime.
 To build the package yourself, from a machine with JDK 21+:
 
 ```bash
-./package.sh
+scripts/package.sh
 ```
 
 Output lands in `build/dist/` (`build/jpackage/SignFlow/SignFlow.exe` is the
@@ -161,23 +161,44 @@ launcher prints a warning asking you to move it. Never commit secrets:
 ## Project Structure
 
 ```
-src/main/java/com/example/signer/
-├── config/        Typed configuration properties (login, PKCS#11)
-├── exception/     Error codes and the service exception hierarchy
-├── pdf/           Document analysis, metadata, rendering
-├── signing/       PDF signing (incremental revisions, CMS, stamp rendering)
-├── token/         Token abstraction + state machine
-│   ├── mock/      In-memory development token
-│   └── pkcs11/    Real SunPKCS11-backed token
-├── ui/            JavaFX application, dialogs, theming
-│   ├── support/   Shared UI helpers
-│   └── workspace/ Signing workspaces (single + multi-signer), coordinate mapping
-├── verification/  Chain-aware PDF signature verification
-└── workflow/      Signer state machine, workflow orchestration, audit trail
+.
+├── src/main/java/com/example/signer/
+│   ├── ui/                 JavaFX desktop app
+│   │   ├── (root)          App shell: SignerFxApplication, AppNavigator, single-instance guard
+│   │   ├── dialog/         Login, home screen, invitation and inviter dialogs
+│   │   ├── workspace/      Local signing (1–3 signers on this PC, continue a workflow PDF)
+│   │   ├── remote/         Server-backed screens (tasks, remote signing journey, wizard)
+│   │   ├── kit/            Reusable controls
+│   │   └── support/        Background threads, error messages, helpers
+│   ├── client/             HTTP client for the SignFlow server + remote signing service
+│   ├── server/             Coordination server (Spring Boot, profile "server")
+│   │   ├── api/            REST controllers and API contracts
+│   │   ├── auth/           JWT, refresh tokens, guest sessions, accounts
+│   │   ├── invites/        Invitations, emails, public sign page
+│   │   ├── workflow/       Workflow aggregate, state machine, service, stores
+│   │   └── db/             JPA entities, repositories, PostgreSQL store
+│   ├── workflow/           Portable workflow manifest, reconciliation, local engine
+│   ├── signing/            PDF signing (incremental revisions, CMS, stamp rendering)
+│   ├── verification/       Chain-aware PDF signature verification
+│   ├── pdf/                Document analysis, metadata, rendering
+│   ├── token/              Token abstraction + state machine
+│   │   ├── mock/           Development token
+│   │   └── pkcs11/         Real SunPKCS11-backed token
+│   ├── config/             Typed configuration properties
+│   └── exception/          Error codes and the service exception
+├── src/main/resources/     application.yml, Flyway migrations (db/migration), UI styles
+├── src/test/java/          Tests, in the same packages as the code they test
+├── docs/                   Design notes; docs/architecture/ has the sequence diagrams
+├── scripts/                package.sh, db-console.cmd, (un)register-signflow-protocol.cmd
+├── tools/                  Build helpers (icon generation)
+├── run-app.cmd             Start the desktop app
+└── run-server.cmd          Start the coordination server
 ```
 
-Spring Boot is used purely as the application context / dependency-injection
-container (`web-application-type: none`); nothing listens on a network port.
+The desktop app and the server are built from the same jar; the Spring
+profile decides which one starts. The desktop context (`SignerApplication`)
+runs with `web-application-type: none`; only the server profile starts a web
+server.
 
 ## How Signing Works
 
@@ -207,11 +228,11 @@ UI (JavaFX workspace)
   `jdk.crypto.cryptoki` add-exports the raw PKCS#11 wrapper requires (verified
   empirically — see the comment in `pom.xml`)
 - **App icon:** `docs/icon-source.png` is the master brand image (any square
-  picture). `./package.sh` regenerates from it the JavaFX window icon
+  picture). `scripts/package.sh` regenerates from it the JavaFX window icon
   (`src/main/resources/ui/app-icon.png`) and the Windows icon
   (`build/SignFlow.ico`, used by the exe/installer) via
   `tools/BuildIcon.java`. To rebrand, replace the source picture and re-run
-  `./package.sh` — or `java tools/BuildIcon.java` for the icons alone
+  `scripts/package.sh` — or `java tools/BuildIcon.java` for the icons alone
 - Logs go to `%TEMP%/signer-app.log` by default; `com.example.signer` is at
   DEBUG level for tracing token and workflow behavior
 

@@ -4,7 +4,6 @@ import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.UserRepository;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.security.crypto.bcrypt.BCrypt;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,13 +37,31 @@ public class DbUserAccounts implements UserAccountService {
                 : users.findByUsername(usernameOrEmail.trim());
         UserEntity user = account.orElse(null);
         if (user == null || !user.isActive()) {
-            // Same answer as a wrong password — no account enumeration.
+            // Same answer as a wrong password, after the same bcrypt work, so
+            // neither the answer nor the response time reveals whether the
+            // account exists or can sign in.
+            PasswordHashing.simulateCheck(password);
             return false;
         }
+        boolean ok = PasswordHashing.matches(password, user.getPasswordHash());
+        if (ok && PasswordHashing.needsRehash(user.getPasswordHash())) {
+            rehash(user, password);
+        }
+        return ok;
+    }
+
+    /**
+     * Replaces a hash made with an older, cheaper cost by a cost-12 one,
+     * now that the plain password is known to be right. A failure here never
+     * fails the login; the old hash simply stays.
+     */
+    private void rehash(UserEntity user, String password) {
         try {
-            return BCrypt.checkpw(password, user.getPasswordHash());
-        } catch (IllegalArgumentException e) {
-            return false;   // stored value is not a valid bcrypt hash — reject
+            user.setPasswordHash(PasswordHashing.hash(password));
+            users.save(user);
+        } catch (RuntimeException e) {
+            // Deliberately not logged with the exception message: it could
+            // describe the password. The old hash keeps working.
         }
     }
 

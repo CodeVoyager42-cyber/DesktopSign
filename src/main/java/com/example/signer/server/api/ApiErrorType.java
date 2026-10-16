@@ -2,7 +2,7 @@ package com.example.signer.server.api;
 
 import com.example.signer.exception.ErrorCode;
 import com.example.signer.exception.SignerException;
-import com.example.signer.server.WorkflowConflictException;
+import com.example.signer.server.workflow.WorkflowConflictException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import com.example.signer.server.api.ApiContracts.ApiError;
 

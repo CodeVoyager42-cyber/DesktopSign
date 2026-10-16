@@ -68,9 +68,9 @@ alice/bob/charlie with bcrypt passwords (dev flag only).
 
 ### Clicking the link instead of pasting it
 
-`signflow://` is registered per-user by `register-signflow-protocol.cmd`
+`signflow://` is registered per-user by `scripts\register-signflow-protocol.cmd`
 (under `HKCU\Software\Classes\signflow`, no admin rights; undo with
-`unregister-signflow-protocol.cmd`). After that, clicking an emailed
+`scripts\unregister-signflow-protocol.cmd`). After that, clicking an emailed
 `signflow://invitation/<token>` link opens the desktop app with the
 invitation dialog pre-filled. If the app is already running, the second
 launch hands the token to the running instance (local activation port
@@ -125,7 +125,6 @@ so expiration is active and visible instead of lazy-on-presentation.
 
 ## Tests
 
-- `NavigationHistoryTests` — Back-navigation stack (5).
 - `PostgresWorkflowStoreLiveTests` — live-PostgreSQL: dev seed accounts,
   aggregate restart round-trip incl. relational shape + append-only blobs,
   email-invitation → registration → single-use acceptance (3; skipped when

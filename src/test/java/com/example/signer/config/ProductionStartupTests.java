@@ -86,7 +86,7 @@ class ProductionStartupTests {
 
     @Test
     @org.junit.jupiter.api.condition.EnabledIf(
-            value = "com.example.signer.server.PostgresConcurrencyLiveTests#postgresAvailable",
+            value = "com.example.signer.server.workflow.PostgresConcurrencyLiveTests#postgresAvailable",
             disabledReason = "PostgreSQL not reachable")
     void productionServerOnAFreshDatabaseSeedsNoAccounts() throws Exception {
         String user = System.getenv().getOrDefault("SIGNER_DB_USERNAME", "postgres");

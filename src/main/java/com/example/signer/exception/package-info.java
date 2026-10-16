@@ -8,4 +8,4 @@
  */
 package com.example.signer.exception;
 
-import com.example.signer.ui.ErrorMessages;
+import com.example.signer.ui.support.ErrorMessages;
