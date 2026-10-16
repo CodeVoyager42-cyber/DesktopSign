@@ -120,5 +120,42 @@ else
     echo "WiX not found (candle.exe) — MSI skipped. Zip + app-image are ready in build/dist."
 fi
 
+echo "== Checksums + release manifest =="
+GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+(
+    cd build/dist
+    : > SHA256SUMS.txt
+    for f in *.zip *.msi; do
+        [[ -f "$f" ]] || continue
+        sha256sum "$f" >> SHA256SUMS.txt
+    done
+    {
+        echo "{"
+        echo "  \"name\": \"$APP_NAME\","
+        echo "  \"version\": \"$APP_VERSION\","
+        echo "  \"architecture\": \"x64\","
+        echo "  \"platform\": \"windows\","
+        echo "  \"gitCommit\": \"$GIT_COMMIT\","
+        echo "  \"builtAt\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+        echo "  \"artifacts\": ["
+        first=true
+        for f in *.zip *.msi; do
+            [[ -f "$f" ]] || continue
+            sum="$(sha256sum "$f" | awk '{print $1}')"
+            size="$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")"
+            $first || echo "    },"
+            first=false
+            echo "    {"
+            echo "      \"file\": \"$f\","
+            echo "      \"sha256\": \"$sum\","
+            echo "      \"bytes\": $size"
+        done
+        $first || echo "    }"
+        echo "  ]"
+        echo "}"
+    } > release-manifest.json
+)
+echo "Wrote build/dist/SHA256SUMS.txt and build/dist/release-manifest.json"
+
 echo "== Done =="
 ls -la build/dist/
