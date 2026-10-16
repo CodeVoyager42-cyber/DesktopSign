@@ -17,7 +17,10 @@ rem  The server must stay open while using Remote workflow in the
 rem  desktop app. Stop with Ctrl+C or close the window.
 rem ============================================================
 setlocal
-set JAVA=C:\Users\Mnl\.jdks\openjdk-26.0.2\bin\java.exe
+rem Respect JAVA_HOME if set, otherwise fall back to "java" on PATH - no
+rem machine-specific path baked in here.
+set JAVA=java
+if defined JAVA_HOME set JAVA=%JAVA_HOME%\bin\java.exe
 set JAR=%~dp0target\pdf-signer-desktop-0.1.0-SNAPSHOT.jar
 set SIGNER_SERVER_STORAGE=%USERPROFILE%\signer-server-data
 set SIGNER_DB_ENABLED=true
@@ -78,8 +81,7 @@ set "__sf="
 if exist "%JAR%" goto haveJar
 echo The application jar was not found:
 echo   %JAR%
-echo Build it first:  set JAVA_HOME=C:\Users\Mnl\.jdks\openjdk-26.0.2
-echo                  mvnw.cmd package -DskipTests
+echo Build it first:  mvnw.cmd package -DskipTests
 echo Stop any running server first - Windows locks the jar.
 pause
 exit /b 1
