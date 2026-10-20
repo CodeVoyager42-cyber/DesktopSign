@@ -137,7 +137,7 @@ exit /b 1
 echo DEVELOPMENT server (profile server,dev): plain HTTP, console mailbox,
 echo development accounts and mock-token certificates are accepted.
 echo Production: see docs\TRANSPORT-SECURITY.md and .env.example.
-echo Server: %APP_BASE_URL%   Dev users: alice / bob / charlie / jane
+echo Server: %APP_BASE_URL%   Dev users: alice / bob / charlie
 echo %APP_BASE_URL% | findstr /i /c:"localhost" /c:"127.0.0.1" >nul
 if errorlevel 1 goto baseUrlDone
 echo.
