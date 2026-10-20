@@ -3,6 +3,12 @@ package com.example.signer.server.db.repository;
 import com.example.signer.server.db.entity.UserEntity;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
 
 import java.util.Optional;
 
@@ -23,4 +29,30 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
     boolean existsByUsernameIgnoreCase(String username);
 
     boolean existsByEmail(String email);
+
+    /**
+     * Counts one failed sign-in, atomically in the database, so parallel
+     * attempts cannot lose an increment.
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("update UserEntity u set u.failedLoginCount = u.failedLoginCount + 1 where u.id = :id")
+    int incrementFailedLogins(@Param("id") Long id);
+
+    /**
+     * Locks the account until {@code until} once it reached {@code max}
+     * failures, and starts the count again. Returns 1 when it locked.
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("update UserEntity u set u.lockedUntil = :until, u.failedLoginCount = 0"
+            + " where u.id = :id and u.failedLoginCount >= :max")
+    int lockIfTooManyFailures(@Param("id") Long id, @Param("max") int max,
+                              @Param("until") Instant until);
+
+    /** Clears failures and any lock after a successful sign-in. */
+    @Transactional
+    @Modifying(clearAutomatically = true)
+    @Query("update UserEntity u set u.failedLoginCount = 0, u.lockedUntil = null where u.id = :id")
+    int clearFailedLogins(@Param("id") Long id);
 }

@@ -111,7 +111,7 @@ class AccountIdentityMigrationLiveTests {
     @Test
     void freshInstallReachesV5WithAllColumns() throws SQLException {
         flyway(null).migrate();
-        assertThat(one("SELECT max(version::int) FROM flyway_schema_history WHERE success")).isEqualTo("5");
+        assertThat(one("SELECT count(*) FROM flyway_schema_history WHERE version = '5' AND success")).isEqualTo("1");
         assertThat(one("SELECT count(*) FROM information_schema.columns WHERE table_name = 'users' AND column_name IN"
                 + " ('role','email_verified_at','password_changed_at','failed_login_count','locked_until')"))
                 .isEqualTo("5");
@@ -173,6 +173,6 @@ class AccountIdentityMigrationLiveTests {
         sql("UPDATE users SET username = 'bob2', email = 'bob2@example.test' WHERE username = 'Bob'");
         flyway(null).repair();
         flyway(null).migrate();
-        assertThat(one("SELECT max(version::int) FROM flyway_schema_history WHERE success")).isEqualTo("5");
+        assertThat(one("SELECT count(*) FROM flyway_schema_history WHERE version = '5' AND success")).isEqualTo("1");
     }
 }

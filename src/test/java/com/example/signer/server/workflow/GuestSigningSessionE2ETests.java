@@ -202,8 +202,10 @@ class GuestSigningSessionE2ETests {
         assertThat(call("POST", "/api/workflows/" + wf + "/signers/alice/certificate", token))
                 .isEqualTo(403);
         assertThat(call("GET", "/api/workflows/" + wf + "/eligible-signers", token)).isEqualTo(403);
-        // Account endpoints refuse a guest token outright.
-        assertThat(call("GET", "/api/auth/me", token)).isEqualTo(401);
+        // Account endpoints refuse a guest token outright. Since security
+        // Phase 2 this is 403 like every other guest refusal: the token is
+        // valid, it just does not carry an account.
+        assertThat(call("GET", "/api/auth/me", token)).isEqualTo(403);
         assertThat(workflows.getWorkflow(wf, "alice").status()).isNotEqualTo("CANCELLED");
     }
 

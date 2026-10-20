@@ -3,6 +3,7 @@ package com.example.signer.server.invites;
 import com.example.signer.server.api.ApiContracts;
 import java.time.Duration;
 import java.time.Instant;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,7 +26,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -145,8 +145,8 @@ public class InvitationRestController {
     @PostMapping("/{token}/accept")
     public ResponseEntity<InvitationPreviewView> accept(
             @PathVariable String token,
-            @RequestHeader(value = "Authorization", required = false) String header) {
-        String user = authenticatedUser(header);
+            HttpServletRequest request) {
+        String user = AuthController.requireUser(request);
         WorkflowEntity wf = invitations.accept(token, user);
         return ResponseEntity.ok(new InvitationPreviewView(wf.getWorkflowId(),
                 wf.getDocumentName(), wf.getCreatedBy(), null,
@@ -162,8 +162,8 @@ public class InvitationRestController {
     public ResponseEntity<ApiContracts
             .SigningSessionView> claim(
             @PathVariable String token,
-            @RequestHeader(value = "Authorization", required = false) String header) {
-        String user = authenticatedUser(header);
+            HttpServletRequest request) {
+        String user = AuthController.requireUser(request);
         return ResponseEntity.ok(invitations.claim(token, user));
     }
 
@@ -171,8 +171,8 @@ public class InvitationRestController {
     @PostMapping("/{token}/decline")
     public ResponseEntity<Void> decline(
             @PathVariable String token,
-            @RequestHeader(value = "Authorization", required = false) String header) {
-        String user = authenticatedUser(header);
+            HttpServletRequest request) {
+        String user = AuthController.requireUser(request);
         invitations.decline(token, user);
         return ResponseEntity.noContent().build();
     }
@@ -185,8 +185,8 @@ public class InvitationRestController {
     @PostMapping("/{invitationId}/resend")
     public ResponseEntity<InvitationLinkView> resend(
             @PathVariable Long invitationId,
-            @RequestHeader(value = "Authorization", required = false) String header) {
-        String user = authenticatedUser(header);
+            HttpServletRequest request) {
+        String user = AuthController.requireUser(request);
         return ResponseEntity.ok(invitations.resend(invitationId, user));
     }
 
@@ -194,28 +194,10 @@ public class InvitationRestController {
     @PostMapping("/{invitationId}/revoke")
     public ResponseEntity<Void> revoke(
             @PathVariable Long invitationId,
-            @RequestHeader(value = "Authorization", required = false) String header) {
-        String user = authenticatedUser(header);
+            HttpServletRequest request) {
+        String user = AuthController.requireUser(request);
         invitations.revoke(invitationId, user);
         return ResponseEntity.noContent().build();
     }
 
-    /**
-     * Mandatory authentication for the invitation mutations. A missing,
-     * expired or forged access token answers 401 AUTHENTICATION_REQUIRED —
-     * not 403 — so the desktop client refreshes its session and retries
-     * exactly like it does for the workflow API.
-     */
-    private String authenticatedUser(String header) {
-        if (header == null || !header.startsWith("Bearer ")) {
-            throw new ApiException(ApiErrorCode.AUTHENTICATION_REQUIRED,
-                    "Authentication required");
-        }
-        try {
-            return jwtService.validateAccessJwt(header.substring(7).trim()).subject();
-        } catch (JwtService.JwtValidationException e) {
-            throw new ApiException(ApiErrorCode.AUTHENTICATION_REQUIRED,
-                    "Authentication required");
-        }
-    }
 }

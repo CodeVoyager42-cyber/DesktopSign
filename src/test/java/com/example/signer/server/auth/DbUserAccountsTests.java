@@ -107,6 +107,62 @@ class DbUserAccountsTests {
         assertThat(disabled).isGreaterThan(wrong / 2);
     }
 
+    @Test
+    void aLockedAccountRefusesEvenTheRightPasswordWithoutCountingIt() {
+        UserEntity user = account("lena", HASH, AccountStatus.ACTIVE);
+        user.setLockedUntil(Instant.now().plusSeconds(600));
+        assertThat(accounts.matches("lena", PASSWORD)).isFalse();
+        verify(repo, never()).incrementFailedLogins(any());
+        verify(repo, never()).clearFailedLogins(any());
+    }
+
+    @Test
+    void anExpiredLockNoLongerBlocks() {
+        UserEntity user = account("lena", HASH, AccountStatus.ACTIVE);
+        user.setLockedUntil(Instant.now().minusSeconds(1));
+        assertThat(accounts.matches("lena", PASSWORD)).isTrue();
+        verify(repo).clearFailedLogins(user.getId());
+    }
+
+    @Test
+    void aWrongPasswordIsCountedAndMayLock() {
+        UserEntity user = account("mo", HASH, AccountStatus.ACTIVE);
+        assertThat(accounts.matches("mo", "wrong-password")).isFalse();
+        verify(repo).incrementFailedLogins(user.getId());
+        verify(repo).lockIfTooManyFailures(org.mockito.ArgumentMatchers.eq(user.getId()),
+                org.mockito.ArgumentMatchers.eq(DbUserAccounts.DEFAULT_MAX_FAILURES), any());
+    }
+
+    @Test
+    void successClearsEarlierFailuresOnlyWhenThereWereAny() {
+        UserEntity clean = account("nia", HASH, AccountStatus.ACTIVE);
+        assertThat(accounts.matches("nia", PASSWORD)).isTrue();
+        verify(repo, never()).clearFailedLogins(any());
+
+        UserEntity failed = account("omar", HASH, AccountStatus.ACTIVE);
+        failed.setFailedLoginCount(3);
+        assertThat(accounts.matches("omar", PASSWORD)).isTrue();
+        verify(repo).clearFailedLogins(failed.getId());
+    }
+
+    @Test
+    void unknownAndBlockedAccountsAreNeverCounted() {
+        account("pete", null, AccountStatus.PENDING_INVITE);
+        account("dora", HASH, AccountStatus.DISABLED);
+        accounts.matches("nobody", "x");
+        accounts.matches("pete", "x");
+        accounts.matches("dora", "x");
+        verify(repo, never()).incrementFailedLogins(any());
+    }
+
+    @Test
+    void invalidPolicyValuesAreRefusedAtStartup() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new DbUserAccounts(repo, 0, 15))
+                .isInstanceOf(IllegalStateException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new DbUserAccounts(repo, 5, 0))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
     private static long median(Runnable check) {
         long[] t = new long[5];
         for (int i = 0; i < t.length; i++) {
