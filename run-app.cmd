@@ -6,8 +6,22 @@ rem  If the app is already running, this brings its window to
 rem  the front instead of starting a second copy.
 rem ============================================================
 setlocal
-set JAVA=C:\Users\Mnl\.jdks\openjdk-26.0.2\bin\java.exe
+rem JAVA_HOME when it is set, otherwise the JDK this machine was set up with.
+rem Set JAVA_HOME to pick a different JDK (21 is the version the build targets).
+if defined JAVA_HOME (
+    set "JAVA=%JAVA_HOME%\bin\java.exe"
+) else (
+    set "JAVA=C:\Users\Mnl\.jdks\openjdk-26.0.2\bin\java.exe"
+)
 set JAR=%~dp0target\pdf-signer-desktop-0.1.0-SNAPSHOT.jar
+
+if not exist "%JAVA%" (
+    echo Java was not found:
+    echo   %JAVA%
+    echo Set JAVA_HOME to a JDK 21 installation and run this again.
+    pause
+    exit /b 1
+)
 
 if not exist "%JAR%" (
     echo The application jar was not found:

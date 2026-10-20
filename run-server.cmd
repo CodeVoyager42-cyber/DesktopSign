@@ -17,13 +17,21 @@ rem  The server must stay open while using Remote workflow in the
 rem  desktop app. Stop with Ctrl+C or close the window.
 rem ============================================================
 setlocal
-set JAVA=C:\Users\Mnl\.jdks\openjdk-26.0.2\bin\java.exe
+rem JAVA_HOME when it is set, otherwise the JDK this machine was set up with.
+rem Set JAVA_HOME to pick a different JDK (21 is the version the build targets).
+if defined JAVA_HOME (
+    set "JAVA=%JAVA_HOME%\bin\java.exe"
+) else (
+    set "JAVA=C:\Users\Mnl\.jdks\openjdk-26.0.2\bin\java.exe"
+)
 set JAR=%~dp0target\pdf-signer-desktop-0.1.0-SNAPSHOT.jar
 set SIGNER_SERVER_STORAGE=%USERPROFILE%\signer-server-data
-set SIGNER_DB_ENABLED=true
-set SIGNER_DB_URL=jdbc:postgresql://localhost:5432/Signflow
-set SIGNER_DB_USERNAME=postgres
-set SIGNER_DB_PASSWORD=
+rem Database: these are defaults. Set SIGNER_DB_* before starting this
+rem script (e.g. a test database) and they are kept as they are.
+if not defined SIGNER_DB_ENABLED set SIGNER_DB_ENABLED=true
+if not defined SIGNER_DB_URL set SIGNER_DB_URL=jdbc:postgresql://localhost:5432/Signflow
+if not defined SIGNER_DB_USERNAME set SIGNER_DB_USERNAME=postgres
+if not defined SIGNER_DB_PASSWORD set SIGNER_DB_PASSWORD=
 if not defined APP_BASE_URL set APP_BASE_URL=http://localhost:8080
 
 rem Load optional secrets/overrides from OUTSIDE the project folder:
