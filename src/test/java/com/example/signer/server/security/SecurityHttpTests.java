@@ -151,6 +151,17 @@ class SecurityHttpTests {
                 TestJwts.access("alice").subject(null).build()));
         bad.put("unknown account", "Bearer " + TestJwts.sign(SECRET, JWSAlgorithm.HS256,
                 TestJwts.access("mallory").build()));
+        // Phase 2.1 (L1): exp and iat required, lifetime bounded.
+        bad.put("no expiry", "Bearer " + TestJwts.sign(SECRET, JWSAlgorithm.HS256,
+                TestJwts.access("alice").expirationTime(null).build()));
+        bad.put("no issued-at", "Bearer " + TestJwts.sign(SECRET, JWSAlgorithm.HS256,
+                TestJwts.access("alice").issueTime(null).build()));
+        bad.put("100-year lifetime", "Bearer " + TestJwts.sign(SECRET, JWSAlgorithm.HS256,
+                TestJwts.access("alice").expirationTime(
+                        Date.from(now.plus(Duration.ofDays(36500)))).build()));
+        bad.put("issued in the future", "Bearer " + TestJwts.sign(SECRET, JWSAlgorithm.HS256,
+                TestJwts.access("alice").issueTime(Date.from(now.plusSeconds(600)))
+                        .expirationTime(Date.from(now.plusSeconds(900))).build()));
         for (Map.Entry<String, String> e : bad.entrySet()) {
             HttpResponse<String> r = get("/api/workflows/my-tasks", e.getValue());
             assertThat(r.statusCode()).as(e.getKey()).isEqualTo(401);

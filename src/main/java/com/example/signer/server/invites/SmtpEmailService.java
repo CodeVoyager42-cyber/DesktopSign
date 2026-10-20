@@ -70,4 +70,23 @@ public class SmtpEmailService implements EmailService {
             throw new IllegalStateException("The invitation email could not be sent", e);
         }
     }
+
+    @Override
+    public void sendGuestVerificationCode(String recipientEmail, String workflowName,
+                                          String code, Instant expiresAt) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, false,
+                    StandardCharsets.UTF_8.name());
+            helper.setFrom(from);
+            helper.setTo(recipientEmail);
+            helper.setSubject(GuestCodeEmailTemplate.subject(workflowName));
+            helper.setText(GuestCodeEmailTemplate.text(workflowName, code, expiresAt, appName));
+            mailSender.send(message);
+            // Never the code itself.
+            log.info("Guest verification code sent to {} for '{}'", recipientEmail, workflowName);
+        } catch (MessagingException e) {
+            throw new IllegalStateException("The verification email could not be sent", e);
+        }
+    }
 }

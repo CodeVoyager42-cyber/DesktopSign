@@ -34,6 +34,12 @@ PDFBox 3.0.5 + BouncyCastle 1.80. `PdfSigningService` (CMS, incremental updates,
 
 ## 5. What is MISSING vs. the target architecture
 
+> Historical: this table records the gaps found at the time of the original
+> assessment. Most have since been closed (database, Flyway, accounts,
+> invitations, email, registration). For the current security state see
+> `docs/security/phase-1-identity-foundation.md` and
+> `docs/security/phase-2-authentication.md`.
+
 | Gap | Detail |
 |---|---|
 | Database | None. Users in YAML config (`RemoteServerProperties.users`), workflow state in JSON files, refresh tokens in memory. |

@@ -29,5 +29,9 @@ public enum AuditEventType {
     CERTIFICATE_MISMATCH_REJECTED,
     DUPLICATE_OPERATION_IGNORED,
     WORKFLOW_CANCELLED,
-    WORKFLOW_BLOCKED
+    WORKFLOW_BLOCKED,
+    /** Phase B: a desktop task session was opened with a website launch code. */
+    DESKTOP_SESSION_OPENED,
+    /** Phase B: the user revoked a desktop task session ("this wasn't me"). */
+    DESKTOP_SESSION_REVOKED
 }

@@ -116,4 +116,37 @@ class RefreshTokenMigrationLiveTests {
         exec(testUrl(), "DELETE FROM users WHERE username = 'alice'");
         assertThat(one("SELECT count(*) FROM refresh_tokens")).isEqualTo("0");
     }
+
+    @Test
+    void v7AddsGuestCodeColumnsWithSafeDefaults() throws SQLException {
+        flyway("6").migrate();
+        flyway(null).migrate();
+        assertThat(one("SELECT count(*) FROM flyway_schema_history WHERE version = '7' AND success"))
+                .isEqualTo("1");
+        assertThat(one("SELECT count(*) FROM information_schema.columns WHERE table_name = 'invitations'"
+                + " AND column_name IN ('guest_code_hash','guest_code_expires_at','guest_code_sent_at',"
+                + "'guest_code_attempts','guest_code_failures')")).isEqualTo("5");
+        assertThat(one("SELECT column_default FROM information_schema.columns WHERE table_name ="
+                + " 'invitations' AND column_name = 'guest_code_failures'")).isEqualTo("0");
+        assertThat(one("SELECT count(*) FROM pg_constraint WHERE conname IN"
+                + " ('ck_invitations_guest_code_attempts','ck_invitations_guest_code_failures')"))
+                .isEqualTo("2");
+    }
+
+    @Test
+    void v8AddsTheLaunchCodeTableAndKeepsExistingData() throws SQLException {
+        flyway("7").migrate();
+        exec(testUrl(), "INSERT INTO users (username, email) VALUES ('kept', 'kept@example.test')");
+        flyway(null).migrate();
+        assertThat(one("SELECT count(*) FROM flyway_schema_history WHERE version = '8' AND success"))
+                .isEqualTo("1");
+        assertThat(one("SELECT count(*) FROM users WHERE username = 'kept'")).isEqualTo("1");
+        assertThat(one("SELECT count(*) FROM launch_codes")).isEqualTo("0");
+        assertThat(one("SELECT count(*) FROM pg_constraint WHERE conname IN ('uq_launch_codes_hash',"
+                + "'ck_launch_codes_purpose','ck_launch_codes_order','ck_launch_codes_expiry')"))
+                .isEqualTo("4");
+        // No column can hold a raw code: only the 64-character hash.
+        assertThat(one("SELECT character_maximum_length FROM information_schema.columns WHERE"
+                + " table_name = 'launch_codes' AND column_name = 'code_hash'")).isEqualTo("64");
+    }
 }

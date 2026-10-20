@@ -36,7 +36,7 @@ sequenceDiagram
     end
     box rgb(221,241,238) SignFlow server - Spring Boot, profile server
         participant API as SignFlow API (REST controllers)
-        participant SEC as Authentication/Security (JwtAuthFilter, JwtService, GuestAccessPolicy)
+        participant SEC as Authentication/Security (Spring Security, JwtService, GuestAccessPolicy)
         participant WF as Workflow Service (RemoteWorkflowService, InvitationService)
         participant DB as Database/Storage (PostgreSQL + DocumentFileStorage)
     end
@@ -62,7 +62,7 @@ sequenceDiagram
 
     PB->>API: POST /api/workflows (multipart: request=CreateWorkflowRequest, file=PDF) Bearer accessToken
     Note right of PB: CreateWorkflowRequest = documentName, signingPolicy,<br/>signers[{order, userId = signer email, certificateSha256 (optional)}]
-    API->>SEC: JwtAuthFilter validates JWT (only /api/workflows/** is filtered)
+    API->>SEC: Spring Security validates the bearer JWT (every non-public route)
     alt Not a PDF / empty file / bad signer list
         API-->>PB: 400 BAD_REQUEST
     else Accepted
@@ -89,13 +89,14 @@ sequenceDiagram
     PU->>DT: signflow://invitation/{token} [EXISTS: Windows protocol handler, SingleInstanceGuard hand-off]
     Note over DT: Desktop reads only the token from the link. Server URL comes from its own config.
     DT->>API: GET /api/invitations/{token} (InvitationPreviewView)
-    DT->>API: POST /api/invitations/{token}/guest-session
+    DT->>API: POST /api/invitations/{token}/guest-code (one-time code e-mailed to the invitee)
+    DT->>API: POST /api/invitations/{token}/guest-session (with the code)
     alt Expired / revoked / used by another slot
         API-->>DT: 410 INVITATION_EXPIRED or 4xx
     else OK
         API-->>DT: GuestSessionView {accessToken = guest JWT, workflowId, signerOrder}
     end
-    Note over DT,SEC: Invitation token = entry point to ONE signer slot, not a user login.<br/>Guest JWT is limited by GuestAccessPolicy. [PROPOSED] short single-use launch code instead of the raw token.
+    Note over DT,SEC: Invitation token = entry point to ONE signer slot, not a user login.<br/>Guest JWT is limited by GuestAccessPolicy. The link alone is not enough: the e-mailed one-time code is required (security Phase 3).
     opt Signer slot has no certificate yet (DRAFT)
         DT->>TK: Read certificates (no PIN)
         DT->>API: POST /api/workflows/{id}/signers/{userId}/certificate {certificateSha256}
@@ -204,7 +205,7 @@ in `document_versions`). The partner keeps only the `workflowId` and its own bus
 | Task + PDF | `GET /api/workflows/{id}/task`, `GET /api/workflows/{id}/document` | Bearer (guest) JWT | → `TaskView`, PDF bytes | Implemented |
 | Submit signature | `POST /api/workflows/{id}/signatures` (multipart) | Bearer (guest) JWT | signed PDF + `SignatureSubmissionRequest{parentRevision, parentSha256, signingOperationId}` → `SignatureSubmissionResponse{acceptedRevision, status, completed}` | Implemented |
 
-**Security filters:** since security Phase 2, Spring Security checks `Authorization: Bearer` on every non-public route (the diagrams above still show the earlier `JwtAuthFilter`).
+**Security filters:** since security Phase 2, Spring Security checks `Authorization: Bearer` on every non-public route.
 Guest tokens are limited by `GuestAccessPolicy` to one workflow and one signer slot.
 `/api/auth/**`, `/api/invitations/**` and `/invitations/{token}` are public, and the token in the
 path is the capability.

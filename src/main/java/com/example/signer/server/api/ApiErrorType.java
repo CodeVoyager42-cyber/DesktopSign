@@ -66,7 +66,30 @@ public final class ApiErrorType {
          */
         DEVELOPMENT_IDENTITY_REJECTED,
         /** The invitation was used and its signer slot is already signed. */
-        INVITATION_COMPLETED
+        INVITATION_COMPLETED,
+        /** A guest session needs the one-time code e-mailed to the invitee. */
+        GUEST_VERIFICATION_REQUIRED,
+        /** The guest verification code is wrong. */
+        GUEST_CODE_INVALID,
+        /** No usable code: expired, used up, or too many wrong entries. */
+        GUEST_CODE_EXPIRED,
+        /**
+         * Phase B: a launch code that cannot be used — unknown, malformed,
+         * expired, already used, revoked or no longer matching its task. One
+         * answer for all of them on purpose.
+         */
+        LAUNCH_CODE_INVALID,
+        /** The desktop app is older than the server accepts. */
+        UPGRADE_REQUIRED,
+        /** The account's e-mail address is not verified yet. */
+        EMAIL_NOT_VERIFIED,
+        /** Too many requests of this kind; try again later. */
+        TOO_MANY_REQUESTS,
+        /**
+         * Phase B remediation: the signer's certificate is not registered
+         * for this slot yet, so it cannot be opened from a launch link.
+         */
+        CERTIFICATE_NOT_BOUND
     }
 
     /** Exception carrying an {@link ApiErrorCode}; thrown by the service layer. */
@@ -154,6 +177,14 @@ public final class ApiErrorType {
                 case INVITATION_ALREADY_USED, INVITATION_REVOKED,
                      INVITATION_COMPLETED -> HttpStatus.CONFLICT; // 409
                 case EMAIL_MISMATCH -> HttpStatus.FORBIDDEN;           // 403
+                case GUEST_VERIFICATION_REQUIRED, GUEST_CODE_INVALID
+                        -> HttpStatus.FORBIDDEN;                       // 403
+                case GUEST_CODE_EXPIRED -> HttpStatus.GONE;            // 410
+                case LAUNCH_CODE_INVALID -> HttpStatus.BAD_REQUEST;    // 400
+                case UPGRADE_REQUIRED -> HttpStatus.UPGRADE_REQUIRED;  // 426
+                case EMAIL_NOT_VERIFIED -> HttpStatus.FORBIDDEN;       // 403
+                case TOO_MANY_REQUESTS -> HttpStatus.TOO_MANY_REQUESTS; // 429
+                case CERTIFICATE_NOT_BOUND -> HttpStatus.CONFLICT;     // 409
                 case EMAIL_DELIVERY_FAILED -> HttpStatus.BAD_GATEWAY;  // 502
                 case UPLOAD_TOO_LARGE -> HttpStatus.PAYLOAD_TOO_LARGE;  // 413
                 case AUTHENTICATION_REQUIRED -> HttpStatus.UNAUTHORIZED; // 401

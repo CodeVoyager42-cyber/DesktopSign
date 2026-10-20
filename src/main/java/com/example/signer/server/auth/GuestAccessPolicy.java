@@ -33,18 +33,28 @@ public final class GuestAccessPolicy {
 
     /** True when {@code method uri} is one of the guest's allowed requests. */
     public static boolean allows(String method, String uri, GuestAuthentication guest) {
-        if (method == null || uri == null || guest == null) {
+        return guest != null && allows(method, uri, guest.workflowId(), guest.principal());
+    }
+
+    /**
+     * The same allow-list for any single-task session (guest, or a desktop
+     * task session opened with a website launch code — Phase B): only these
+     * requests, on exactly {@code workflowId}, the certificate route only for
+     * {@code principal} itself.
+     */
+    public static boolean allows(String method, String uri, String workflowId, String principal) {
+        if (method == null || uri == null || workflowId == null || principal == null) {
             return false;
         }
         Matcher m = PATH.matcher(uri);
-        if (!m.matches() || !m.group(1).equals(guest.workflowId())) {
+        if (!m.matches() || !m.group(1).equals(workflowId)) {
             return false;
         }
         String action = m.group(2);
         return switch (action) {
             case "task", "document" -> "GET".equals(method);
             case "claim", "signatures" -> "POST".equals(method);
-            default -> "POST".equals(method) && guest.principal().equals(m.group(3));
+            default -> "POST".equals(method) && principal.equals(m.group(3));
         };
     }
 }

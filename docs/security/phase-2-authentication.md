@@ -57,17 +57,21 @@ typed text.
 
 ## Known limits
 
-- Logout ends the refresh token; the current access token stays valid until
-  it expires (at most 15 minutes). No deny-list.
-- The address limit is per server instance and in memory. Behind a proxy,
-  enable `server.forward-headers-strategy=native` so the real client
-  address is used; otherwise every client shares the proxy's address.
-- Lockout can be triggered on purpose by someone who knows a username (it
-  blocks that user for 15 minutes). The address limit slows this down; an
-  operator unlock action is not built yet.
-- File mode has no account lockout (only the address limit).
-- The sequence diagrams in `docs/architecture` were drawn before this phase and still show the old `JwtAuthFilter`.
+Found in the post-implementation review (2026-10-16); none allows access
+without the server's secret key or a valid password.
 
+| # | Limit | Impact | Planned fix |
+|---|---|---|---|
+| L1 | ~~A correctly signed token with no `exp`, no `iat`, or a very long lifetime is accepted.~~ | **Fixed in Phase 2.1:** `exp` and `iat` are required, `iat` may not be more than 30 s in the future, and `exp − iat` may not exceed the longest configured lifetime (access 15 min / guest 60 min). | Tested in `SecurityHttpTests`. |
+| L2 | ~~Behind a TLS proxy all users share one sign-in limit.~~ | **Fixed in Phase 2.1:** a production server with `SIGNER_TLS_OFFLOADED=true` refuses to start unless `SIGNER_FORWARD_HEADERS_STRATEGY=native` (or `framework`), so the limit sees real client addresses. Tomcat trusts `X-Forwarded-For` only from private/loopback proxies. | Tested in `ProductionSafetyValidatorTests`. |
+| L3 | **Lockout can be triggered on purpose**: 5 wrong passwords every 15 minutes keep a known username locked, well under the address limit. Usernames are predictable (email local part). | Denial of service against one user. | Lock per account *and* address, add progressive delay, an operator unlock, and a notice to the user. |
+| L4 | Logout ends the refresh token only; the **access token stays valid until it expires** (≤ 15 min). No deny-list. | A stolen access token outlives logout by up to 15 minutes. | Accept, or add a short-lived `jti` deny-list if needed. |
+| L5 | Refresh sessions are **sliding**: each refresh extends the sign-in by 12 h, with no absolute maximum. | A session can be kept alive indefinitely. | Cap a family's total age (e.g. 7 days). |
+| L6 | Two simultaneous refreshes of the same token: one succeeds, the other is treated as reuse and **ends the sign-in**. | Fail-safe, but a client that refreshes in parallel logs itself out. The desktop refreshes single-flight. | Keep; document for the website (Phase 6). |
+| L7 | The address limit is **in memory, per instance**; the address map has no hard cap when more than 10 000 addresses are active at once; each IPv6 address counts separately. | Memory growth under a large distributed flood; limit does not survive restarts. | Hard cap with eviction; IPv6 /64 grouping; shared store if several instances run. |
+| L8 | **File mode has no account lockout** (only the address limit), and the production validator does not require database mode. | Weaker brute-force protection for file-mode servers. | Require database mode in production, or add lockout to file mode. |
+| L9 | Pages behind the emailed link (`/invitations/{token}`, `/sign/{token}`) carry the invitation token in the URL and send **no `Referrer-Policy`** header. | The token can leak through the `Referer` header to any external resource the page loads. | `Referrer-Policy: no-referrer` (and a CSP) on those pages. |
+| L10 | A failed sign-in for an existing account also writes two counter updates, which an unknown account does not. | A few milliseconds of timing difference beside ~250 ms of bcrypt; enumeration would need many samples. | Accept, or move counting off the request path. |
 ## Tests
 
 `SecurityHttpTests`, `LoginRateLimitHttpTests`, `LoginRateLimitFilterTests`,

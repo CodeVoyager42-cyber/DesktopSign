@@ -23,6 +23,8 @@ import com.example.signer.server.db.entity.WorkflowSignerEntity;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -125,10 +127,28 @@ public class InvitationRestController {
      * access only; the digital signature is made later with the signer's
      * own certificate.
      */
+    /**
+     * Step 1 of a guest session (security Phase 3): e-mails a one-time code
+     * to the invited address. The answer never contains the code, only a
+     * masked address and timings.
+     */
+    @PostMapping("/{token}/guest-code")
+    public ResponseEntity<ApiContracts.GuestCodeView> guestCode(@PathVariable String token) {
+        InvitationService.GuestCodeSent sent = invitations.requestGuestCode(token);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(new ApiContracts.GuestCodeView(
+                sent.maskedEmail(), sent.expiresInSeconds(), sent.resendAfterSeconds()));
+    }
+
+    /**
+     * Step 2: opens the guest session. Requires the e-mailed code in the
+     * body ({@code {"code":"123456"}}) unless guest verification is off.
+     */
     @PostMapping("/{token}/guest-session")
     public ResponseEntity<ApiContracts.GuestSessionView>
-            guestSession(@PathVariable String token) {
-        InvitationService.GuestSessionGrant grant = invitations.openGuestSession(token);
+            guestSession(@PathVariable String token,
+                         @RequestBody(required = false) ApiContracts.GuestSessionRequest body) {
+        InvitationService.GuestSessionGrant grant = invitations.openGuestSession(token,
+                body == null ? null : body.code());
         String accessToken = jwtService.issueGuestJwt(grant.principal(), grant.workflowId(),
                 grant.signerOrder(), grant.invitationId(), grant.invitationExpiresAt(),
                 guestSessionTtl);

@@ -166,6 +166,31 @@
     </dependencies>
 
     <build>
+        <!-- Same resource handling as spring-boot-starter-parent (which this
+             block replaces), plus signflow-build.properties: filtered with
+             '@' delimiters so the desktop app knows its own version
+             (Phase B remediation M2). Nothing else changes. -->
+        <resources>
+            <resource>
+                <directory>${basedir}/src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>**/application*.yml</include>
+                    <include>**/application*.yaml</include>
+                    <include>**/application*.properties</include>
+                    <include>signflow-build.properties</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>${basedir}/src/main/resources</directory>
+                <excludes>
+                    <exclude>**/application*.yml</exclude>
+                    <exclude>**/application*.yaml</exclude>
+                    <exclude>**/application*.properties</exclude>
+                    <exclude>signflow-build.properties</exclude>
+                </excludes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <!-- "java -jar" reads Add-Exports from the manifest (Spring
@@ -207,6 +232,10 @@
                     <environmentVariables>
                         <SIGNER_MOCK_TOKEN_KEYSTORE>${project.build.directory}/test-mock-token.p12</SIGNER_MOCK_TOKEN_KEYSTORE>
                     </environmentVariables>
+                    <!-- Lets AppVersionTests check the filtered build version. -->
+                    <systemPropertyVariables>
+                        <signflow.expected.version>${project.version}</signflow.expected.version>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
             <plugin>
