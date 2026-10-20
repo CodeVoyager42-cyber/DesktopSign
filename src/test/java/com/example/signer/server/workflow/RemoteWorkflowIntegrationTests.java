@@ -29,6 +29,7 @@ import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /**
  * End-to-end multi-"machine" simulation (§33, §38) WITHOUT HTTP: three
@@ -204,10 +205,16 @@ class RemoteWorkflowIntegrationTests {
                 new CreateWorkflowRequest("contract.pdf", List.of(
                         new CreateWorkflowRequest.SignerSpec(1, "alice", fp("alice")))),
                 originalPdf(dir), "alice");
-        assertThatThrownBy(() -> service.getTask(created.workflowId(), "mallory"))
-                .isInstanceOf(ApiException.class)
-                .extracting(e -> ((ApiException) e).code())
-                .isEqualTo(com.example.signer.server.api.ApiErrorType.ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE);
+        // Security Phase 3: an outsider gets exactly the answer for a
+        // workflow that does not exist, so ids cannot be probed.
+        ApiException outsider = catchThrowableOfType(ApiException.class,
+                () -> service.getTask(created.workflowId(), "mallory"));
+        ApiException missing = catchThrowableOfType(ApiException.class,
+                () -> service.getTask("WF-999999", "mallory"));
+        assertThat(outsider.code())
+                .isEqualTo(com.example.signer.server.api.ApiErrorType.ApiErrorCode.WORKFLOW_NOT_FOUND);
+        assertThat(outsider.code()).isEqualTo(missing.code());
+        assertThat(outsider.getMessage()).isEqualTo(missing.getMessage());
         assertThatThrownBy(() -> service.getDocument(created.workflowId(), "mallory"))
                 .isInstanceOf(ApiException.class);
     }

@@ -47,4 +47,31 @@ public class ConsoleEmailService implements EmailService {
                 + body + "\n"
                 + "================================================================================");
     }
+
+    /** Development mailbox: the last code sent to each address (tests read it). */
+    private final java.util.Map<String, String> latestGuestCodes =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    @Override
+    public void sendGuestVerificationCode(String recipientEmail, String workflowName,
+                                          String code, Instant expiresAt) {
+        latestGuestCodes.put(recipientEmail, code);
+        // The code is a secret: the server log only says that one was sent.
+        log.info("EMAIL (console mode) to {} — guest verification code for '{}'",
+                recipientEmail, workflowName);
+        System.out.println("\n================================================================================\n"
+                + "  DEVELOPMENT MAILBOX (console mode) → " + recipientEmail + "\n"
+                + "  Subject: " + GuestCodeEmailTemplate.subject(workflowName) + "\n\n"
+                + GuestCodeEmailTemplate.text(workflowName, code, expiresAt, appName) + "\n"
+                + "================================================================================");
+    }
+
+    /**
+     * The last guest code "sent" to {@code email} in console mode. Console
+     * mode is refused outside the {@code dev} profile, so this mailbox never
+     * exists on a production server.
+     */
+    public String latestGuestCode(String email) {
+        return latestGuestCodes.get(email);
+    }
 }

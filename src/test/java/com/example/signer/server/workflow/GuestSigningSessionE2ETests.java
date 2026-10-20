@@ -1,5 +1,7 @@
 package com.example.signer.server.workflow;
 
+import com.example.signer.server.api.ApiContracts;
+
 import com.example.signer.server.WorkflowServerApplication;
 import com.example.signer.client.RemoteApiException;
 import com.example.signer.client.RemoteSigningService;
@@ -116,7 +118,7 @@ class GuestSigningSessionE2ETests {
         Invite invite = invite(email, fingerprint(MockSigningToken.DEFAULT_ALIAS));
 
         // No username, no password: only the link's token.
-        GuestSessionView session = WorkflowApiClient.openGuestSession(base(), invite.token());
+        GuestSessionView session = openSession(invite.token());
         assertThat(session.workflowId()).isEqualTo(invite.workflowId());
         assertThat(session.email()).isEqualTo(email);
         assertThat(session.requestedBy()).isEqualTo("alice");
@@ -128,7 +130,7 @@ class GuestSigningSessionE2ETests {
         // the document is signed.
         assertThat(WorkflowApiClient.invitationPreview(base(), invite.token()).status())
                 .isEqualTo("ACCEPTED");
-        session = WorkflowApiClient.openGuestSession(base(), invite.token());
+        session = openSession(invite.token());
 
         WorkflowApiClient guest = WorkflowApiClient.forGuest(base(), session);
         try {
@@ -169,7 +171,7 @@ class GuestSigningSessionE2ETests {
         assertThat(identity.getPasswordHash()).isNull();
 
         // The link is done: re-opening it says "completed".
-        assertThatThrownBy(() -> WorkflowApiClient.openGuestSession(base(), invite.token()))
+        assertThatThrownBy(() -> openSession(invite.token()))
                 .isInstanceOfSatisfying(RemoteApiException.class,
                         e -> assertThat(e.serverCode()).isEqualTo("INVITATION_COMPLETED"));
     }
@@ -182,7 +184,7 @@ class GuestSigningSessionE2ETests {
         // The SAME person is also invited to a second workflow: the first
         // link must still not open it.
         Invite other = invite(email, fp);
-        String token = WorkflowApiClient.openGuestSession(base(), mine.token()).accessToken();
+        String token = openSession(mine.token()).accessToken();
         String wf = mine.workflowId();
 
         assertThat(call("GET", "/api/workflows/" + wf + "/task", token)).isEqualTo(200);
@@ -212,7 +214,7 @@ class GuestSigningSessionE2ETests {
     @Test
     void revokingTheInvitationEndsALiveGuestSessionAndTheLink() throws Exception {
         Invite invite = invite(freshEmail(), fingerprint(MockSigningToken.DEFAULT_ALIAS));
-        String token = WorkflowApiClient.openGuestSession(base(), invite.token()).accessToken();
+        String token = openSession(invite.token()).accessToken();
         assertThat(call("GET", "/api/workflows/" + invite.workflowId() + "/task", token))
                 .isEqualTo(200);
 
@@ -220,7 +222,7 @@ class GuestSigningSessionE2ETests {
 
         assertThat(call("GET", "/api/workflows/" + invite.workflowId() + "/task", token))
                 .isEqualTo(403);
-        assertThatThrownBy(() -> WorkflowApiClient.openGuestSession(base(), invite.token()))
+        assertThatThrownBy(() -> openSession(invite.token()))
                 .isInstanceOfSatisfying(RemoteApiException.class,
                         e -> assertThat(e.serverCode()).isEqualTo("INVITATION_REVOKED"));
     }
@@ -235,11 +237,11 @@ class GuestSigningSessionE2ETests {
 
         // expired (and a session opened before expiry stops working)
         Invite expiring = invite(freshEmail(), fingerprint(MockSigningToken.DEFAULT_ALIAS));
-        String live = WorkflowApiClient.openGuestSession(base(), expiring.token()).accessToken();
+        String live = openSession(expiring.token()).accessToken();
         InvitationEntity inv = latestInvitation(expiring.workflowId());
         inv.setExpiresAt(Instant.now().minusSeconds(60));
         invitationRepository.save(inv);
-        assertThatThrownBy(() -> WorkflowApiClient.openGuestSession(base(), expiring.token()))
+        assertThatThrownBy(() -> openSession(expiring.token()))
                 .isInstanceOfSatisfying(RemoteApiException.class,
                         e -> assertThat(e.serverCode()).isEqualTo("INVITATION_EXPIRED"));
         assertThat(call("GET", "/api/workflows/" + expiring.workflowId() + "/task", live))
@@ -248,7 +250,7 @@ class GuestSigningSessionE2ETests {
         // replaced by a resend: the old link no longer works
         Invite resent = invite(freshEmail(), fingerprint(MockSigningToken.DEFAULT_ALIAS));
         invitations.resend(latestInvitation(resent.workflowId()).getId(), "alice");
-        assertThatThrownBy(() -> WorkflowApiClient.openGuestSession(base(), resent.token()))
+        assertThatThrownBy(() -> openSession(resent.token()))
                 .isInstanceOfSatisfying(RemoteApiException.class,
                         e -> assertThat(e.serverCode()).isEqualTo("INVITATION_REVOKED"));
     }
@@ -256,6 +258,19 @@ class GuestSigningSessionE2ETests {
     /* ------------------------------------------------------------------ */
 
     private record Invite(String workflowId, String token) {
+    }
+
+    /**
+     * Opens a guest session the way the desktop does since security Phase 3:
+     * ask for the e-mailed code, read it from the captured mailbox, send it.
+     */
+    private GuestSessionView openSession(String token) {
+        InvitationSignerLifecycleTests.CapturedMailbox.CODES.clear();
+        ApiContracts.GuestCodeView sent = WorkflowApiClient.requestGuestCode(base(), token);
+        assertThat(sent.sentTo()).contains("***@");
+        String code = InvitationSignerLifecycleTests.CapturedMailbox.CODES.values().stream()
+                .findFirst().orElseThrow(() -> new AssertionError("no code was e-mailed"));
+        return WorkflowApiClient.openGuestSession(base(), token, code);
     }
 
     private Invite invite(String email, String fingerprint) {

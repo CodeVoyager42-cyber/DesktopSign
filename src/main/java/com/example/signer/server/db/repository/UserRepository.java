@@ -2,7 +2,10 @@ package com.example.signer.server.db.repository;
 
 import com.example.signer.server.db.entity.UserEntity;
 
+import jakarta.persistence.LockModeType;
+
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,6 +21,15 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
     Optional<UserEntity> findByUsername(String username);
 
     Optional<UserEntity> findByEmail(String email);
+
+    /**
+     * The user's row, locked until the surrounding transaction ends
+     * ({@code SELECT ... FOR UPDATE}): serializes per-user operations that
+     * count then insert, such as issuing launch codes.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from UserEntity u where u.username = :username")
+    Optional<UserEntity> lockByUsername(@Param("username") String username);
 
     boolean existsByUsername(String username);
 

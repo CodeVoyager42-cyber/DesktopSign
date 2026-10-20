@@ -279,7 +279,7 @@ public final class InvitationDialog {
         docRow.setAlignment(Pos.CENTER_LEFT);
 
         Button reviewAndSign = SignFlowUi.primary("Review & Sign", FontAwesomeSolid.ARROW_RIGHT);
-        reviewAndSign.setOnAction(e -> openGuestSession(preview, token));
+        reviewAndSign.setOnAction(e -> requestCode(preview, token));
         Button close = SignFlowUi.secondary("Not now");
         close.setCancelButton(true);
         close.setOnAction(e -> dialog.close());
@@ -295,7 +295,8 @@ public final class InvitationDialog {
                 SignFlowUi.text(InvitationState.VALID.explanation()),
                 SignFlowUi.note(FontAwesomeSolid.SHIELD_ALT, SignFlowUi.Tone.INFO,
                         "Secure invitation. No SignFlow account is required: this link"
-                                + " opens only this signing task. Your digital signature"
+                                + " opens only this signing task, after you enter the code"
+                                + " we e-mail to you. Your digital signature"
                                 + " is made on this computer with your own smart card —"
                                 + " your PIN never leaves it."),
                 reviewAndSign,
@@ -305,12 +306,95 @@ public final class InvitationDialog {
     }
 
     /**
-     * "Review & Sign": the server validates the link's token and opens a
-     * GUEST signing session scoped to this one signing task. No username,
-     * no password, no account. (The token only authorizes access; the
-     * digital signature is made later with the signer's own certificate.)
+     * "Review & Sign", step 1 (security Phase 3): the server e-mails a
+     * one-time code to the invited address. Only someone who can read that
+     * mailbox can open the signing task — not the sender, and not someone
+     * the invitation e-mail was forwarded to.
      */
-    private void openGuestSession(InvitationPreviewView preview, String token) {
+    private void requestCode(InvitationPreviewView preview, String token) {
+        ProgressIndicator big = new ProgressIndicator();
+        big.setPrefSize(46, 46);
+        VBox loading = SignFlowUi.card(big,
+                SignFlowUi.title("Sending your verification code…"),
+                SignFlowUi.text("We e-mail a one-time code to " + preview.invitedEmail() + "."));
+        loading.setAlignment(Pos.TOP_CENTER);
+        show(1, loading);
+        run(new Task<ApiContracts.GuestCodeView>() {
+            @Override
+            protected ApiContracts.GuestCodeView call() {
+                return WorkflowApiClient.requestGuestCode(baseUrl, token);
+            }
+
+            @Override
+            protected void succeeded() {
+                showCodeStep(preview, token, getValue(), null);
+            }
+
+            @Override
+            protected void failed() {
+                String problem = codeProblem(getException());
+                if (problem != null) {
+                    showCodeStep(preview, token, null, problem);
+                } else {
+                    showState(InvitationState.of(getException()), token);
+                }
+            }
+        });
+    }
+
+    /** Step 2: enter the e-mailed code. The code is never logged or stored. */
+    private void showCodeStep(InvitationPreviewView preview, String token,
+                              ApiContracts.GuestCodeView sent, String problem) {
+        TextField codeField = new TextField();
+        codeField.setPromptText("6-digit code");
+        codeField.setPrefColumnCount(8);
+        codeField.textProperty().addListener((o, was, is) -> {
+            String digits = is.replaceAll("[^0-9]", "");
+            if (digits.length() > 6) {
+                digits = digits.substring(0, 6);
+            }
+            if (!digits.equals(is)) {
+                codeField.setText(digits);
+            }
+        });
+        Button continueButton = SignFlowUi.primary("Continue", FontAwesomeSolid.ARROW_RIGHT);
+        continueButton.setDefaultButton(true);
+        continueButton.setDisable(true);
+        codeField.textProperty().addListener((o, was, is) ->
+                continueButton.setDisable(is.length() != 6));
+        continueButton.setOnAction(e -> openGuestSession(preview, token, codeField.getText()));
+        Button resend = SignFlowUi.secondary("Send a new code");
+        resend.setOnAction(e -> requestCode(preview, token));
+        Button close = SignFlowUi.secondary("Not now");
+        close.setCancelButton(true);
+        close.setOnAction(e -> dialog.close());
+
+        String where = sent == null || sent.sentTo() == null
+                ? preview.invitedEmail() : sent.sentTo();
+        VBox card = SignFlowUi.card(
+                SignFlowUi.stateIcon(FontAwesomeSolid.ENVELOPE_OPEN, SignFlowUi.Tone.INFO),
+                SignFlowUi.title("Check your e-mail"),
+                SignFlowUi.text("We sent a 6-digit code to " + where + ". Enter it to"
+                        + " open \"" + preview.documentName() + "\". The code works once"
+                        + " and expires after 10 minutes."),
+                codeField,
+                continueButton,
+                new HBox(10, resend, close));
+        if (problem != null) {
+            card.getChildren().add(3, SignFlowUi.note(FontAwesomeSolid.EXCLAMATION_TRIANGLE,
+                    SignFlowUi.Tone.WARN, problem));
+        }
+        show(1, card);
+        codeField.requestFocus();
+    }
+
+    /**
+     * Step 3: the server checks the code and opens a GUEST signing session
+     * scoped to this one signing task. No username, no password, no account.
+     * (The session only authorizes access; the digital signature is made
+     * later with the signer's own certificate.)
+     */
+    private void openGuestSession(InvitationPreviewView preview, String token, String code) {
         ProgressIndicator big = new ProgressIndicator();
         big.setPrefSize(46, 46);
         VBox loading = SignFlowUi.card(big,
@@ -322,7 +406,7 @@ public final class InvitationDialog {
         run(new Task<ApiContracts.GuestSessionView>() {
             @Override
             protected ApiContracts.GuestSessionView call() {
-                return WorkflowApiClient.openGuestSession(baseUrl, token);
+                return WorkflowApiClient.openGuestSession(baseUrl, token, code);
             }
 
             @Override
@@ -336,9 +420,30 @@ public final class InvitationDialog {
 
             @Override
             protected void failed() {
-                showState(InvitationState.of(getException()), token);
+                String problem = codeProblem(getException());
+                if (problem != null) {
+                    showCodeStep(preview, token, null, problem);
+                } else {
+                    showState(InvitationState.of(getException()), token);
+                }
             }
         });
+    }
+
+    /** The server's message for a code problem, or {@code null} for any other failure. */
+    static String codeProblem(Throwable failure) {
+        if (failure instanceof com.example.signer.client.RemoteApiException api
+                && api.serverCode() != null) {
+            return switch (api.serverCode()) {
+                case "GUEST_CODE_INVALID", "GUEST_CODE_EXPIRED",
+                     "GUEST_VERIFICATION_REQUIRED", "EMAIL_DELIVERY_FAILED" ->
+                        api.getMessage() == null || api.getMessage().isBlank()
+                                ? "The code could not be checked. Request a new code."
+                                : api.getMessage();
+                default -> null;
+            };
+        }
+        return null;
     }
 
     private void run(Task<?> task) {

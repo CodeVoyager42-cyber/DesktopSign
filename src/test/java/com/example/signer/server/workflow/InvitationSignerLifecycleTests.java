@@ -89,11 +89,26 @@ class InvitationSignerLifecycleTests {
 
         static final Map<String, String> LINKS = new ConcurrentHashMap<>();
 
+        /** Guest verification codes "sent" (security Phase 3), by address. */
+        static final Map<String, String> CODES = new ConcurrentHashMap<>();
+
         @Bean
         @Primary
         EmailService capturedMailbox() {
-            return (recipientEmail, recipientName, workflowName, inviterName,
-                    invitationUrl, expiresAt) -> LINKS.put(recipientEmail, invitationUrl);
+            return new EmailService() {
+                @Override
+                public void sendSigningInvitation(String recipientEmail, String recipientName,
+                                                  String workflowName, String inviterName,
+                                                  String invitationUrl, java.time.Instant expiresAt) {
+                    LINKS.put(recipientEmail, invitationUrl);
+                }
+
+                @Override
+                public void sendGuestVerificationCode(String recipientEmail, String workflowName,
+                                                      String code, java.time.Instant expiresAt) {
+                    CODES.put(recipientEmail, code);
+                }
+            };
         }
     }
 

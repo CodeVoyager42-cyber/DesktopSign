@@ -54,6 +54,10 @@ public class DevUserSeeder implements ApplicationRunner {
         for (var entry : properties.getUsers().entrySet()) {
             String username = entry.getKey().toLowerCase(Locale.ROOT);
             if (users.existsByUsernameIgnoreCase(username)) {
+                // Development accounts count as e-mail-verified (Phase B:
+                // launch codes require a verified address).
+                users.findByUsername(username).filter(u -> u.getEmailVerifiedAt() == null)
+                        .ifPresent(u -> u.setEmailVerifiedAt(Instant.now()));
                 continue;
             }
             UserEntity user = new UserEntity();
@@ -62,6 +66,7 @@ public class DevUserSeeder implements ApplicationRunner {
             user.setDisplayName(capitalize(username));
             user.changePasswordHash(PasswordHashing.hash(entry.getValue()), Instant.now());
             user.setStatus(AccountStatus.ACTIVE);
+            user.setEmailVerifiedAt(Instant.now());
             users.save(user);
             created = true;
             log.info("Dev seed: created account '{}' ({}@…)", username, username);

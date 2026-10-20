@@ -445,6 +445,9 @@ public final class SigningWorkflowAggregate {
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException(
                         userId + " holds no pending signer slot"));
+        if (slot.isBound()) {
+            throw new IllegalStateException(userId + "'s slot already has a certificate");
+        }
         WorkflowSignerRecord bound = slot.asBound(fingerprint);
         signers.set(signers.indexOf(slot), bound);
         return bound;

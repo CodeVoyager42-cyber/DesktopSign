@@ -116,7 +116,7 @@ public class WorkflowInvitationCoordinator {
             String rawToken = invitations.invite(workflowPublicId,
                     invite.signerOrder(), invite.email(), invitedBy);
             sent.add(new InvitationLinkView(invite.signerOrder(),
-                    invite.email(), invitations.invitationUrl(rawToken)));
+                    invite.email(), invitations.senderVisibleUrl(rawToken)));
         }
         return sent;
     }

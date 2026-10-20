@@ -82,6 +82,8 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
         private volatile String refreshToken;
         private volatile boolean closed;
         private volatile boolean guest;
+        /** Opened from a website launch link (Phase B), not an invitation. */
+        private volatile boolean launched;
         /** The ACCOUNT id; replaced by the server's answer via /me. */
         private volatile String username;
         /**
@@ -516,12 +518,145 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
      */
     public static ApiContracts.GuestSessionView
             openGuestSession(String baseUrl, String rawToken) {
+        return openGuestSession(baseUrl, rawToken, null);
+    }
+
+    /**
+     * Opens the guest session with the one-time code the server e-mailed to
+     * the invited address (security Phase 3; see {@link #requestGuestCode}).
+     * Neither the link token nor the code is ever logged.
+     */
+    public static ApiContracts.GuestSessionView
+            openGuestSession(String baseUrl, String rawToken, String code) {
         WorkflowApiClient anonymous = new WorkflowApiClient(baseUrl, null);
+        String json;
+        try {
+            json = anonymous.mapper.writeValueAsString(new ApiContracts.GuestSessionRequest(code));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
         return anonymous.send(HttpRequest.newBuilder()
                         .uri(URI.create(anonymous.baseUrl + "api/invitations/"
                                 + urlEncode(rawToken) + "/guest-session"))
-                        .POST(HttpRequest.BodyPublishers.noBody()),
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8)),
                 ApiContracts.GuestSessionView.class, 200);
+    }
+
+    /* ---------------- Phase B: health and website launch codes ---------------- */
+
+    /**
+     * Public reachability check ({@code GET /api/health}). Replaces the old
+     * "log in as probe/probe", which cost a failed login every time.
+     */
+    public static ApiContracts.HealthView health(String baseUrl) {
+        WorkflowApiClient anonymous = new WorkflowApiClient(baseUrl, null);
+        return anonymous.send(HttpRequest.newBuilder()
+                        .uri(URI.create(anonymous.baseUrl + "api/health"))
+                        .GET(),
+                ApiContracts.HealthView.class, 200);
+    }
+
+    /**
+     * Exchanges a one-time launch code (from a {@code signflow://launch} link)
+     * for a task session limited to that one signing task. The code goes in
+     * the request BODY, never the URL, and is never logged.
+     */
+    public static ApiContracts.LaunchSessionView exchangeLaunchCode(String baseUrl, String code,
+                                                                    String appVersion,
+                                                                    String device) {
+        WorkflowApiClient anonymous = new WorkflowApiClient(baseUrl, null);
+        String json;
+        try {
+            json = anonymous.mapper.writeValueAsString(
+                    new ApiContracts.LaunchExchangeRequest(code, appVersion, device));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+        return anonymous.send(HttpRequest.newBuilder()
+                        .uri(URI.create(anonymous.baseUrl + "api/desktop/launch"))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8)),
+                ApiContracts.LaunchSessionView.class, 200);
+    }
+
+    /**
+     * A client acting with a task session from {@link #exchangeLaunchCode}.
+     * Like a guest session: one signing task, no refresh token, nothing to
+     * revoke on close.
+     */
+    public static WorkflowApiClient forTask(String baseUrl, ApiContracts.LaunchSessionView task) {
+        WorkflowApiClient client = new WorkflowApiClient(baseUrl, null);
+        client.session = Session.ofGuest(task.signerId(), task.accessToken());
+        client.session.launched = true;
+        client.session.bindServer(client.baseUrl);
+        return client;
+    }
+
+    /**
+     * Asks for a launch code for one of the signed-in user's signing tasks
+     * (what the website will do; also usable by tests and tools).
+     */
+    public ApiContracts.LaunchCodeIssued issueLaunchCode(String workflowId) {
+        return send(HttpRequest.newBuilder()
+                        .uri(URI.create(baseUrl + "api/workflows/" + urlEncode(workflowId)
+                                + "/launch-codes"))
+                        .POST(HttpRequest.BodyPublishers.noBody()),
+                ApiContracts.LaunchCodeIssued.class, 201);
+    }
+
+    /** Reported when the build did not record a version (IDE run, unfiltered build). */
+    public static final String UNKNOWN_VERSION = "unknown";
+
+    private static final java.util.regex.Pattern VERSION = java.util.regex.Pattern.compile(
+            "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}(-[0-9A-Za-z]+(\\.[0-9A-Za-z]+)*)?$");
+
+    private static volatile String appVersion;
+
+    /**
+     * This app's version, sent when exchanging a launch code: the
+     * {@code version} of {@code signflow-build.properties}, which Maven fills
+     * in at build time. {@value #UNKNOWN_VERSION} — never a release-looking
+     * guess — when the file is missing, unfiltered or malformed. A
+     * compatibility signal only: the server cannot verify it.
+     */
+    public static String appVersion() {
+        String cached = appVersion;
+        if (cached == null) {
+            cached = readBuildVersion(WorkflowApiClient.class
+                    .getResourceAsStream("/signflow-build.properties"));
+            appVersion = cached;
+        }
+        return cached;
+    }
+
+    /** The validated version in a {@code signflow-build.properties} stream, or {@value #UNKNOWN_VERSION}. */
+    static String readBuildVersion(java.io.InputStream in) {
+        if (in == null) {
+            return UNKNOWN_VERSION;
+        }
+        try (in) {
+            java.util.Properties props = new java.util.Properties();
+            props.load(in);
+            String v = props.getProperty("version", "").trim();
+            return v.length() <= 20 && VERSION.matcher(v).matches() ? v : UNKNOWN_VERSION;
+        } catch (java.io.IOException | IllegalArgumentException e) {
+            return UNKNOWN_VERSION;
+        }
+    }
+
+    /**
+     * Asks the server to e-mail a one-time code to the invited address. The
+     * answer says where it went (masked) and when a new one may be requested;
+     * it never contains the code.
+     */
+    public static ApiContracts.GuestCodeView requestGuestCode(String baseUrl, String rawToken) {
+        WorkflowApiClient anonymous = new WorkflowApiClient(baseUrl, null);
+        return anonymous.send(HttpRequest.newBuilder()
+                        .uri(URI.create(anonymous.baseUrl + "api/invitations/"
+                                + urlEncode(rawToken) + "/guest-code"))
+                        .POST(HttpRequest.BodyPublishers.noBody()),
+                ApiContracts.GuestCodeView.class, 202);
     }
 
     /** A client acting with a guest signing session (see {@link #openGuestSession}). */
@@ -791,6 +926,9 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
             "Your session has expired or was revoked. Sign in again.";
     static final String GUEST_SESSION_EXPIRED_MESSAGE =
             "Your signing session has ended. Open the invitation link again to continue.";
+    static final String TASK_SESSION_EXPIRED_MESSAGE =
+            "Your signing session has ended or was cancelled. Click \"Sign\" again on the"
+                    + " SignFlow website to continue.";
 
     /**
      * Single-flight refresh after a 401 that was produced with
@@ -822,9 +960,11 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
             String token = current.refreshToken();
             if (token == null) {
                 boolean guest = current.isGuest();
+                boolean launched = current.launched;
                 current.expire();
-                throw new SignerException(ErrorCode.WORKFLOW_INVALID, guest
-                        ? GUEST_SESSION_EXPIRED_MESSAGE : SESSION_EXPIRED_MESSAGE);
+                throw new SignerException(ErrorCode.WORKFLOW_INVALID, launched
+                        ? TASK_SESSION_EXPIRED_MESSAGE
+                        : guest ? GUEST_SESSION_EXPIRED_MESSAGE : SESSION_EXPIRED_MESSAGE);
             }
             HttpResponse<byte[]> response;
             try {

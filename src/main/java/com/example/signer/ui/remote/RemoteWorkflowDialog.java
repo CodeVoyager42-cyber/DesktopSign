@@ -417,11 +417,9 @@ public final class RemoteWorkflowDialog {
         runInBackground(new Task<Void>() {
             @Override
             protected Void call() {
-                // Deliberately wrong credentials: a reachable server answers
-                // 401 (task fails with an auth error); an unreachable one
-                // fails with a connection error. Either way we learn the truth.
-                WorkflowApiClient.login(baseUrl, "probe", "probe".toCharArray())
-                        .myTasks();
+                // Public health check (Phase B): no fake login, nothing counted
+                // against the sign-in limits.
+                WorkflowApiClient.health(baseUrl);
                 return null;
             }
 

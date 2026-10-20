@@ -83,6 +83,18 @@ class ProductionSafetyValidatorTests {
 
         MockEnvironment offloaded = env("server");
         offloaded.setProperty("signature.remote-server.tls-offloaded", "true");
+        offloaded.setProperty("server.forward-headers-strategy", "native");
+        assertThatCode(() -> ProductionSafetyValidator.validate(offloaded))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void behindATlsProxyTheForwardedClientAddressIsRequired() {
+        MockEnvironment offloaded = env("server");
+        offloaded.setProperty("signature.remote-server.tls-offloaded", "true");
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(offloaded))
+                .hasMessageContaining("SIGNER_FORWARD_HEADERS_STRATEGY=native");
+        offloaded.setProperty("server.forward-headers-strategy", "framework");
         assertThatCode(() -> ProductionSafetyValidator.validate(offloaded))
                 .doesNotThrowAnyException();
     }
@@ -104,5 +116,31 @@ class ProductionSafetyValidatorTests {
         assertThat(ProductionSafetyValidator.isHttpsOrLoopback("http://localhost.evil.com")).isFalse();
         assertThat(ProductionSafetyValidator.isHttpsOrLoopback("http://10.0.0.5")).isFalse();
         assertThat(ProductionSafetyValidator.isHttpsOrLoopback("ftp://localhost")).isFalse();
+    }
+
+    @Test
+    void guestVerificationCannotBeSwitchedOffInProduction() {
+        MockEnvironment env = env("server");
+        env.setProperty("server.ssl.key-store", "classpath:server.p12");
+        env.setProperty("signature.remote-server.database.enabled", "true");
+        env.setProperty("signature.remote-server.invitation.public-base-url",
+                "https://signflow.example.com");
+        env.setProperty("signature.remote-server.email.mode", "smtp");
+        env.setProperty("signature.remote-server.invitation.guest-verification", "false");
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                .hasMessageContaining("SIGNER_GUEST_VERIFICATION=false");
+    }
+
+    @Test
+    void productionServerRefusesDesktopsOfUnknownVersion() {
+        MockEnvironment env = env("server");
+        env.setProperty("server.ssl.key-store", "classpath:server.p12");
+        env.setProperty("signature.remote-server.database.enabled", "true");
+        env.setProperty("signature.remote-server.invitation.public-base-url",
+                "https://signflow.example.com");
+        env.setProperty("signature.remote-server.email.mode", "smtp");
+        env.setProperty("signature.remote-server.desktop.accept-unknown-version", "true");
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                .hasMessageContaining("SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION=true");
     }
 }

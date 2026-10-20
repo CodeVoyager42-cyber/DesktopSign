@@ -25,6 +25,9 @@ final class TokenAuthenticationConverter implements Converter<Jwt, AbstractAuthe
             if (JwtService.TYPE_GUEST.equals(type)) {
                 return new GuestSessionAuthentication(jwt, JwtService.toGuest(jwt));
             }
+            if (JwtService.TYPE_TASK.equals(type)) {
+                return new TaskSessionAuthentication(jwt, JwtService.toTask(jwt));
+            }
             JwtService.JwtAuthentication user = JwtService.toAccess(jwt);
             return new JwtAuthenticationToken(jwt,
                     AuthorityUtils.createAuthorityList(SecurityConfig.ROLE_USER), user.subject());

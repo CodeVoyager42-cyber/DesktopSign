@@ -37,6 +37,7 @@ class ProductionStartupTests {
                 "--signature.remote-server.storage="
                         + Files.createTempDirectory("prod-startup").toString(),
                 "--signature.remote-server.tls-offloaded=true",
+                "--server.forward-headers-strategy=native",
                 "--signature.remote-server.database.enabled=false",
                 "--logging.file.name="));
         args.addAll(List.of(extra));

@@ -3,6 +3,7 @@ package com.example.signer.server.security;
 import com.example.signer.server.auth.JwtService;
 import com.example.signer.server.auth.UserAccountService;
 import com.example.signer.server.invites.InvitationService;
+import com.example.signer.server.launch.LaunchCodeService;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -48,6 +49,8 @@ public class SecurityConfig {
 
     static final String ROLE_USER = "ROLE_USER";
     static final String ROLE_GUEST = "ROLE_GUEST";
+    /** Phase B: desktop task session from a website launch code. */
+    static final String ROLE_TASK = "ROLE_TASK";
 
     /**
      * Requests that need no token. A bearer header sent to them is ignored
@@ -62,7 +65,12 @@ public class SecurityConfig {
             // Invitation link: preview and opening a guest signing session.
             // The invitation token in the path is checked by the service.
             get("/api/invitations/*"),
+            post("/api/invitations/*/guest-code"),
             post("/api/invitations/*/guest-session"),
+            // Phase B: the launch code in the body is the credential.
+            post("/api/desktop/launch"),
+            // Reachability only (no sensitive data).
+            get("/api/health"),
             // Pages behind the emailed link.
             get("/invitations/*"),
             get("/sign/*"),
@@ -73,6 +81,7 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService,
             UserAccountService accounts, ObjectProvider<InvitationService> invitations,
+            ObjectProvider<LaunchCodeService> launches,
             @Value("${signature.remote-server.login.rate-limit:20}") int rateLimit,
             @Value("${signature.remote-server.login.rate-window-seconds:60}") long rateWindow)
             throws Exception {
@@ -96,12 +105,12 @@ public class SecurityConfig {
                             .jwtAuthenticationConverter(new TokenAuthenticationConverter())))
             .addFilterBefore(new LoginRateLimitFilter(rateLimit, rateWindow, Clock.systemUTC()),
                     BearerTokenAuthenticationFilter.class)
-            .addFilterAfter(new AuthenticatedRequestFilter(accounts, invitations),
+            .addFilterAfter(new AuthenticatedRequestFilter(accounts, invitations, launches),
                     BearerTokenAuthenticationFilter.class)
             .authorizeHttpRequests(a -> a
                     .requestMatchers(PUBLIC).permitAll()
                     .requestMatchers(path("/api/workflows/**"))
-                            .hasAnyAuthority(ROLE_USER, ROLE_GUEST)
+                            .hasAnyAuthority(ROLE_USER, ROLE_GUEST, ROLE_TASK)
                     .requestMatchers(path("/api/**")).hasAuthority(ROLE_USER)
                     .anyRequest().denyAll());
         return http.build();
