@@ -15,6 +15,12 @@ spring:
       - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
       - org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration
       - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+      # Security: the server's filter chain is configured explicitly
+      # (server.security.SecurityConfig). These would otherwise create a
+      # default in-memory user with a generated password and a second JWT
+      # decoder; neither must exist.
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration
 
 app:
   # Public web base URL used to build the invitation link that is emailed
@@ -100,6 +106,16 @@ signature:
     jwt-secret: ${SIGNER_SERVER_JWT_SECRET:}
     access-token-minutes: ${SIGNER_SERVER_ACCESS_TOKEN_MINUTES:15}
     refresh-token-hours: ${SIGNER_SERVER_REFRESH_TOKEN_HOURS:12}
+    # Brute-force protection (security Phase 2).
+    login:
+      # Database mode: this many wrong passwords in a row lock the account...
+      max-failures: ${SIGNER_LOGIN_MAX_FAILURES:5}
+      # ...for this many minutes (the right password is refused meanwhile).
+      lock-minutes: ${SIGNER_LOGIN_LOCK_MINUTES:15}
+      # Every mode: at most this many sign-in requests per client address
+      # within the window, then HTTP 429.
+      rate-limit: ${SIGNER_LOGIN_RATE_LIMIT:20}
+      rate-window-seconds: ${SIGNER_LOGIN_RATE_WINDOW_SECONDS:60}
     # Production posture (default): plaintext passwords are refused and no
     # development accounts are seeded. Only the 'dev' profile allows them.
     allow-plaintext-passwords: false

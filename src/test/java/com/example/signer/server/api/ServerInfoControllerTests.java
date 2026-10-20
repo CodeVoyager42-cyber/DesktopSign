@@ -6,7 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.example.signer.server.api.ApiContracts.InvitationLinkInfo;
 import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
 import com.example.signer.server.api.ApiErrorType.ApiException;
-import com.example.signer.server.auth.JwtService;
+import com.example.signer.server.security.AuthenticatedRequestFilter;
+import org.springframework.mock.web.MockHttpServletRequest;
 import com.example.signer.server.invites.InvitationLinkResolver;
 
 import org.junit.jupiter.api.Test;
@@ -20,11 +21,6 @@ import java.nio.file.Files;
  * than pretending the emailed links work remotely.
  */
 class ServerInfoControllerTests {
-
-    private static final String SECRET =
-            "test-secret-that-is-long-enough-for-hs256-0123456789";
-
-    private final JwtService jwt = new JwtService(SECRET, 15, true);
 
     /** A resolver reporting a fixed decision, so no address is detected. */
     private static InvitationLinkResolver links(String baseUrl,
@@ -50,11 +46,14 @@ class ServerInfoControllerTests {
 
     private ServerInfoController controller(String baseUrl, boolean localOnly,
                                            String source) {
-        return new ServerInfoController(links(baseUrl, localOnly, source), jwt);
+        return new ServerInfoController(links(baseUrl, localOnly, source));
     }
 
-    private String bearer() {
-        return "Bearer " + jwt.issueAccessJwt("alice");
+    /** A request Spring Security has authenticated as {@code alice}. */
+    private static MockHttpServletRequest signedIn() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setAttribute(AuthenticatedRequestFilter.USER_ATTR, "alice");
+        return request;
     }
 
     @Test
@@ -62,14 +61,13 @@ class ServerInfoControllerTests {
         ServerInfoController controller =
                 controller("http://localhost:8080", true, "APP_BASE_URL");
 
-        assertThatThrownBy(() -> controller.invitationLink(null))
+        // Spring Security answers 401 before the controller runs (covered by
+        // SecurityHttpTests); the controller itself also refuses a request
+        // that carries no authenticated identity.
+        assertThatThrownBy(() -> controller.invitationLink(new MockHttpServletRequest()))
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).code())
-                .isEqualTo(ApiErrorCode.UNAUTHORIZED);
-        assertThatThrownBy(() -> controller.invitationLink("Basic abc"))
-                .isInstanceOf(ApiException.class);
-        assertThatThrownBy(() -> controller.invitationLink("Bearer not.a.jwt"))
-                .isInstanceOf(ApiException.class);
+                .isEqualTo(ApiErrorCode.AUTHENTICATION_REQUIRED);
     }
 
     @Test
@@ -77,7 +75,7 @@ class ServerInfoControllerTests {
         ServerInfoController controller = controller("http://localhost:8080",
                 true, "APP_BASE_URL");
 
-        InvitationLinkInfo info = controller.invitationLink(bearer());
+        InvitationLinkInfo info = controller.invitationLink(signedIn());
 
         assertThat(info.baseUrl()).isEqualTo("http://localhost:8080");
         assertThat(info.localOnly()).isTrue();
@@ -89,7 +87,7 @@ class ServerInfoControllerTests {
         ServerInfoController controller = controller(
                 "http://192.168.4.31:8080", false, "auto-detected LAN address");
 
-        InvitationLinkInfo info = controller.invitationLink(bearer());
+        InvitationLinkInfo info = controller.invitationLink(signedIn());
 
         assertThat(info.baseUrl()).isEqualTo("http://192.168.4.31:8080");
         assertThat(info.localOnly()).isFalse();
