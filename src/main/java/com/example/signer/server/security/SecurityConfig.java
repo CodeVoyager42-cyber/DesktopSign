@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -78,12 +79,31 @@ public class SecurityConfig {
             // Spring's error dispatch, so a failure reports its real status.
             path("/error"));
 
+    /**
+     * The per-address sign-in limiter, as a SHARED singleton: security Phase C
+     * adds a second filter chain for the website, and both chains must count
+     * against the same budget. Two instances would mean two independent maps,
+     * so a flood could get twice the attempts simply by alternating between
+     * {@code /api/auth/login} and {@code /web/api/auth/login}.
+     */
     @Bean
+    LoginRateLimitFilter loginRateLimitFilter(
+            @Value("${signature.remote-server.login.rate-limit:20}") int rateLimit,
+            @Value("${signature.remote-server.login.rate-window-seconds:60}") long rateWindow) {
+        return new LoginRateLimitFilter(rateLimit, rateWindow, Clock.systemUTC());
+    }
+
+    /**
+     * The bearer chain. Ordered AFTER the website chain
+     * ({@link WebSecurityConfig}) because this one matches any request: Spring
+     * Security refuses a configuration where a catch-all chain is not last.
+     */
+    @Bean
+    @Order(2)
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService,
             UserAccountService accounts, ObjectProvider<InvitationService> invitations,
             ObjectProvider<LaunchCodeService> launches,
-            @Value("${signature.remote-server.login.rate-limit:20}") int rateLimit,
-            @Value("${signature.remote-server.login.rate-window-seconds:60}") long rateWindow)
+            LoginRateLimitFilter loginRateLimitFilter)
             throws Exception {
         http
             .csrf(AbstractHttpConfigurer::disable)
@@ -103,7 +123,7 @@ public class SecurityConfig {
                     .jwt(jwt -> jwt
                             .decoder(jwtService.decoder())
                             .jwtAuthenticationConverter(new TokenAuthenticationConverter())))
-            .addFilterBefore(new LoginRateLimitFilter(rateLimit, rateWindow, Clock.systemUTC()),
+            .addFilterBefore(loginRateLimitFilter,
                     BearerTokenAuthenticationFilter.class)
             .addFilterAfter(new AuthenticatedRequestFilter(accounts, invitations, launches),
                     BearerTokenAuthenticationFilter.class)

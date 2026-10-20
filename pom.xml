@@ -99,6 +99,15 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
         </dependency>
+        <!-- Security Phase C: website sessions stored in PostgreSQL, so they
+             survive a restart and work with several server instances. Only
+             the coordination server in database mode wires this up
+             (server.web.WebSessionConfiguration); the desktop context and
+             file mode never see it. -->
+        <dependency>
+            <groupId>org.springframework.session</groupId>
+            <artifactId>spring-session-jdbc</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-controls</artifactId>

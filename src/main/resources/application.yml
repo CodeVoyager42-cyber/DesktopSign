@@ -21,6 +21,12 @@ spring:
       # decoder; neither must exist.
       - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
       - org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration
+      # Website sessions (Phase C) are wired EXCLUSIVELY by the conditional
+      # server.web.WebSessionConfiguration (server + database.enabled=true).
+      # Boot's auto-configuration would otherwise look for a DataSource in
+      # every context — including the desktop — and try to create the schema
+      # itself instead of leaving it to Flyway V9.
+      - org.springframework.boot.autoconfigure.session.SessionAutoConfiguration
 
 app:
   # Public web base URL used to build the invitation link that is emailed
@@ -174,6 +180,24 @@ signature:
       # production refuses to start with it.
       accept-unknown-version: ${SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION:false}
 
+    # ── Website sessions (security Phase C) ──────────────────────────────
+    # The website (/web/**) authenticates with a server-side session stored
+    # in PostgreSQL, never with a bearer token. Separate security domain:
+    # this cookie is refused on /api/**, and a bearer token is ignored on
+    # /web/**. Requires database mode.
+    web:
+      session:
+        # __Host- prefix: the browser then enforces Secure + Path=/ + no
+        # Domain, so the cookie cannot be set by a subdomain or over plain
+        # HTTP. Production refuses any other name (ProductionSafetyValidator).
+        cookie-name: ${SIGNER_WEB_SESSION_COOKIE:__Host-SF_SESSION}
+        # Always true outside dev; production refuses false.
+        secure-cookie: ${SIGNER_WEB_SESSION_SECURE:true}
+        # Sliding window: a session dies this long after its last request.
+        idle-timeout: ${SIGNER_WEB_SESSION_IDLE:PT30M}
+        # Hard ceiling measured from login, regardless of activity.
+        absolute-timeout: ${SIGNER_WEB_SESSION_ABSOLUTE:PT8H}
+
     # ── Email delivery (Phase 5) ─────────────────────────────────────────
     # console: development mailbox — links are printed to the server CONSOLE
     #          (stdout, never the log file) in the 'dev' profile only.
@@ -219,6 +243,17 @@ signature:
     # Desktop builds started from the IDE report their version as "unknown".
     desktop:
       accept-unknown-version: true
+    web:
+      session:
+        # Development serves the website over plain http://localhost. The
+        # __Host- prefix requires the Secure attribute, and a browser only
+        # accepts a Secure cookie from a trustworthy origin. localhost counts
+        # as one in current Chrome, Edge and Firefox — but that has NOT been
+        # verified here against real browsers, so dev uses an ordinary cookie
+        # name with no Secure attribute, which works on plain HTTP anywhere.
+        # Production refuses both of these values.
+        cookie-name: SF_SESSION_DEV
+        secure-cookie: false
     users:
       alice: ${SIGNER_USER_ALICE:alice-pass}
       bob: ${SIGNER_USER_BOB:bob-pass}
