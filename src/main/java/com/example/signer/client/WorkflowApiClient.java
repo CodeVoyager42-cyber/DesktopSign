@@ -740,9 +740,16 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
                     http.send(request, HttpResponse.BodyHandlers.ofByteArray());
             if (response.statusCode() != 200) {
                 throw new SignerException(ErrorCode.WORKFLOW_INVALID,
-                        response.statusCode() == 401
-                                ? "Wrong workflow user or password"
-                                : "Login failed (HTTP " + response.statusCode() + ")");
+                        switch (response.statusCode()) {
+                            // The server deliberately gives one answer for a wrong
+                            // password, an unknown user and a temporarily locked
+                            // account, so the message has to cover all three.
+                            case 401 -> "Wrong workflow user or password. After several"
+                                    + " failed attempts, sign-in is blocked for a few minutes.";
+                            case 429 -> "Too many sign-in attempts from this computer."
+                                    + " Wait a minute, then try again.";
+                            default -> "Login failed (HTTP " + response.statusCode() + ")";
+                        });
             }
             return mapper.readValue(response.body(), TokenPairResponse.class);
         } catch (SignerException e) {
@@ -977,6 +984,8 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
             case 410 -> "This request has expired (HTTP 410).";
             case 413 -> "The document is larger than the coordination server's"
                     + " upload limit (HTTP 413). Choose a smaller PDF.";
+            case 429 -> "Too many requests to the coordination server (HTTP 429)."
+                    + " Wait a minute, then try again.";
             default -> status >= 500
                     ? "The coordination server encountered an error while"
                       + " processing the request (HTTP " + status + ")"

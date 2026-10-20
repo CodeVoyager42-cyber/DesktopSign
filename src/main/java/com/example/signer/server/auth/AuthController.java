@@ -6,11 +6,14 @@ import com.example.signer.server.api.ApiContracts.TokenPairResponse;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
+import com.example.signer.server.api.ApiErrorType.ApiException;
+import com.example.signer.server.security.AuthenticatedRequestFilter;
+
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -49,8 +52,10 @@ public class AuthController {
         if (request == null || request.username() == null
                 || request.password() == null
                 || !accounts.matches(request.username(), request.password())) {
-            log.info("Login failed for user '{}'",
-                    request == null ? "?" : request.username());
+            // Never the typed text: it is sometimes a password typed into the
+            // wrong field, and it could inject fake log lines.
+            log.info("Login failed for identifier {}",
+                    LogSafe.fingerprint(request == null ? null : request.username()));
             return unauthorized();
         }
         // The authenticated identity is the ACCOUNT, not the typed string:
@@ -109,31 +114,26 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
-    /** Who am I? Validates the presented Bearer access token. */
+    /** Who am I? The account behind the presented access token (Spring Security checked it). */
     @GetMapping("/me")
-    public ResponseEntity<MeResponse> me(
-            @RequestHeader(value = "Authorization", required = false) String header) {
-        if (header == null || !header.startsWith("Bearer ")) {
-            return unauthorizedMe();
-        }
-        try {
-            JwtService.JwtAuthentication auth =
-                    jwtService.validateAccessJwt(header.substring(7).trim());
-            return ResponseEntity.ok(new MeResponse(auth.subject()));
-        } catch (JwtService.JwtValidationException e) {
-            return unauthorizedMe();
-        }
+    public ResponseEntity<MeResponse> me(HttpServletRequest request) {
+        return ResponseEntity.ok(new MeResponse(requireUser(request)));
     }
 
     /**
-     * Resolves the authenticated workflow user from the request attribute
-     * set by {@link JwtAuthFilter}. Controllers call this instead of
-     * trusting any client-supplied identity.
+     * The authenticated user of this request, as established by Spring
+     * Security and {@link AuthenticatedRequestFilter}. Controllers call this
+     * instead of trusting any client-supplied identity.
+     *
+     * @throws ApiException {@code AUTHENTICATION_REQUIRED} (401) if the
+     *         request carries no authenticated identity
      */
     public static String requireUser(HttpServletRequest request) {
-        Object user = request.getAttribute(JwtAuthFilter.USER_ATTR);
+        Object user = request == null ? null
+                : request.getAttribute(AuthenticatedRequestFilter.USER_ATTR);
         if (user == null) {
-            throw new IllegalStateException("no authenticated user on request");
+            throw new ApiException(ApiErrorCode.AUTHENTICATION_REQUIRED,
+                    "Authentication required");
         }
         return user.toString();
     }
@@ -141,10 +141,6 @@ public class AuthController {
     private static ResponseEntity<TokenPairResponse> unauthorized() {
         return ResponseEntity.status(401)
                 .body(new TokenPairResponse(null, 0, null));
-    }
-
-    private static ResponseEntity<MeResponse> unauthorizedMe() {
-        return ResponseEntity.status(401).build();
     }
 
     /** Body of POST /api/auth/refresh and POST /api/auth/logout. */

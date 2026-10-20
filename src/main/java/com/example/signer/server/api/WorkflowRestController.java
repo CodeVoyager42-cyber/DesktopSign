@@ -39,7 +39,8 @@ import java.util.Map;
 
 /**
  * The coordination REST API (§11 of the task spec). The authenticated user is
- * resolved from the validated Bearer JWT (see {@link JwtAuthFilter} — the
+ * resolved from the validated Bearer JWT (Spring Security, see
+ * {@code server.security.SecurityConfig} — the
  * former Basic-auth filter) and injected via the
  * {@code X-Workflow-User} request attribute.
  */

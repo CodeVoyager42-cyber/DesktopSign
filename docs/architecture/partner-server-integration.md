@@ -204,7 +204,7 @@ in `document_versions`). The partner keeps only the `workflowId` and its own bus
 | Task + PDF | `GET /api/workflows/{id}/task`, `GET /api/workflows/{id}/document` | Bearer (guest) JWT | → `TaskView`, PDF bytes | Implemented |
 | Submit signature | `POST /api/workflows/{id}/signatures` (multipart) | Bearer (guest) JWT | signed PDF + `SignatureSubmissionRequest{parentRevision, parentSha256, signingOperationId}` → `SignatureSubmissionResponse{acceptedRevision, status, completed}` | Implemented |
 
-**Security filters:** `JwtAuthFilter` checks `Authorization: Bearer` on `/api/workflows/**` only.
+**Security filters:** since security Phase 2, Spring Security checks `Authorization: Bearer` on every non-public route (the diagrams above still show the earlier `JwtAuthFilter`).
 Guest tokens are limited by `GuestAccessPolicy` to one workflow and one signer slot.
 `/api/auth/**`, `/api/invitations/**` and `/invitations/{token}` are public, and the token in the
 path is the capability.

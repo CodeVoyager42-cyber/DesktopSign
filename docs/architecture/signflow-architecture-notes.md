@@ -28,7 +28,7 @@ The `.mmd` files are the editable source of truth. To re-render, paste one into
 | PDF signing / verification | `signing/DefaultPdfSigningService`, `verification/DefaultPdfVerificationService` | PDFBox incremental update, CMS `adbe.pkcs7.detached`, SHA-256; the card signs the CMS signed attributes |
 | Workflow domain | `workflow/` | Manifest embedded in the PDF, reconciliation (signatures outrank the manifest), local multi-signer engine |
 | REST server (Spring Boot, profile `server`) | `server/**` | `WorkflowRestController` (`/api/workflows/**`), `AuthController` (`/api/auth/**`), `InvitationRestController` (`/api/invitations/**`), `SignPageController` (`/invitations/{token}`, alias `/sign/{token}`) |
-| Security | `server/auth/` | `JwtAuthFilter` protects **only** `/api/workflows/**`; HS256 access JWT (15 min); rotating refresh tokens with reuse detection; guest JWT limited by `GuestAccessPolicy` to one workflow and one slot |
+| Security | `server/security/`, `server/auth/` | Spring Security protects every route by default (see `docs/security/phase-2-authentication.md`); HS256 access JWT (15 min); rotating refresh tokens with reuse detection, stored in the database; guest JWT limited by `GuestAccessPolicy` to one workflow and one slot |
 | Workflow service | `server/workflow/RemoteWorkflowService` | Turns (SEQUENTIAL/FLEXIBLE + claim), certificate binding, optimistic concurrency, server-side validation, audit |
 | Invitations | `server/invites/InvitationService` | 256-bit random token, **only its SHA-256 stored**, default expiry 48 h, resend/revoke, guest session |
 | Database | PostgreSQL via JPA + Flyway | `users`, `workflows`, `workflow_signers`, `document_versions`, `audit_events`, `invitations` |
@@ -133,7 +133,7 @@ new is creating them through the Partner API, with per-signer launch codes and w
 ---
 
 ## 5. Missing components for partner integration
-1. Partner registry and credentials: a `partner_clients` table (name, hashed credential, scopes, webhook URL and secret, allowed return URLs) and a **partner authentication filter**. Today `JwtAuthFilter` covers only `/api/workflows/**`.
+1. Partner registry and credentials: a `partner_clients` table (name, hashed credential, scopes, webhook URL and secret, allowed return URLs) and a **partner authentication filter**. Since security Phase 2, Spring Security (`SecurityConfig`) covers every route; partner credentials would be a separate authentication there.
 2. A `sign_requests` table (Flyway **V5**): partner id, `externalRef`, status, workflow id, original and signed SHA-256, callback and return URLs, expiry, idempotency key.
 3. The `PartnerApiController` endpoints listed above, with ownership checks on every read.
 4. **Launch codes**: short-lived, single-use codes, the `POST /api/launch/exchange` endpoint, and a desktop handler for `signflow://launch/{code}`. Today the long-lived invitation token itself is in the deep link.

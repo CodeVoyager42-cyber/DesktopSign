@@ -1,32 +1,50 @@
 package com.example.signer.server.auth;
 
-import java.security.SecureRandom;
-import java.util.UUID;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.env.Environment;
-import org.springframework.core.env.Profiles;
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.JwtException;
-import io.jsonwebtoken.Jwts;
+import com.nimbusds.jose.jwk.source.ImmutableSecret;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.BadJwtException;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtClaimNames;
+import org.springframework.security.oauth2.jwt.JwtClaimValidator;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.JwtException;
+import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
+import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Date;
+import java.util.List;
+import java.util.UUID;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
  * Issues and validates short-lived JWT access tokens (HS256) for the
- * coordination API (Phase 3 of the remote-workflow auth refactor).
+ * coordination API.
+ *
+ * <p>Since security Phase 2 both sides use Spring Security's JWT support
+ * ({@link NimbusJwtEncoder} / {@link NimbusJwtDecoder}); {@link #decoder()}
+ * is the same decoder the Spring Security filter chain uses, so a token is
+ * accepted or rejected by exactly one set of rules: HS256 only, valid
+ * signature, issuer, audience, unexpired, then the {@code typ} claim.
  *
  * <p>Claims are deliberately minimal: {@code sub} (workflow user id),
  * {@code iss}, {@code aud}, {@code iat}, {@code exp}, {@code jti} and a
@@ -55,16 +73,20 @@ public class JwtService {
 
     static final String ISSUER = "signer-coordination-server";
     static final String AUDIENCE = "signer-desktop-clients";
-    private static final String TYPE_ACCESS = "access";
+    /** Name of the token-type claim. */
+    public static final String TYPE_CLAIM = "typ";
+    /** {@link #TYPE_CLAIM} of an account access token. */
+    public static final String TYPE_ACCESS = "access";
     /**
      * Guest signing sessions (invited signers without a SignFlow account).
      * A different token TYPE on purpose: {@link #validateAccessJwt} rejects
      * it, so a guest token is refused everywhere by default and accepted
      * only where {@link #validateGuestJwt} is called explicitly.
      */
-    private static final String TYPE_GUEST = "guest";
+    public static final String TYPE_GUEST = "guest";
 
-    private final SecretKey key;
+    private final NimbusJwtEncoder encoder;
+    private final JwtDecoder decoder;
     private final Duration accessTtl;
 
     /** Reason a token was rejected (logged server-side, never sent to clients). */
@@ -124,8 +146,19 @@ public class JwtService {
      *        coordination server outside the {@code dev} profile)
      */
     public JwtService(String configuredSecret, long accessMinutes, boolean secretRequired) {
-        this.key = resolveKey(configuredSecret, secretRequired);
+        SecretKey key = resolveKey(configuredSecret, secretRequired);
         this.accessTtl = Duration.ofMinutes(accessMinutes);
+        this.encoder = new NimbusJwtEncoder(new ImmutableSecret<>(key));
+        NimbusJwtDecoder nimbus = NimbusJwtDecoder.withSecretKey(key)
+                .macAlgorithm(MacAlgorithm.HS256)
+                .build();
+        // No clock skew: an expired token is expired (same as before Phase 2).
+        nimbus.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                new JwtTimestampValidator(Duration.ZERO),
+                new JwtIssuerValidator(ISSUER),
+                new JwtClaimValidator<List<String>>(JwtClaimNames.AUD,
+                        aud -> aud != null && aud.contains(AUDIENCE))));
+        this.decoder = nimbus;
         log.info("JWT access tokens: HS256, ttl={}min, secret={}", accessMinutes,
                 configuredSecret == null || configuredSecret.isBlank()
                         ? "ephemeral random (development / non-server context)"
@@ -154,19 +187,21 @@ public class JwtService {
         return new SecretKeySpec(random, "HmacSHA256");
     }
 
+    /**
+     * The decoder enforcing signature, algorithm, issuer, audience and
+     * expiry. Shared with the Spring Security filter chain. The {@code typ}
+     * claim is checked afterwards ({@link #toAccess}, {@link #toGuest}).
+     */
+    public JwtDecoder decoder() {
+        return decoder;
+    }
+
     /** Issues an access token for {@code userId}. */
     public String issueAccessJwt(String userId) {
         Instant now = Instant.now();
-        return Jwts.builder()
-                .subject(userId)
-                .issuer(ISSUER)
-                .audience().add(AUDIENCE).and()
-                .id(UUID.randomUUID().toString())
-                .claim("typ", TYPE_ACCESS)
-                .issuedAt(Date.from(now))
-                .expiration(Date.from(now.plus(accessTtl)))
-                .signWith(key, Jwts.SIG.HS256)
-                .compact();
+        return sign(base(userId, now, now.plus(accessTtl))
+                .claim(TYPE_CLAIM, TYPE_ACCESS)
+                .build());
     }
 
     /**
@@ -181,55 +216,12 @@ public class JwtService {
         if (notAfter != null && notAfter.isBefore(expiry)) {
             expiry = notAfter;
         }
-        return Jwts.builder()
-                .subject(principal)
-                .issuer(ISSUER)
-                .audience().add(AUDIENCE).and()
-                .id(UUID.randomUUID().toString())
-                .claim("typ", TYPE_GUEST)
+        return sign(base(principal, now, expiry)
+                .claim(TYPE_CLAIM, TYPE_GUEST)
                 .claim("wf", workflowId)
                 .claim("slot", signerOrder)
                 .claim("inv", invitationId)
-                .issuedAt(Date.from(now))
-                .expiration(Date.from(expiry))
-                .signWith(key, Jwts.SIG.HS256)
-                .compact();
-    }
-
-    /** Validates a guest signing-session token (signature, expiry, type, scope claims). */
-    public GuestAuthentication validateGuestJwt(String token) {
-        Claims claims = parse(token);
-        if (!TYPE_GUEST.equals(claims.get("typ", String.class))) {
-            throw new JwtValidationException(RejectionReason.WRONG_TYPE, "wrong token type");
-        }
-        if (claims.getAudience() == null || !claims.getAudience().contains(AUDIENCE)) {
-            throw new JwtValidationException(RejectionReason.BAD_AUDIENCE, "bad audience");
-        }
-        String subject = claims.getSubject();
-        String workflowId = claims.get("wf", String.class);
-        Number slot = claims.get("slot", Number.class);
-        Number inv = claims.get("inv", Number.class);
-        if (subject == null || subject.isBlank() || workflowId == null || workflowId.isBlank()
-                || slot == null || inv == null) {
-            throw new JwtValidationException(RejectionReason.MISSING_CLAIM, "missing claim");
-        }
-        return new GuestAuthentication(subject, workflowId, slot.intValue(), inv.longValue(),
-                claims.getId(), claims.getExpiration().toInstant());
-    }
-
-    private Claims parse(String token) {
-        try {
-            return Jwts.parser()
-                    .verifyWith(key)
-                    .requireIssuer(ISSUER)
-                    .build()
-                    .parseSignedClaims(token)
-                    .getPayload();
-        } catch (io.jsonwebtoken.ExpiredJwtException e) {
-            throw new JwtValidationException(RejectionReason.EXPIRED, "token expired");
-        } catch (JwtException | IllegalArgumentException e) {
-            throw new JwtValidationException(RejectionReason.MALFORMED, "token rejected");
-        }
+                .build());
     }
 
     /** Seconds until an access token issued now expires. */
@@ -237,36 +229,89 @@ public class JwtService {
         return accessTtl.toSeconds();
     }
 
-    /** Validates signature, expiry, issuer, audience and token type. */
+    /** Validates signature, algorithm, expiry, issuer, audience and token type. */
     public JwtAuthentication validateAccessJwt(String token) {
-        Claims claims;
-        try {
-            claims = Jwts.parser()
-                    .verifyWith(key)
-                    .requireIssuer(ISSUER)
-                    .build()
-                    .parseSignedClaims(token)
-                    .getPayload();
-        } catch (io.jsonwebtoken.ExpiredJwtException e) {
-            throw new JwtValidationException(RejectionReason.EXPIRED, "token expired");
-        } catch (JwtException | IllegalArgumentException e) {
-            throw new JwtValidationException(RejectionReason.MALFORMED,
-                    "token rejected");
+        return toAccess(decode(token));
+    }
+
+    /** Validates a guest signing-session token (signature, expiry, type, scope claims). */
+    public GuestAuthentication validateGuestJwt(String token) {
+        return toGuest(decode(token));
+    }
+
+    /** An already-decoded token as an account access token, or a rejection. */
+    public static JwtAuthentication toAccess(Jwt jwt) {
+        if (!TYPE_ACCESS.equals(jwt.getClaimAsString(TYPE_CLAIM))) {
+            throw new JwtValidationException(RejectionReason.WRONG_TYPE, "wrong token type");
         }
-        if (!TYPE_ACCESS.equals(claims.get("typ", String.class))) {
-            throw new JwtValidationException(RejectionReason.WRONG_TYPE,
-                    "wrong token type");
-        }
-        if (claims.getAudience() == null || !claims.getAudience().contains(AUDIENCE)) {
-            throw new JwtValidationException(RejectionReason.BAD_AUDIENCE,
-                    "bad audience");
-        }
-        String subject = claims.getSubject();
+        String subject = jwt.getSubject();
         if (subject == null || subject.isBlank()) {
-            throw new JwtValidationException(RejectionReason.MISSING_CLAIM,
-                    "missing subject");
+            throw new JwtValidationException(RejectionReason.MISSING_CLAIM, "missing subject");
         }
-        return new JwtAuthentication(subject, claims.getId(),
-                claims.getExpiration().toInstant());
+        return new JwtAuthentication(subject, jwt.getId(), jwt.getExpiresAt());
+    }
+
+    /** An already-decoded token as a guest session, or a rejection. */
+    public static GuestAuthentication toGuest(Jwt jwt) {
+        if (!TYPE_GUEST.equals(jwt.getClaimAsString(TYPE_CLAIM))) {
+            throw new JwtValidationException(RejectionReason.WRONG_TYPE, "wrong token type");
+        }
+        String subject = jwt.getSubject();
+        String workflowId = jwt.getClaimAsString("wf");
+        Object slot = jwt.getClaim("slot");
+        Object inv = jwt.getClaim("inv");
+        if (subject == null || subject.isBlank() || workflowId == null || workflowId.isBlank()
+                || !(slot instanceof Number s) || !(inv instanceof Number i)) {
+            throw new JwtValidationException(RejectionReason.MISSING_CLAIM, "missing claim");
+        }
+        return new GuestAuthentication(subject, workflowId, s.intValue(), i.longValue(),
+                jwt.getId(), jwt.getExpiresAt());
+    }
+
+    private Jwt decode(String token) {
+        if (token == null || token.isBlank()) {
+            throw new JwtValidationException(RejectionReason.MALFORMED, "token rejected");
+        }
+        try {
+            return decoder.decode(token);
+        } catch (org.springframework.security.oauth2.jwt.JwtValidationException e) {
+            throw new JwtValidationException(reasonOf(e), "token rejected");
+        } catch (BadJwtException e) {
+            throw new JwtValidationException(RejectionReason.MALFORMED, "token rejected");
+        } catch (JwtException | IllegalArgumentException e) {
+            throw new JwtValidationException(RejectionReason.MALFORMED, "token rejected");
+        }
+    }
+
+    /** Which check failed, for the server log only. */
+    static RejectionReason reasonOf(org.springframework.security.oauth2.jwt.JwtValidationException e) {
+        for (OAuth2Error error : e.getErrors()) {
+            String text = error.getDescription() == null ? "" : error.getDescription();
+            if (text.contains("expired")) {
+                return RejectionReason.EXPIRED;
+            }
+            if (text.contains(JwtClaimNames.ISS)) {
+                return RejectionReason.BAD_ISSUER;
+            }
+            if (text.contains(JwtClaimNames.AUD)) {
+                return RejectionReason.BAD_AUDIENCE;
+            }
+        }
+        return RejectionReason.MALFORMED;
+    }
+
+    private static JwtClaimsSet.Builder base(String subject, Instant now, Instant expiry) {
+        return JwtClaimsSet.builder()
+                .subject(subject)
+                .issuer(ISSUER)
+                .audience(List.of(AUDIENCE))
+                .id(UUID.randomUUID().toString())
+                .issuedAt(now)
+                .expiresAt(expiry);
+    }
+
+    private String sign(JwtClaimsSet claims) {
+        return encoder.encode(JwtEncoderParameters.from(
+                JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
     }
 }
