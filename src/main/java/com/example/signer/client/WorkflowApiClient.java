@@ -1157,26 +1157,43 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
 
     private static SignerException transportFailure(String baseUrl, String action,
                                                     Exception e) {
-        Throwable root = rootCause(e);
         String where = baseUrl == null || baseUrl.isBlank() ? "" : " at " + baseUrl;
-        if (root instanceof ConnectException) {
-            return new SignerException(ErrorCode.WORKFLOW_INVALID,
-                    "Could not connect to the coordination server" + where
-                            + ". Make sure it is running, then try again.", e);
-        }
-        if (root instanceof HttpConnectTimeoutException
-                || root instanceof HttpTimeoutException) {
+        // The whole cause chain is searched, not just its deepest link: the
+        // JDK's HTTP client wraps the same condition differently per release.
+        // A refused connection is ConnectException → ConnectException on
+        // JDK 26, but ConnectException → ConnectException →
+        // ClosedChannelException on JDK 21, so looking only at the deepest
+        // cause reported a raw "ClosedChannelException" to the user there.
+        // Timeouts are checked first: they say more about what happened than
+        // a ConnectException that may sit deeper in the same chain.
+        if (hasCause(e, HttpConnectTimeoutException.class)
+                || hasCause(e, HttpTimeoutException.class)) {
             return new SignerException(ErrorCode.WORKFLOW_INVALID,
                     "The coordination server" + where
                             + " did not respond in time.", e);
         }
-        if (root instanceof UnknownHostException) {
+        if (hasCause(e, UnknownHostException.class)) {
             return new SignerException(ErrorCode.WORKFLOW_INVALID,
                     "The coordination server address" + where
                             + " could not be resolved.", e);
         }
+        if (hasCause(e, ConnectException.class)) {
+            return new SignerException(ErrorCode.WORKFLOW_INVALID,
+                    "Could not connect to the coordination server" + where
+                            + ". Make sure it is running, then try again.", e);
+        }
         return new SignerException(ErrorCode.WORKFLOW_INVALID,
                 action + " failed: " + rootMessage(e), e);
+    }
+
+    /** Whether {@code type} appears anywhere in {@code t}'s cause chain. */
+    private static boolean hasCause(Throwable t, Class<? extends Throwable> type) {
+        for (Throwable cause = t; cause != null; cause = cause.getCause()) {
+            if (type.isInstance(cause)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Throwable rootCause(Throwable t) {
