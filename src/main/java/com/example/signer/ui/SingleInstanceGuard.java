@@ -217,6 +217,7 @@ final class SingleInstanceGuard {
             lockChannel = FileChannel.open(runDir.resolve(LOCK_FILE),
                     StandardOpenOption.CREATE, StandardOpenOption.WRITE,
                     LinkOption.NOFOLLOW_LINKS);
+            secureLockFile(runDir.resolve(LOCK_FILE));
         } catch (IOException | SecurityException | UnsupportedOperationException e) {
             log.warn("Single-instance guard unavailable ({}); running on its own, without"
                     + " hand-off", e.getClass().getSimpleName());
@@ -587,7 +588,7 @@ final class SingleInstanceGuard {
         } else {
             view(dir).setAcl(windowsEntries(me, true));
         }
-        verifyOwnerOnly(dir, me, true);
+        verifyOwnerOnly(dir, me, true, "run directory");
     }
 
     /**
@@ -609,7 +610,7 @@ final class SingleInstanceGuard {
                     ch.write(buffer);
                 }
             }
-            verifyOwnerOnly(tmp, me, false);
+            verifyOwnerOnly(tmp, me, false, "key file");
             try {
                 Files.move(tmp, dir.resolve(KEY_FILE), StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING);
@@ -635,7 +636,7 @@ final class SingleInstanceGuard {
                 || !me.equals(Files.getOwner(dir, LinkOption.NOFOLLOW_LINKS))) {
             throw new IOException("run directory failed verification");
         }
-        verifyOwnerOnly(dir, me, true);
+        verifyOwnerOnly(dir, me, true, "run directory");
         Path file = dir.resolve(KEY_FILE);
         verifyKeyFile(file, me);
         byte[] bytes = new byte[KEY_BYTES];
@@ -664,26 +665,54 @@ final class SingleInstanceGuard {
         if (!me.equals(Files.getOwner(file, LinkOption.NOFOLLOW_LINKS))) {
             throw new IOException("key file is owned by another account");
         }
-        verifyOwnerOnly(file, me, false);
+        verifyOwnerOnly(file, me, false, "key file");
+    }
+
+    /**
+     * Makes sure a pre-existing {@code instance.lock} cannot be used by another
+     * account. The lock file outlives a run (it is never rewritten), so an
+     * earlier owner-only ACL can have been widened since — by an administrator,
+     * or by re-enabled inheritance. The permissions are therefore read back and,
+     * because this account owns the file, re-applied once and verified again
+     * before the lock is trusted.
+     */
+    private static void secureLockFile(Path lock) throws IOException {
+        UserPrincipal me = currentAccount();
+        if (!me.equals(Files.getOwner(lock, LinkOption.NOFOLLOW_LINKS))) {
+            throw new IOException("lock file is owned by another account");
+        }
+        try {
+            verifyOwnerOnly(lock, me, false, "lock file");
+        } catch (IOException widened) {
+            applyOwnerOnly(lock, me);
+            verifyOwnerOnly(lock, me, false, "lock file");
+        }
+    }
+
+    /** Sets owner-only permissions on a file (POSIX 600, or this account and SYSTEM). */
+    private static void applyOwnerOnly(Path path, UserPrincipal me) throws IOException {
+        if (posix(path)) {
+            Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------"));
+        } else {
+            view(path).setAcl(windowsEntries(me, false));
+        }
     }
 
     /** Reads the permissions back: owner-only (POSIX) or only this account and SYSTEM (Windows). */
-    private static void verifyOwnerOnly(Path path, UserPrincipal me, boolean directory)
-            throws IOException {
+    private static void verifyOwnerOnly(Path path, UserPrincipal me, boolean directory,
+            String what) throws IOException {
         if (posix(path)) {
             Set<PosixFilePermission> actual = Files.getPosixFilePermissions(path,
                     LinkOption.NOFOLLOW_LINKS);
             Set<PosixFilePermission> expected = PosixFilePermissions.fromString(
                     directory ? "rwx------" : "rw-------");
             if (!actual.equals(expected)) {
-                throw new IOException((directory ? "run directory" : "key file")
-                        + " is accessible to other accounts");
+                throw new IOException(what + " is accessible to other accounts");
             }
             return;
         }
         if (!aclIsPrivate(view(path).getAcl(), me, windowsAllowed(me))) {
-            throw new IOException((directory ? "run directory" : "key file")
-                    + " grants access to other accounts");
+            throw new IOException(what + " grants access to other accounts");
         }
     }
 

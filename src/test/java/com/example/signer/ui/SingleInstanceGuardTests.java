@@ -243,6 +243,21 @@ class SingleInstanceGuardTests {
     }
 
     @Test
+    void aPreExistingLockFileWithLoosePermissionsIsTightenedThenVerified() throws Exception {
+        Assumptions.assumeTrue(posix(temp), "POSIX permissions");
+        Path dir = Files.createDirectory(temp.resolve("run"));
+        Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwx------"));
+        // A lock file left by an earlier run: it is never rewritten, so its
+        // permissions can have been widened since (administrator, inheritance).
+        Path lock = Files.createFile(dir.resolve(SingleInstanceGuard.LOCK_FILE));
+        setPerms(lock, "rw-r--r--");
+        assertThat(guard(dir).acquire(null)).isEqualTo(Outcome.FIRST_INSTANCE);
+        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(lock)))
+                .as("the stale lock file is tightened to owner-only before it is trusted")
+                .isEqualTo("rw-------");
+    }
+
+    @Test
     void aKeyFileThatFailsVerificationIsNeverTrusted() throws Exception {
         Assumptions.assumeTrue(posix(temp), "POSIX permissions");
         List<Consumer<Path>> tamperings = new java.util.ArrayList<>(List.of(

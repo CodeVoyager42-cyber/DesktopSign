@@ -244,7 +244,10 @@ UI (JavaFX workspace)
   production servers reject its certificates
 - Configure real credentials and a real PKCS#11 library via the environment
   variables above before any production use
-- The application makes no network connections; there is no HTTP surface
+- The desktop app talks to the SignFlow coordination server over HTTPS (plain
+  HTTP only to this machine's loopback address, in the `dev` profile) and opens
+  **no listening network port** of its own; the single-instance hand-off between
+  two launches uses a private local socket in a per-user directory, not TCP
 
 ## License
 
