@@ -143,4 +143,102 @@ class ProductionSafetyValidatorTests {
         assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
                 .hasMessageContaining("SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION=true");
     }
+
+    /* ------------- website sessions (security Phase C) ----------------- */
+
+    /** A production server in database mode, safe apart from what a test changes. */
+    private static MockEnvironment productionWebServer() {
+        MockEnvironment env = env("server");
+        env.setProperty("server.ssl.key-store", "classpath:server.p12");
+        env.setProperty("signature.remote-server.database.enabled", "true");
+        env.setProperty("signature.remote-server.invitation.public-base-url",
+                "https://signflow.example.com");
+        env.setProperty("signature.remote-server.email.mode", "smtp");
+        return env;
+    }
+
+    @Test
+    void productionRefusesTheDevelopmentWebSessionCookie() {
+        MockEnvironment env = productionWebServer();
+        // Exactly what the dev profile sets.
+        env.setProperty("signature.remote-server.web.session.cookie-name", "SF_SESSION_DEV");
+        env.setProperty("signature.remote-server.web.session.secure-cookie", "false");
+
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("__Host- prefix")
+                .hasMessageContaining("SIGNER_WEB_SESSION_SECURE=false");
+    }
+
+    @Test
+    void productionRefusesASessionCookieWithoutTheHostPrefix() {
+        MockEnvironment env = productionWebServer();
+        env.setProperty("signature.remote-server.web.session.cookie-name", "SF_SESSION");
+
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                .hasMessageContaining("__Host- prefix");
+    }
+
+    @Test
+    void productionRefusesWebSessionsThatNeverTimeOut() {
+        MockEnvironment zero = productionWebServer();
+        zero.setProperty("signature.remote-server.web.session.idle-timeout", "PT0S");
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(zero))
+                .hasMessageContaining("SIGNER_WEB_SESSION_IDLE");
+
+        MockEnvironment huge = productionWebServer();
+        huge.setProperty("signature.remote-server.web.session.idle-timeout", "PT500H");
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(huge))
+                .hasMessageContaining("SIGNER_WEB_SESSION_IDLE");
+
+        MockEnvironment longLived = productionWebServer();
+        longLived.setProperty("signature.remote-server.web.session.absolute-timeout", "PT900H");
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(longLived))
+                .hasMessageContaining("SIGNER_WEB_SESSION_ABSOLUTE");
+    }
+
+    @Test
+    void productionRefusesAnAbsoluteTimeoutShorterThanTheIdleOne() {
+        MockEnvironment env = productionWebServer();
+        env.setProperty("signature.remote-server.web.session.idle-timeout", "PT2H");
+        env.setProperty("signature.remote-server.web.session.absolute-timeout", "PT1H");
+
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                .hasMessageContaining("shorter than");
+    }
+
+    @Test
+    void productionRefusesAnUnparseableTimeout() {
+        MockEnvironment env = productionWebServer();
+        env.setProperty("signature.remote-server.web.session.idle-timeout", "30 minutes");
+
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                .hasMessageContaining("ISO-8601 duration");
+    }
+
+    @Test
+    void theProductionWebSessionDefaultsAreAccepted() {
+        // No web.session.* properties at all: the built-in defaults must pass.
+        assertThatCode(() -> ProductionSafetyValidator.validate(productionWebServer()))
+                .doesNotThrowAnyException();
+
+        MockEnvironment explicit = productionWebServer();
+        explicit.setProperty("signature.remote-server.web.session.cookie-name",
+                "__Host-SF_SESSION");
+        explicit.setProperty("signature.remote-server.web.session.secure-cookie", "true");
+        explicit.setProperty("signature.remote-server.web.session.idle-timeout", "PT30M");
+        explicit.setProperty("signature.remote-server.web.session.absolute-timeout", "PT8H");
+        assertThatCode(() -> ProductionSafetyValidator.validate(explicit))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void theDevProfileMayUseAPlainHttpSessionCookie() {
+        MockEnvironment dev = env("server", "dev");
+        dev.setProperty("signature.remote-server.web.session.cookie-name", "SF_SESSION_DEV");
+        dev.setProperty("signature.remote-server.web.session.secure-cookie", "false");
+
+        assertThatCode(() -> ProductionSafetyValidator.validate(dev))
+                .doesNotThrowAnyException();
+    }
 }

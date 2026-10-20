@@ -42,4 +42,23 @@ public interface UserAccountService {
     /** Called after a successful login so implementations can bookkeep. */
     default void onLoginSuccess(String username) {
     }
+
+    /**
+     * The non-secret profile of an account, for the website's {@code /me}
+     * (security Phase C). Implementations must never put a password, a hash,
+     * a token or any workflow data in it.
+     *
+     * <p>File-mode accounts have no e-mail, so the default reports none and
+     * reports the address as unverified.
+     */
+    default AccountProfile profile(String username) {
+        return new AccountProfile(username, null, false);
+    }
+
+    /**
+     * What a signed-in visitor may learn about their own account. Nothing
+     * here is a credential and nothing here identifies another account.
+     */
+    record AccountProfile(String username, String email, boolean emailVerified) {
+    }
 }
