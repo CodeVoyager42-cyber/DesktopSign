@@ -100,6 +100,30 @@ final class AppNavigator {
     }
 
     /**
+     * Phase B: opened from a website launch link. The one-time code is
+     * exchanged for a session limited to that one signing task, then the
+     * same signing screens as an invited guest's open — no sign-in, no task
+     * lists. Local PKCS#11 signing is unchanged.
+     */
+    void openLaunch(Window parent, String code) {
+        com.example.signer.ui.dialog.LaunchDialog.Result result =
+                new com.example.signer.ui.dialog.LaunchDialog(services.remoteBaseUrl(), code)
+                        .showAndWait(parent);
+        if (result == null) {
+            return;
+        }
+        var session = result.session();
+        log.info("Desktop task session opened for workflow {}", session.workflowId());
+        try {
+            remoteWorkflowDialog().showGuestAndWait(owner, result.client(), session.signerId(),
+                    session.workflowId(), null, session.documentName());
+        } finally {
+            // Wipes the task token from memory.
+            result.client().close();
+        }
+    }
+
+    /**
      * One, two or three people sign a PDF on this computer, one after the
      * other. One signer uses the very same workspace, so every local signing
      * looks and works the same way.

@@ -103,7 +103,8 @@ touches the stored revision.
 
 ## 6. Desktop client
 
-- `WorkflowApiClient` — JDK `HttpClient`, hand-rolled multipart, Basic auth,
+- `WorkflowApiClient` — JDK `HttpClient`, hand-rolled multipart, JWT bearer
+  sessions (15-minute access token, rotating refresh token; Basic auth is gone),
   error translation. Per-user instance, not a singleton bean.
 - `RemoteSigningService` — one remote step: task → download → **local**
   pre-sign validation → **local** PKCS#11 signing via the existing

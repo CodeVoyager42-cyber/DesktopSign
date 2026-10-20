@@ -10,6 +10,8 @@ import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -44,7 +46,8 @@ import javax.crypto.spec.SecretKeySpec;
  * ({@link NimbusJwtEncoder} / {@link NimbusJwtDecoder}); {@link #decoder()}
  * is the same decoder the Spring Security filter chain uses, so a token is
  * accepted or rejected by exactly one set of rules: HS256 only, valid
- * signature, issuer, audience, unexpired, then the {@code typ} claim.
+ * signature, issuer, audience, unexpired, {@code exp} and {@code iat}
+ * present with a bounded lifetime, then the {@code typ} claim.
  *
  * <p>Claims are deliberately minimal: {@code sub} (workflow user id),
  * {@code iss}, {@code aud}, {@code iat}, {@code exp}, {@code jti} and a
@@ -84,6 +87,14 @@ public class JwtService {
      * only where {@link #validateGuestJwt} is called explicitly.
      */
     public static final String TYPE_GUEST = "guest";
+
+    /**
+     * Desktop task session opened with a website launch code (Phase B): one
+     * account, one workflow, one signer slot, short-lived, never refreshed.
+     * Accepted only where a guest token would be ({@code GuestAccessPolicy})
+     * and only while its launch code is not revoked.
+     */
+    public static final String TYPE_TASK = "task";
 
     private final NimbusJwtEncoder encoder;
     private final JwtDecoder decoder;
@@ -134,18 +145,31 @@ public class JwtService {
     public JwtService(
             @Value("${signature.remote-server.jwt-secret:}") String configuredSecret,
             @Value("${signature.remote-server.access-token-minutes:15}") long accessMinutes,
+            @Value("${signature.remote-server.guest-session-minutes:60}") long guestMinutes,
+            @Value("${signature.remote-server.desktop.task-session-minutes:30}") long taskMinutes,
             Environment environment) {
-        this(configuredSecret, accessMinutes,
+        this(configuredSecret, accessMinutes, Math.max(guestMinutes, taskMinutes),
                 environment.acceptsProfiles(Profiles.of("server"))
                         && !environment.acceptsProfiles(
                                 Profiles.of("dev")));
+    }
+
+    /** As configured by Spring, with the default 60-minute guest sessions. */
+    public JwtService(String configuredSecret, long accessMinutes, Environment environment) {
+        this(configuredSecret, accessMinutes, 60, 30, environment);
+    }
+
+    /** Guest sessions limited to the default 60 minutes. */
+    public JwtService(String configuredSecret, long accessMinutes, boolean secretRequired) {
+        this(configuredSecret, accessMinutes, 60, secretRequired);
     }
 
     /**
      * @param secretRequired whether a configured secret is mandatory (the
      *        coordination server outside the {@code dev} profile)
      */
-    public JwtService(String configuredSecret, long accessMinutes, boolean secretRequired) {
+    public JwtService(String configuredSecret, long accessMinutes, long guestMinutes,
+                      boolean secretRequired) {
         SecretKey key = resolveKey(configuredSecret, secretRequired);
         this.accessTtl = Duration.ofMinutes(accessMinutes);
         this.encoder = new NimbusJwtEncoder(new ImmutableSecret<>(key));
@@ -157,7 +181,8 @@ public class JwtService {
                 new JwtTimestampValidator(Duration.ZERO),
                 new JwtIssuerValidator(ISSUER),
                 new JwtClaimValidator<List<String>>(JwtClaimNames.AUD,
-                        aud -> aud != null && aud.contains(AUDIENCE))));
+                        aud -> aud != null && aud.contains(AUDIENCE)),
+                lifetimeValidator(Duration.ofMinutes(Math.max(accessMinutes, guestMinutes)))));
         this.decoder = nimbus;
         log.info("JWT access tokens: HS256, ttl={}min, secret={}", accessMinutes,
                 configuredSecret == null || configuredSecret.isBlank()
@@ -186,6 +211,36 @@ public class JwtService {
         new SecureRandom().nextBytes(random);
         return new SecretKeySpec(random, "HmacSHA256");
     }
+
+    /**
+     * Requires {@code exp} and {@code iat} (the timestamp validator only
+     * checks {@code exp} when present), refuses an {@code iat} in the future
+     * beyond {@link #ISSUED_AT_SKEW}, and a lifetime ({@code exp - iat})
+     * longer than {@code max}. Every token this server issues passes; a
+     * token minted elsewhere with the key but no expiry does not.
+     */
+    static OAuth2TokenValidator<Jwt> lifetimeValidator(Duration max) {
+        return jwt -> {
+            Instant issued = jwt.getIssuedAt();
+            Instant expires = jwt.getExpiresAt();
+            if (issued == null || expires == null) {
+                return OAuth2TokenValidatorResult.failure(
+                        new OAuth2Error("invalid_token", "exp and iat are required", null));
+            }
+            if (issued.isAfter(Instant.now().plus(ISSUED_AT_SKEW))) {
+                return OAuth2TokenValidatorResult.failure(
+                        new OAuth2Error("invalid_token", "iat is in the future", null));
+            }
+            if (Duration.between(issued, expires).compareTo(max) > 0) {
+                return OAuth2TokenValidatorResult.failure(
+                        new OAuth2Error("invalid_token", "token lifetime too long", null));
+            }
+            return OAuth2TokenValidatorResult.success();
+        };
+    }
+
+    /** Tolerated clock difference for {@code iat} between server instances. */
+    static final Duration ISSUED_AT_SKEW = Duration.ofSeconds(30);
 
     /**
      * The decoder enforcing signature, algorithm, issuer, audience and
@@ -232,6 +287,49 @@ public class JwtService {
     /** Validates signature, algorithm, expiry, issuer, audience and token type. */
     public JwtAuthentication validateAccessJwt(String token) {
         return toAccess(decode(token));
+    }
+
+    /**
+     * Issues a desktop task token (Phase B) for {@code principal}'s slot
+     * {@code signerOrder} of {@code workflowId}, opened with launch code
+     * {@code launchId}. No refresh token exists for it.
+     */
+    public String issueTaskJwt(String principal, String workflowId, int signerOrder,
+                               long launchId, Duration ttl) {
+        Instant now = Instant.now();
+        return sign(base(principal, now, now.plus(ttl))
+                .claim(TYPE_CLAIM, TYPE_TASK)
+                .claim("wf", workflowId)
+                .claim("slot", signerOrder)
+                .claim("lc", launchId)
+                .build());
+    }
+
+    /** A validated desktop task session. */
+    public record TaskAuthentication(String principal, String workflowId, int signerOrder,
+                                     long launchId, String tokenId, Instant expiresAt) {
+    }
+
+    /** An already-decoded token as a desktop task session, or a rejection. */
+    public static TaskAuthentication toTask(Jwt jwt) {
+        if (!TYPE_TASK.equals(jwt.getClaimAsString(TYPE_CLAIM))) {
+            throw new JwtValidationException(RejectionReason.WRONG_TYPE, "wrong token type");
+        }
+        String subject = jwt.getSubject();
+        String workflowId = jwt.getClaimAsString("wf");
+        Object slot = jwt.getClaim("slot");
+        Object lc = jwt.getClaim("lc");
+        if (subject == null || subject.isBlank() || workflowId == null || workflowId.isBlank()
+                || !(slot instanceof Number s) || !(lc instanceof Number l)) {
+            throw new JwtValidationException(RejectionReason.MISSING_CLAIM, "missing claim");
+        }
+        return new TaskAuthentication(subject, workflowId, s.intValue(), l.longValue(),
+                jwt.getId(), jwt.getExpiresAt());
+    }
+
+    /** Validates a desktop task token (signature, expiry, type, scope claims). */
+    public TaskAuthentication validateTaskJwt(String token) {
+        return toTask(decode(token));
     }
 
     /** Validates a guest signing-session token (signature, expiry, type, scope claims). */

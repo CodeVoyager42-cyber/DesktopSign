@@ -18,7 +18,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Limits password attempts per client address (security Phase 2): at most
+ * Limits password and guest-code attempts per client address (security
+ * Phases 2 and 3): at most
  * {@code max} requests to the credential endpoints per address within a
  * sliding {@code window}; beyond that the server answers {@code 429} with
  * {@code Retry-After}, before any password is checked.
@@ -37,7 +38,18 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(LoginRateLimitFilter.class);
 
     /** Credential endpoints: each request checks a password. */
-    static final Set<String> LIMITED_PATHS = Set.of("/api/auth/login", "/api/auth/register");
+    static final String LAUNCH_PATH = "/api/desktop/launch";
+
+    static final Set<String> LIMITED_PATHS = Set.of("/api/auth/login", "/api/auth/register",
+            // Phase B: each exchange tests a launch code (own bucket).
+            LAUNCH_PATH);
+
+    /**
+     * Guest verification endpoints (security Phase 3): each request sends or
+     * checks an e-mailed code, so they share the same per-address limit.
+     */
+    static final java.util.regex.Pattern GUEST_PATHS = java.util.regex.Pattern.compile(
+            "^/api/invitations/[^/]+/(guest-code|guest-session)$");
 
     /** Above this many tracked addresses, idle ones are dropped. */
     private static final int MAX_TRACKED = 10_000;
@@ -58,15 +70,22 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
+        String uri = request.getRequestURI();
         return !"POST".equals(request.getMethod())
-                || !LIMITED_PATHS.contains(request.getRequestURI());
+                || !(LIMITED_PATHS.contains(uri) || GUEST_PATHS.matcher(uri).matches());
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
         String address = request.getRemoteAddr();
-        long retryAfterSeconds = tryAcquire(address == null ? "unknown" : address);
+        String key = address == null ? "unknown" : address;
+        // Launch exchanges get their own bucket (Phase B remediation): a
+        // flood of one kind cannot lock the same address out of the other.
+        if (LAUNCH_PATH.equals(request.getRequestURI())) {
+            key = key + "|launch";
+        }
+        long retryAfterSeconds = tryAcquire(key);
         if (retryAfterSeconds > 0) {
             log.warn("Sign-in rate limit reached for {} on {}", address, request.getRequestURI());
             response.setStatus(429);

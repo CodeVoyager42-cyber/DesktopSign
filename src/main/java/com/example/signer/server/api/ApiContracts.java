@@ -265,6 +265,59 @@ public final class ApiContracts {
      * it is not a login and expires with the invitation at the latest.
      * {@code signerId} is the slot's signer id as it appears in the task.
      */
+    /* ---------------- Phase B: website → desktop launch codes ---------------- */
+
+    /**
+     * Answer of POST /api/workflows/{id}/launch-codes: the link to open
+     * (contains the one-time code) and how many seconds it stays valid.
+     */
+    public record LaunchCodeIssued(String deepLink, long expiresInSeconds) {
+        @Override
+        public String toString() {
+            return "LaunchCodeIssued[expiresInSeconds=" + expiresInSeconds + "]";
+        }
+    }
+
+    /** Body of POST /api/desktop/launch. */
+    public record LaunchExchangeRequest(String code, String appVersion, String device) {
+        @Override
+        public String toString() {
+            return "LaunchExchangeRequest[appVersion=" + appVersion + "]";
+        }
+    }
+
+    /** Answer of POST /api/desktop/launch: a task session for ONE signing task. */
+    public record LaunchSessionView(String accessToken, String tokenType, long expiresIn,
+                                    String workflowId, int signerOrder, String signerId,
+                                    String documentName, String minDesktopVersion) {
+        @Override
+        public String toString() {
+            return "LaunchSessionView[workflowId=" + workflowId + ", signerOrder=" + signerOrder + "]";
+        }
+    }
+
+    /** One of the user's own launches, for the "opened on device X" notice. */
+    public record LaunchView(long id, String workflowId, int signerOrder, String state,
+                             String createdAt, String expiresAt, String consumedAt,
+                             String appVersion, String device) {
+    }
+
+    /** GET /api/health: reachability only, nothing sensitive. */
+    public record HealthView(String status, int apiVersion, String minDesktopVersion) {
+    }
+
+    /** Body of POST /api/invitations/{token}/guest-session (security Phase 3). */
+    public record GuestSessionRequest(String code) {
+    }
+
+    /**
+     * Answer of POST /api/invitations/{token}/guest-code: where the code went
+     * (masked) and when it expires / when a new one may be requested.
+     */
+    public record GuestCodeView(String sentTo, long expiresInSeconds,
+                                long resendAfterSeconds) {
+    }
+
     public record GuestSessionView(
             String accessToken,
             String tokenType,

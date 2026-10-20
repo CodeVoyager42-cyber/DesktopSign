@@ -609,8 +609,11 @@ public final class NewWorkflowWizard {
 
     private void showSuccess(CreateWorkflowResponse created) {
         WorkflowView workflow = created.workflow();
+        // Outside development the server does not return the invitee's link
+        // (security Phase 3): only entries that carry one are shown.
         List<InvitationLinkView> sentLinks = created.invitations() == null
-                ? List.of() : created.invitations();
+                ? List.of() : created.invitations().stream()
+                        .filter(l -> l.invitationUrl() != null).toList();
         long invited = rows.stream().map(r -> r.identifier.getText().trim())
                 .filter(id -> id.contains("@")).count();
 
@@ -667,7 +670,8 @@ public final class NewWorkflowWizard {
         title.getStyleClass().add("card-title");
 
         Label note = new Label("This is exactly what your signers received."
-                + " Keep it private — anyone who opens the link can sign.");
+                + " Keep it private. Opening it also needs the one-time code we"
+                + " e-mail to the signer.");
         note.setWrapText(true);
         note.getStyleClass().add("page-subtitle");
 

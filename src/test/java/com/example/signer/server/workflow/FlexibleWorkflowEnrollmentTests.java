@@ -243,12 +243,13 @@ class FlexibleWorkflowEnrollmentTests {
                 originalPdf(dir), "alice");
         String id = created.workflowId();
 
-        // A non-participant gets the same rejection as any outsider.
+        // A non-participant gets the same answer as for a missing workflow
+        // (security Phase 3: not found and not yours look identical).
         assertThatThrownBy(() -> service.bindCertificate(id, "mallory",
                 new BindCertificateRequest("AB".repeat(32))))
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).code())
-                .isEqualTo(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE);
+                .isEqualTo(ApiErrorCode.WORKFLOW_NOT_FOUND);
         // Still DRAFT — nothing leaked.
         assertThat(service.getWorkflow(id, "alice").status()).isEqualTo("DRAFT");
 
@@ -259,11 +260,11 @@ class FlexibleWorkflowEnrollmentTests {
                 .extracting(e -> ((ApiException) e).code())
                 .isEqualTo(ApiErrorCode.BAD_REQUEST);
 
-        // Non-participants cannot claim the turn either.
+        // Non-participants cannot claim the turn either (same 404 answer).
         assertThatThrownBy(() -> service.claimTurn(id, "mallory"))
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).code())
-                .isEqualTo(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE);
+                .isEqualTo(ApiErrorCode.WORKFLOW_NOT_FOUND);
     }
 
     /* ── helpers ───────────────────────────────────────────────────────── */

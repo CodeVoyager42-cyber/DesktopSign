@@ -94,6 +94,13 @@ spring:
       # workflow request part.
       max-request-size: ${SIGNER_UPLOAD_MAX_REQUEST_BYTES:115343360}
 
+server:
+  # Behind a TLS-terminating proxy (SIGNER_TLS_OFFLOADED=true) set this to
+  # "native": Tomcat then takes the client address from X-Forwarded-For,
+  # trusting only proxies on private/loopback addresses. Required so the
+  # per-address sign-in limit sees real clients (security Phase 2, L2).
+  forward-headers-strategy: ${SIGNER_FORWARD_HEADERS_STRATEGY:none}
+
 signature:
   remote-server:
     storage: ${SIGNER_SERVER_STORAGE:${java.io.tmpdir}/signer-server}
@@ -148,6 +155,24 @@ signature:
       # your network. A loopback value here is honoured but produces links
       # that only open on this machine, which the server logs as a warning.
       public-base-url: ${SIGNER_PUBLIC_BASE_URL:}
+      # Security Phase 3. A guest session needs the one-time code e-mailed to
+      # the invited address; turning this off lets the link alone open it.
+      guest-verification: ${SIGNER_GUEST_VERIFICATION:true}
+      # Return the invitee's raw link to the SENDER (create / invite /
+      # resend). Off outside development: the link is the invitee's.
+      expose-links-to-sender: ${SIGNER_INVITATION_EXPOSE_LINKS:false}
+
+    # ── Desktop launch from the website (Phase B) ───────────────────────
+    desktop:
+      # Oldest SignFlow desktop version allowed to exchange a launch code
+      # (older apps get HTTP 426 and are asked to upgrade).
+      min-version: ${SIGNER_DESKTOP_MIN_VERSION:0.1.0-SNAPSHOT}
+      # Lifetime of the task session a launch code opens (1..60, no refresh).
+      task-session-minutes: ${SIGNER_DESKTOP_TASK_MINUTES:30}
+      # A desktop that reports its version as "unknown" (IDE run, unfiltered
+      # build) is refused with 426 unless this is true. Development only:
+      # production refuses to start with it.
+      accept-unknown-version: ${SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION:false}
 
     # ── Email delivery (Phase 5) ─────────────────────────────────────────
     # console: development mailbox — links are printed to the server CONSOLE
@@ -185,8 +210,15 @@ signature:
     keystore: ${SIGNER_MOCK_TOKEN_KEYSTORE:${user.home}/.signflow/dev-mock-token.p12}
   remote-server:
     allow-plaintext-passwords: true
+    # Development only: return the raw invitation links to the sender (the
+    # console mailbox may be the only delivery). Off by default elsewhere.
+    invitation:
+      expose-links-to-sender: true
     # Accept certificates/signatures from the development mock token.
     accept-development-identities: true
+    # Desktop builds started from the IDE report their version as "unknown".
+    desktop:
+      accept-unknown-version: true
     users:
       alice: ${SIGNER_USER_ALICE:alice-pass}
       bob: ${SIGNER_USER_BOB:bob-pass}

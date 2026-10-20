@@ -202,7 +202,22 @@ public class RemoteWorkflowService {
                 throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
                         "Your signature is already recorded");
             }
-            wf.bindCertificate(userId, fingerprint.toUpperCase(Locale.ROOT));
+            // Security Phase 3: a slot's certificate is set once — by the
+            // sender at creation or by the signer here — and never replaced,
+            // and one certificate can hold only one slot of a workflow.
+            if (slot.isBound()) {
+                throw new ApiException(ApiErrorCode.CERTIFICATE_ALREADY_BOUND,
+                        "A certificate is already assigned to your signer slot");
+            }
+            String normalized = fingerprint.toUpperCase(Locale.ROOT);
+            if (wf.signers().stream().anyMatch(s -> s.isBound()
+                    && normalized.equals(normalizeFingerprint(s.certificateSha256())))) {
+                throw new ApiException(ApiErrorCode.CERTIFICATE_ALREADY_BOUND,
+                        "This certificate is already assigned to another signer of"
+                                + " this workflow — each signer signs with their own"
+                                + " certificate");
+            }
+            wf.bindCertificate(userId, normalized);
             wf.appendAudit(AuditEventType.CERTIFICATE_BOUND, userId,
                     "Certificate bound to signer " + slot.order() + " ("
                             + shortFingerprint(fingerprint) + ")");
@@ -369,6 +384,10 @@ public class RemoteWorkflowService {
         synchronized (store.lockFor(workflowId)) {
             // Mutation protocol: load INSIDE the lock, validate the fresh copy.
             SigningWorkflowAggregate wf = requireAccessible(workflowId, userId);
+            if (wf.signers().stream().noneMatch(s -> s.userId().equals(userId))) {
+                throw new ApiException(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE,
+                        "Only a signer of this workflow can take a signing turn");
+            }
             if (wf.status() != WorkflowState.WAITING_FOR_SIGNER) {
                 throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
                         "The workflow is not accepting signatures (status "
@@ -384,6 +403,94 @@ public class RemoteWorkflowService {
             store.save(wf);
         }
         return getTask(workflowId, userId);
+    }
+
+    /**
+     * Phase B: the signer slot {@code userId} may open in the desktop right
+     * now, or a refusal. Checked when a launch code is issued AND again when
+     * it is exchanged. Allowed:
+     * <ul>
+     *   <li>DRAFT, the user's slot has no certificate yet (enrolment);</li>
+     *   <li>WAITING_FOR_SIGNER, the user holds the turn, or (FLEXIBLE, turn
+     *       unclaimed) the user is an eligible signer.</li>
+     * </ul>
+     * Strangers get the uniform "not found"; an owner who is not a signer 403.
+     *
+     * @return the user's signer order
+     */
+    public int requireLaunchableSlot(String workflowId, String userId) {
+        SigningWorkflowAggregate wf = requireAccessible(workflowId, userId);
+        WorkflowSignerRecord slot = wf.signers().stream()
+                .filter(s -> s.userId().equals(userId))
+                .findFirst()
+                .orElseThrow(() -> new ApiException(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE,
+                        "Only a signer of this workflow can open it for signing"));
+        if (slot.signed()) {
+            throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
+                    "Your signature is already recorded");
+        }
+        // Remediation of H2: a launch never registers a certificate. The
+        // slot must already have one, registered through the signed-in
+        // desktop (or the invitation flow), so a stolen launch code cannot
+        // attach another card to this signer's slot.
+        if (!slot.isBound()) {
+            throw new ApiException(ApiErrorCode.CERTIFICATE_NOT_BOUND,
+                    "Your smart card is not registered for this signing task yet."
+                            + " Open the task in SignFlow while signed in and connect your"
+                            + " card first.");
+        }
+        switch (wf.status()) {
+            case DRAFT -> throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
+                    "The workflow is waiting for other signers' certificates");
+            case WAITING_FOR_SIGNER -> {
+                WorkflowSignerRecord current = wf.currentSigner();
+                boolean mine = current != null
+                        ? current.userId().equals(userId)
+                        : wf.policy() == WorkflowSigningPolicy.FLEXIBLE
+                                && wf.isEligibleSigner(userId);
+                if (!mine) {
+                    throw new ApiException(ApiErrorCode.NOT_YOUR_TURN,
+                            "It is not your turn to sign this workflow");
+                }
+            }
+            default -> throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
+                    "The workflow is " + wf.status() + " and cannot be signed");
+        }
+        return slot.order();
+    }
+
+    /** Where a desktop task session's slot stands (Phase B remediation). */
+    public enum TaskSlotState {
+        /** Slot belongs to the account, is bound and unsigned, workflow active. */
+        ACTIVE,
+        /** Same slot, but signed already or the workflow is cancelled/completed/failed. */
+        FINISHED,
+        /** The slot no longer matches the session (or the workflow is gone). */
+        INVALID
+    }
+
+    /**
+     * State of slot {@code signerOrder} of {@code workflowId} for a task
+     * session of {@code userId}; evaluated on every request of the session.
+     */
+    public TaskSlotState taskSlotState(String workflowId, String userId, int signerOrder) {
+        SigningWorkflowAggregate wf;
+        try {
+            wf = requireAccessible(workflowId, userId);
+        } catch (ApiException e) {
+            return TaskSlotState.INVALID;
+        }
+        WorkflowSignerRecord slot = wf.signers().stream()
+                .filter(s -> s.order() == signerOrder)
+                .findFirst().orElse(null);
+        if (slot == null || !slot.userId().equals(userId) || !slot.isBound()) {
+            return TaskSlotState.INVALID;
+        }
+        boolean active = switch (wf.status()) {
+            case READY_FOR_SIGNING, WAITING_FOR_SIGNER, SIGNATURE_SUBMITTED, VALIDATING -> true;
+            default -> false;
+        };
+        return active && !slot.signed() ? TaskSlotState.ACTIVE : TaskSlotState.FINISHED;
     }
 
     /** Pending signer user ids of an active workflow (claim candidates). */
@@ -1014,21 +1121,29 @@ public class RemoteWorkflowService {
                 : hex.substring(0, 8) + "…" + hex.substring(hex.length() - 8);
     }
 
-    /** Loads the workflow and verifies {@code userId} is a participant. */
+    /**
+     * Loads the workflow and verifies {@code userId} is its owner or one of
+     * its signers.
+     *
+     * <p>Security Phase 3: a workflow that exists but is not the caller's
+     * gets exactly the same answer as one that does not exist (404, same
+     * message), so workflow ids cannot be probed. Knowing an id grants
+     * nothing.
+     */
     private SigningWorkflowAggregate requireAccessible(String workflowId, String userId) {
         SigningWorkflowAggregate wf = store.load(workflowId);
-        if (wf == null) {
-            throw new ApiException(ApiErrorCode.WORKFLOW_NOT_FOUND,
-                    "No workflow " + workflowId);
-        }
-        boolean participant = wf.signers().stream()
+        boolean participant = wf != null && wf.signers().stream()
                 .anyMatch(s -> s.userId().equals(userId));
-        boolean creator = userId != null && userId.equals(wf.createdBy());
+        boolean creator = wf != null && userId != null && userId.equals(wf.createdBy());
         if (!participant && !creator) {
-            throw new ApiException(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE,
-                    "You are not a participant in this workflow");
+            throw notFound();
         }
         return wf;
+    }
+
+    /** The single "not found / not yours" answer for workflow ids. */
+    private static ApiException notFound() {
+        return new ApiException(ApiErrorCode.WORKFLOW_NOT_FOUND, "Workflow not found");
     }
 
     /**
@@ -1112,6 +1227,17 @@ public class RemoteWorkflowService {
                 }
                 rejectDevelopmentFingerprint(fingerprint,
                         "signer " + s.order() + " (" + s.userId() + ")");
+                String normalized = fingerprint.toUpperCase(Locale.ROOT);
+                for (int j = 0; j < i; j++) {
+                    String earlier = request.signers().get(j).certificateSha256();
+                    if (earlier != null && normalized.equals(
+                            earlier.replace(":", "").trim().toUpperCase(Locale.ROOT))) {
+                        throw new ApiException(ApiErrorCode.BAD_REQUEST,
+                                "Signers " + (j + 1) + " and " + s.order() + " have the"
+                                        + " same certificate — each signer signs with"
+                                        + " their own certificate");
+                    }
+                }
             }
             // Account existence: the UserAccountService seam covers both
             // YAML-config accounts (file mode) and the users table (database

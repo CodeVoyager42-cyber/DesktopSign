@@ -76,6 +76,24 @@ public class InvitationEntity {
     @Column(name = "accepted_by", length = 100)
     private String acceptedBy;
 
+    /** SHA-256 of the current guest verification code (V7); never the code. */
+    @Column(name = "guest_code_hash", length = 64)
+    private String guestCodeHash;
+
+    @Column(name = "guest_code_expires_at")
+    private Instant guestCodeExpiresAt;
+
+    @Column(name = "guest_code_sent_at")
+    private Instant guestCodeSentAt;
+
+    /** Wrong entries for the current code. */
+    @Column(name = "guest_code_attempts", nullable = false)
+    private int guestCodeAttempts;
+
+    /** Wrong entries in total for this invitation. */
+    @Column(name = "guest_code_failures", nullable = false)
+    private int guestCodeFailures;
+
     public InvitationEntity() {
     }
 
@@ -177,5 +195,50 @@ public class InvitationEntity {
     /** Whether the invitation is still redeemable. */
     public boolean isRedeemable(Instant now) {
         return STATUS_PENDING.equals(status) && now.isBefore(expiresAt);
+    }
+
+    public String getGuestCodeHash() {
+        return guestCodeHash;
+    }
+
+    public Instant getGuestCodeExpiresAt() {
+        return guestCodeExpiresAt;
+    }
+
+    public Instant getGuestCodeSentAt() {
+        return guestCodeSentAt;
+    }
+
+    public int getGuestCodeAttempts() {
+        return guestCodeAttempts;
+    }
+
+    public int getGuestCodeFailures() {
+        return guestCodeFailures;
+    }
+
+    /** Stores a newly sent code (its hash) and resets the per-code attempts. */
+    public void startGuestCode(String codeHash, Instant sentAt, Instant expiresAt) {
+        this.guestCodeHash = codeHash;
+        this.guestCodeSentAt = sentAt;
+        this.guestCodeExpiresAt = expiresAt;
+        this.guestCodeAttempts = 0;
+    }
+
+    /** Counts a wrong entry; the code dies after {@code maxAttempts}. */
+    public void recordWrongGuestCode(int maxAttempts) {
+        this.guestCodeAttempts++;
+        this.guestCodeFailures++;
+        if (this.guestCodeAttempts >= maxAttempts) {
+            this.guestCodeHash = null;
+            this.guestCodeExpiresAt = null;
+        }
+    }
+
+    /** A code is single use: forget it once it opened a session. */
+    public void consumeGuestCode() {
+        this.guestCodeHash = null;
+        this.guestCodeExpiresAt = null;
+        this.guestCodeAttempts = 0;
     }
 }

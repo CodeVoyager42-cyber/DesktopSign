@@ -124,6 +124,17 @@ public class ProductionSafetyValidator {
             problems.add("TLS is not configured: enable server.ssl.* (keystore) or, behind"
                     + " a TLS-terminating reverse proxy, set SIGNER_TLS_OFFLOADED=true.");
         }
+        // Behind a proxy every request arrives from the proxy's address. The
+        // sign-in limit is per client address, so without the forwarded
+        // address all users would share one limit (security Phase 2, L2).
+        String forwarded = env.getProperty("server.forward-headers-strategy", "none")
+                .trim().toLowerCase(Locale.ROOT);
+        if (offloaded && !ssl && !("native".equals(forwarded) || "framework".equals(forwarded))) {
+            problems.add("SIGNER_TLS_OFFLOADED=true but forwarded client addresses are not"
+                    + " used: set SIGNER_FORWARD_HEADERS_STRATEGY=native (the proxy must send"
+                    + " X-Forwarded-For and run on a private address), otherwise every user"
+                    + " shares one sign-in limit.");
+        }
         if (Boolean.parseBoolean(env.getProperty(
                 "signature.remote-server.allow-plaintext-passwords", "false"))) {
             problems.add("signature.remote-server.allow-plaintext-passwords=true is a"
@@ -144,6 +155,18 @@ public class ProductionSafetyValidator {
                 problems.add("Invitation links must be https: set SIGNER_PUBLIC_BASE_URL to"
                         + " the public https:// address of this server (got '"
                         + linkBase + "').");
+            }
+            if (!Boolean.parseBoolean(env.getProperty(
+                    "signature.remote-server.invitation.guest-verification", "true"))) {
+                problems.add("SIGNER_GUEST_VERIFICATION=false lets an invitation link alone"
+                        + " open a guest signing session (the sender, or anyone the e-mail"
+                        + " reaches, could sign in the invitee's place).");
+            }
+            if (Boolean.parseBoolean(env.getProperty(
+                    "signature.remote-server.desktop.accept-unknown-version", "false"))) {
+                problems.add("SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION=true lets desktop builds"
+                        + " that do not report a version open launch links (development"
+                        + " only).");
             }
             String mode = env.getProperty("signature.remote-server.email.mode", "console");
             if (!"smtp".equalsIgnoreCase(mode.trim())) {

@@ -267,7 +267,7 @@ public class WorkflowRestController {
                 .body(new InvitationView(null, workflowId, workflow.documentName(),
                         request.signerOrder(), request.email(), user,
                         InvitationEntity.STATUS_PENDING, null,
-                        invitationService.invitationUrl(rawToken)));
+                        invitationService.senderVisibleUrl(rawToken)));
     }
 
     /**

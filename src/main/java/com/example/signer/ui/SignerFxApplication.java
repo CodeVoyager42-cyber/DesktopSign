@@ -8,8 +8,6 @@ import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.control.Alert;
-import javafx.scene.control.ButtonBar;
-import javafx.scene.control.ButtonType;
 import javafx.scene.control.TextArea;
 import javafx.stage.Stage;
 import javafx.stage.Window;
@@ -44,12 +42,14 @@ public class SignerFxApplication extends Application {
     private static final Logger log = LoggerFactory.getLogger(SignerFxApplication.class);
 
     private final SingleInstanceGuard instanceGuard = new SingleInstanceGuard();
+    /** Second-launch requests, queued until the window exists. */
+    private final ActivationQueue activations = new ActivationQueue(System::currentTimeMillis);
     private SingleInstanceGuard.Outcome instanceOutcome;
     private ConfigurableApplicationContext context;
     /** Configuration error that prevented Spring from starting, shown in start(). */
     private String startupError;
-    /** Token from a {@code signflow://invitation/<token>} launch argument, or null. */
-    private String launchInvitationToken;
+    /** The link SignFlow was started with (invitation or website launch), or null. */
+    private InvitationLinks.LaunchArgument launchArgument;
 
     /** Hidden owner of every window; raised as a fallback on activation. */
     private Stage stage;
@@ -64,17 +64,25 @@ public class SignerFxApplication extends Application {
 
         // Read the link BEFORE the single-instance check: a second launch
         // forwards it to the running copy instead of opening it itself.
-        launchInvitationToken = InvitationLinks.extractInvitationToken(getParameters().getRaw());
-        if (launchInvitationToken != null) {
-            log.info("Launched from an invitation link");
+        launchArgument = InvitationLinks.parse(getParameters().getRaw());
+        if (launchArgument != null) {
+            log.info("Launched from a {} link", launchArgument.kind() == InvitationLinks
+                    .LaunchArgument.Kind.LAUNCH ? "website launch" : "invitation");
         }
-        instanceOutcome = instanceGuard.acquire(launchInvitationToken);
+        instanceOutcome = instanceGuard.acquire(launchArgument);
         switch (instanceOutcome) {
             case HANDED_OFF -> Platform.exit();
-            case OTHER_UNRESPONSIVE -> {
-                // start() asks the user whether to replace the stuck copy.
+            case ALREADY_RUNNING_UNVERIFIED, OTHER_UNRESPONSIVE -> {
+                // start() explains; nothing was forwarded, nothing is closed.
             }
-            case FIRST_INSTANCE -> bootSpring();
+            case FIRST_INSTANCE -> {
+                // Listen at once (before Spring starts) so a second click
+                // during start-up is queued, never mistaken for a dead copy.
+                activations.markOpened(launchArgument);
+                instanceGuard.startActivationListener(activations);
+                bootSpring();
+            }
+            case STANDALONE -> bootSpring();   // no hand-off at all
         }
     }
 
@@ -83,8 +91,13 @@ public class SignerFxApplication extends Application {
         if (instanceOutcome == SingleInstanceGuard.Outcome.HANDED_OFF) {
             return;
         }
-        if (instanceOutcome == SingleInstanceGuard.Outcome.OTHER_UNRESPONSIVE
-                && !replaceStuckCopy()) {
+        if (instanceOutcome == SingleInstanceGuard.Outcome.ALREADY_RUNNING_UNVERIFIED
+                || instanceOutcome == SingleInstanceGuard.Outcome.OTHER_UNRESPONSIVE) {
+            Alert info = new Alert(Alert.AlertType.INFORMATION,
+                    alreadyRunningMessage(instanceOutcome, launchArgument));
+            info.setTitle("SignFlow is already running");
+            info.setHeaderText("SignFlow is already running");
+            info.showAndWait();
             Platform.exit();
             return;
         }
@@ -99,15 +112,27 @@ public class SignerFxApplication extends Application {
         stage.setTitle("SignFlow");
         UiSupport.applyAppIcon(stage);
         navigator = new AppNavigator(DesktopServices.from(context), stage);
-        instanceGuard.startActivationListener(this::raiseForActivation);
-
-        if (launchInvitationToken != null) {
+        // From now on second launches reach the window; queued ones open
+        // after the current step (each on its own FX pulse).
+        for (InvitationLinks.LaunchArgument queued
+                : activations.ready(a -> Platform.runLater(() -> raiseForActivation(a)))) {
+            Platform.runLater(() -> raiseForActivation(queued));
+        }
+        if (launchArgument != null
+                && launchArgument.kind() == InvitationLinks.LaunchArgument.Kind.LAUNCH) {
+            // Started from the website: the one-time code opens exactly one
+            // signing task; no sign-in, the app closes when it is done.
+            log.info("Started from a website launch link — opening the signing task");
+            String code = launchArgument.value();
+            launchArgument = null;
+            navigator.openLaunch(stage, code);
+        } else if (launchArgument != null) {
             // Invited signer: no SignFlow account, so no sign-in. They get the
             // invitation, a guest session for that one task, and the app
             // closes when they are done.
             log.info("Started from an invitation link — guest signing, no sign-in");
-            String token = launchInvitationToken;
-            launchInvitationToken = null;
+            String token = launchArgument.value();
+            launchArgument = null;
             navigator.acceptInvitation(stage, token);
         } else if (navigator.signIn()) {
             navigator.runHome();
@@ -118,6 +143,7 @@ public class SignerFxApplication extends Application {
     @Override
     public void stop() {
         log.info("Shutting down application");
+        activations.close();
         instanceGuard.close();
         if (context != null) {
             context.close();
@@ -131,7 +157,7 @@ public class SignerFxApplication extends Application {
         app.setWebApplicationType(WebApplicationType.NONE);
         app.setAdditionalProfiles("desktop");
         try {
-            context = app.run(getParameters().getRaw().toArray(new String[0]));
+            context = app.run(springArguments(getParameters().getRaw()));
         } catch (RuntimeException e) {
             // Fail fast and visibly: an unsafe production configuration stops
             // the app with the reason instead of falling back to dev settings.
@@ -143,35 +169,6 @@ public class SignerFxApplication extends Application {
         WorkflowApiClient.allowInsecureTransportForDevelopment(
                 context.getEnvironment().acceptsProfiles(Profiles.of("dev")));
         log.info("Spring application context initialized");
-    }
-
-    /**
-     * Another copy holds the lock but does not answer: offer to restart.
-     *
-     * @return true when this process took over and Spring was started
-     */
-    private boolean replaceStuckCopy() {
-        ButtonType restart = new ButtonType("Restart SignFlow", ButtonBar.ButtonData.OK_DONE);
-        Alert ask = new Alert(Alert.AlertType.WARNING,
-                "Another copy of SignFlow is running but isn't responding, so its"
-                        + " window can't be shown.\n\nRestart SignFlow? The stuck copy"
-                        + " will be closed (nothing is signed or sent by this).",
-                restart, ButtonType.CANCEL);
-        ask.setTitle("SignFlow is already running");
-        ask.setHeaderText("SignFlow is already running");
-        if (ask.showAndWait().orElse(ButtonType.CANCEL) != restart) {
-            return false;
-        }
-        if (!instanceGuard.replaceUnresponsiveInstance()) {
-            Alert fail = new Alert(Alert.AlertType.ERROR,
-                    "The other copy could not be closed. Close it from the Task Manager"
-                            + " (Java Platform SE binary), then start SignFlow again.");
-            fail.setHeaderText("SignFlow could not restart");
-            fail.showAndWait();
-            return false;
-        }
-        bootSpring();
-        return true;
     }
 
     private void showStartupError() {
@@ -188,11 +185,11 @@ public class SignerFxApplication extends Application {
 
     /**
      * FX thread, on a second launch: bring the visible screen to the front
-     * and, when that launch came from an invitation link, open it.
+     * and, when that launch carried a link, open it.
      *
-     * @return true when a window was raised (or the invitation will open)
+     * @return true when a window was raised (or the link will open)
      */
-    private boolean raiseForActivation(String forwardedToken) {
+    private boolean raiseForActivation(InvitationLinks.LaunchArgument forwarded) {
         // Dialogs are created after their owners, so the LAST showing stage
         // is the screen the user is looking at.
         Stage target = null;
@@ -206,7 +203,7 @@ public class SignerFxApplication extends Application {
         if (target == null) {
             target = stage;
         }
-        boolean raised = target != null && (target.isShowing() || forwardedToken != null);
+        boolean raised = target != null && (target.isShowing() || forwarded != null);
         if (target != null) {
             // Windows refuses focus to background processes (toFront() only
             // flashes the taskbar); a brief always-on-top round trip works.
@@ -220,14 +217,48 @@ public class SignerFxApplication extends Application {
             drop.play();
             log.info("Activated by a second launch attempt (raised: {})", window.getTitle());
         }
-        if (forwardedToken != null) {
-            log.info("Second launch forwarded an invitation link");
+        if (forwarded != null) {
             // Next pulse: the flow waits for the user, while the second launch
             // must get its answer now.
             Window owner = target != null ? target : stage;
-            Platform.runLater(() -> navigator.acceptInvitation(owner, forwardedToken));
+            if (forwarded.kind() == InvitationLinks.LaunchArgument.Kind.LAUNCH) {
+                log.info("Second launch forwarded a website launch link");
+                Platform.runLater(() -> navigator.openLaunch(owner, forwarded.value()));
+            } else {
+                log.info("Second launch forwarded an invitation link");
+                Platform.runLater(() -> navigator.acceptInvitation(owner, forwarded.value()));
+            }
         }
         return raised;
+    }
+
+    /** What a second launch tells the user when it could not hand over (nothing was sent). */
+    static String alreadyRunningMessage(SingleInstanceGuard.Outcome outcome,
+                                        InvitationLinks.LaunchArgument link) {
+        String state = outcome == SingleInstanceGuard.Outcome.OTHER_UNRESPONSIVE
+                ? "SignFlow is already open but is busy and did not respond."
+                : "SignFlow is already open, but this window could not safely pass"
+                        + " anything to it.";
+        if (link == null) {
+            return state + " Switch to the open SignFlow window.";
+        }
+        String again = link.kind() == InvitationLinks.LaunchArgument.Kind.LAUNCH
+                ? " click \"Sign\" again on the SignFlow website (each signing link"
+                        + " works once, for 2 minutes)."
+                : " click the invitation link in your e-mail again.";
+        return state + " For your security, the link you clicked was not passed on."
+                + " Finish or close the open SignFlow window, then" + again;
+    }
+
+    /**
+     * Only Spring options ({@code --name=value}) reach Spring: a
+     * {@code signflow://} link carries a one-time secret and must not end up
+     * in Spring's argument beans or logs.
+     */
+    static String[] springArguments(List<String> raw) {
+        return raw.stream()
+                .filter(a -> a != null && a.startsWith("--"))
+                .toArray(String[]::new);
     }
 
     private static String rootMessage(Throwable e) {

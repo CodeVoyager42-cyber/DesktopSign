@@ -125,8 +125,15 @@ final class InvitationsCard {
         return slot;
     }
 
-    /** The just-emailed link, with a copy action. */
+    /** The just-emailed link, with a copy action (or just a note when the server hides it). */
     private static HBox freshLinkRow(InvitationLinkView sent) {
+        if (sent.invitationUrl() == null) {
+            Label emailed = new Label("New invitation e-mailed to " + sent.email() + ".");
+            emailed.getStyleClass().add("page-subtitle");
+            HBox row = new HBox(10, emailed);
+            row.setAlignment(Pos.CENTER_LEFT);
+            return row;
+        }
         Label url = new Label(NewWorkflowWizard.shortenLink(sent.invitationUrl()));
         url.getStyleClass().addAll("page-subtitle", "mono-text");
         url.setTooltip(new Tooltip(sent.invitationUrl()));
