@@ -180,3 +180,10 @@ remediation report. New since the review:
     shows `app 0.1.0-SNAPSHOT`, not `unknown`.
 11. Full signing through a task session with the real card, only with the
     card holder's agreement.
+12. A **pre-existing `instance.lock` with an extra ACL entry**: while SignFlow
+    is stopped, `icacls "%LOCALAPPDATA%\SignFlow\run\instance.lock" /grant
+    *S-1-5-32-545:R` (the SID, because the `Users` name is localized). The next
+    start must re-apply and verify the file's permissions — `icacls` on it then
+    shows only the user and SYSTEM — or refuse the guard and run on its own.
+    Unlike `ipc.key` and `ipc.sock`, the lock file survives a run and is never
+    rewritten, so a widened ACL would otherwise persist.
