@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -173,6 +174,69 @@ public class ProductionSafetyValidator {
                 problems.add("SIGNER_EMAIL_MODE must be smtp: the console mailbox is a"
                         + " development tool and never delivers invitations.");
             }
+            // The website chain is active exactly when the database is, since
+            // its session store is PostgreSQL (security Phase C).
+            checkWebSession(env, problems);
+        }
+    }
+
+    /** Longest idle window a production website session may have. */
+    private static final Duration MAX_IDLE = Duration.ofHours(12);
+    /** Longest total lifetime a production website session may have. */
+    private static final Duration MAX_ABSOLUTE = Duration.ofHours(24);
+
+    /**
+     * Website session settings (security Phase C). The {@code dev} profile
+     * weakens the cookie so the site works over plain {@code http://localhost};
+     * production must not run with those values.
+     */
+    private static void checkWebSession(Environment env, List<String> problems) {
+        String cookie = env.getProperty(
+                "signature.remote-server.web.session.cookie-name", "__Host-SF_SESSION").trim();
+        if (!cookie.startsWith("__Host-")) {
+            problems.add("The website session cookie must keep the __Host- prefix (got '"
+                    + cookie + "'). With it the browser itself enforces Secure, Path=/ and"
+                    + " no Domain, so neither a sibling subdomain nor a plain-HTTP page can"
+                    + " set the session cookie. SIGNER_WEB_SESSION_COOKIE is a development"
+                    + " setting.");
+        }
+        if (!Boolean.parseBoolean(env.getProperty(
+                "signature.remote-server.web.session.secure-cookie", "true"))) {
+            problems.add("SIGNER_WEB_SESSION_SECURE=false would send the website session"
+                    + " cookie AND the CSRF token cookie over plain HTTP, where any network"
+                    + " observer can take both — which defeats the double-submit check as"
+                    + " well as the session. It is a development setting.");
+        }
+        Duration idle = duration(env, "idle-timeout", "PT30M", problems);
+        Duration absolute = duration(env, "absolute-timeout", "PT8H", problems);
+        if (idle != null && (idle.isZero() || idle.isNegative() || idle.compareTo(MAX_IDLE) > 0)) {
+            problems.add("SIGNER_WEB_SESSION_IDLE must be between 0 and " + MAX_IDLE
+                    + " (got " + idle + "): a website session that never times out is a"
+                    + " permanent credential in a browser.");
+        }
+        if (absolute != null && (absolute.isZero() || absolute.isNegative()
+                || absolute.compareTo(MAX_ABSOLUTE) > 0)) {
+            problems.add("SIGNER_WEB_SESSION_ABSOLUTE must be between 0 and " + MAX_ABSOLUTE
+                    + " (got " + absolute + ").");
+        }
+        if (idle != null && absolute != null && absolute.compareTo(idle) < 0) {
+            problems.add("SIGNER_WEB_SESSION_ABSOLUTE (" + absolute + ") is shorter than"
+                    + " SIGNER_WEB_SESSION_IDLE (" + idle + "), so the idle window could"
+                    + " never be reached. One of them is wrong.");
+        }
+    }
+
+    /** Reads an ISO-8601 duration property, reporting an unparseable value. */
+    private static Duration duration(Environment env, String key, String fallback,
+                                     List<String> problems) {
+        String raw = env.getProperty(
+                "signature.remote-server.web.session." + key, fallback).trim();
+        try {
+            return Duration.parse(raw);
+        } catch (java.time.format.DateTimeParseException e) {
+            problems.add("signature.remote-server.web.session." + key + " is not an"
+                    + " ISO-8601 duration (got '" + raw + "', expected e.g. PT30M).");
+            return null;
         }
     }
 

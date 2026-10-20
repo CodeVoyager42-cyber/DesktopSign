@@ -169,4 +169,22 @@ public class DbUserAccounts implements UserAccountService {
         users.findByUsername(username.trim()).ifPresent(user ->
                 user.setLastLoginAt(Instant.now()));
     }
+
+    /**
+     * Username, e-mail and whether that address is verified — nothing else.
+     * Deliberately not the role, the status, the lockout counters or the last
+     * login: the website has no use for them yet, and the smallest answer is
+     * the one that cannot leak.
+     */
+    @Override
+    public AccountProfile profile(String username) {
+        if (username == null) {
+            return new AccountProfile(null, null, false);
+        }
+        String id = username.trim();
+        return users.findByUsername(id)
+                .map(user -> new AccountProfile(user.getUsername(), user.getEmail(),
+                        user.getEmailVerifiedAt() != null))
+                .orElseGet(() -> new AccountProfile(id, null, false));
+    }
 }

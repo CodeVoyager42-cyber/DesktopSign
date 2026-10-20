@@ -41,6 +41,11 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
     static final String LAUNCH_PATH = "/api/desktop/launch";
 
     static final Set<String> LIMITED_PATHS = Set.of("/api/auth/login", "/api/auth/register",
+            // Phase C: the website checks the same passwords against the same
+            // accounts, so it shares this address's sign-in budget rather than
+            // getting a second one. The filter is a shared singleton bean for
+            // exactly that reason (SecurityConfig#loginRateLimitFilter).
+            "/web/api/auth/login",
             // Phase B: each exchange tests a launch code (own bucket).
             LAUNCH_PATH);
 
