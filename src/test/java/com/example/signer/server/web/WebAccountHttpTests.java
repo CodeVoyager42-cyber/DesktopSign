@@ -98,6 +98,10 @@ class WebAccountHttpTests {
     @Autowired
     private RefreshTokenStore refreshTokens;
 
+    /** For calling the expiry sweep directly rather than waiting an hour. */
+    @Autowired
+    private WebAccountService accountService;
+
     public static boolean freshDatabase() {
         String url = System.getenv().getOrDefault("SIGNER_DB_URL",
                 "jdbc:postgresql://localhost:5432/postgres");
@@ -687,5 +691,88 @@ class WebAccountHttpTests {
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString("{}")).build(),
                 HttpResponse.BodyHandlers.ofString());
+    }
+
+    /* ------------------------------ the sweep (D5) ---------------------- */
+
+    /**
+     * Risk D5: expired rows are deleted, and only those. Ages are moved in
+     * the database — both timestamps, because V10 CHECKs
+     * {@code expires_at > created_at} — rather than waiting a day.
+     *
+     * <p>Counts are per username, never table-wide: the whole class shares
+     * one database, and the sweep is global.
+     */
+    @Test
+    void theSweepDeletesExpiredTokenRowsAndKeepsEverythingElse() throws Exception {
+        String live = newAddress();
+        String stale = newAddress();
+        String recent = newAddress();
+        for (String address : List.of(live, stale, recent)) {
+            assertThat(post("/web/api/auth/register",
+                    json("email", address, "password", STRONG, "displayName", "Ada"),
+                    csrf(null)).statusCode()).isEqualTo(202);
+        }
+        String liveUser = users.findByEmail(live).orElseThrow().getUsername();
+        String staleUser = users.findByEmail(stale).orElseThrow().getUsername();
+        String recentUser = users.findByEmail(recent).orElseThrow().getUsername();
+        // A reset token for each of the two that matter, so both tables have
+        // a row that must go and a row that must stay.
+        for (String address : List.of(live, stale)) {
+            assertThat(post("/web/api/auth/password-reset/request", json("email", address),
+                    csrf(null)).statusCode()).isEqualTo(202);
+        }
+
+        // Long past the one-day retention.
+        for (String table : List.of("email_verification_tokens", "password_reset_tokens")) {
+            exec("UPDATE " + table + " SET created_at = now() - INTERVAL '3 days',"
+                    + " expires_at = now() - INTERVAL '2 days'"
+                    + " WHERE username = '" + staleUser + "'");
+        }
+        // Expired, but inside the retention window: still kept.
+        exec("UPDATE email_verification_tokens SET created_at = now() - INTERVAL '25 hours',"
+                + " expires_at = now() - INTERVAL '1 hour'"
+                + " WHERE username = '" + recentUser + "'");
+
+        accountService.deleteExpiredTokens();
+
+        assertThat(count("SELECT count(*) FROM email_verification_tokens"
+                + " WHERE username = '" + staleUser + "'"))
+                .as("a verification row expired beyond retention is deleted").isZero();
+        assertThat(count("SELECT count(*) FROM password_reset_tokens"
+                + " WHERE username = '" + staleUser + "'"))
+                .as("and so is a reset row").isZero();
+        assertThat(count("SELECT count(*) FROM email_verification_tokens"
+                + " WHERE username = '" + recentUser + "'"))
+                .as("one expired inside the retention window is kept").isEqualTo(1);
+        assertThat(count("SELECT count(*) FROM email_verification_tokens"
+                + " WHERE username = '" + liveUser + "'"))
+                .as("a live verification row is untouched").isEqualTo(1);
+        assertThat(count("SELECT count(*) FROM password_reset_tokens"
+                + " WHERE username = '" + liveUser + "'"))
+                .as("a live reset row is untouched").isEqualTo(1);
+        // The accounts themselves are not touched by a token sweep.
+        assertThat(users.findByEmail(stale)).isPresent();
+    }
+
+    @Test
+    void theSweepIsIdempotentAndQuietWhenThereIsNothingToDelete() throws Exception {
+        accountService.deleteExpiredTokens();
+
+        // A live token survives any number of sweeps.
+        String address = newAddress();
+        post("/web/api/auth/register",
+                json("email", address, "password", STRONG, "displayName", "Ada"), csrf(null));
+        String username = users.findByEmail(address).orElseThrow().getUsername();
+        accountService.deleteExpiredTokens();
+        accountService.deleteExpiredTokens();
+
+        assertThat(count("SELECT count(*) FROM email_verification_tokens"
+                + " WHERE username = '" + username + "'")).isEqualTo(1);
+        assertThat(tokenFromMailbox(address)).as("and the link still works")
+                .isNotBlank();
+        assertThat(post("/web/api/auth/verify-email",
+                json("token", tokenFromMailbox(address)), csrf(null)).statusCode())
+                .isEqualTo(204);
     }
 }
