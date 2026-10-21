@@ -293,7 +293,39 @@ password_reset_tokens    (id, token_hash UNIQUE, username → users,
 - Indexes on `username` (the supersede step and the throttles) and on
   `expires_at` (the hourly sweep below).
 
-### The sweep
+### The account sweep — risk D11
+
+`DbUserAccounts.deleteNeverVerifiedAccounts` runs **daily** and deletes
+accounts that were created by website sign-up, never proved an address and
+were never used. Retention: **7 days** (`SIGNER_WEB_UNVERIFIED_RETENTION`).
+
+This is the **only statement in the application that removes a `users` row**,
+so it is a native query in `UserRepository` with every guard spelled out in
+SQL. An account goes only when all of these hold:
+
+| Guard | Keeps out |
+|---|---|
+| `email_verified_at IS NULL` | anyone who proved their address |
+| `status = 'ACTIVE'` | **`PENDING_INVITE`** — invitation identities, which also have no verified address and no password, and must never be swept — and `DISABLED`, which an operator chose |
+| `last_login_at IS NULL` | anything ever signed in to |
+| `created_at < cutoff` | anything inside the retention window |
+| no row in `workflow_signers` | a signer, even an unverified one |
+| not `workflows.created_by` | the creator of a signing request |
+| not `workflows.claimed_turn_username` | whoever holds a turn |
+
+**What the database does on its own.** The last three are also foreign keys
+with `NO ACTION`, so PostgreSQL would *refuse* such a delete — the guards are
+repeated in the query so the sweep **skips** those rows instead of failing the
+whole statement every night. What does cascade with the row is only the
+account's own secrets: refresh tokens (V6), launch codes (V8) and the two V10
+token tables. `audit_events.actor` and `document_versions.created_by` are free
+text by design, so no history is ever rewritten by this.
+
+**It has an off switch**, unlike the token sweep below: set the retention to
+`PT0S` and no account is ever deleted. Deleting accounts is the one
+destructive piece of housekeeping here, so an operator can decline it.
+
+### The token sweep
 
 `WebAccountService.deleteExpiredTokens` runs **hourly** and deletes rows that
 expired **more than a day** ago, from both tables. Same shape as
@@ -315,6 +347,7 @@ correctness.
 | `SIGNER_WEB_MAIL_LIMIT` | `3` | Account e-mails per recipient per 15 min |
 | `SIGNER_WEB_SIGNUP_LIMIT` | `5` | New accounts per client address per window |
 | `SIGNER_WEB_SIGNUP_WINDOW` | `PT1H` | That window |
+| `SIGNER_WEB_UNVERIFIED_RETENTION` | `P7D` | How long a never-verified, never-used account is kept. `PT0S` switches the sweep off |
 | `SIGNER_WEB_SESSION_ANON_IDLE` | `PT5M` | Idle timeout before sign-in |
 | `SIGNER_LOGIN_RATE_LIMIT` | `20` | Per-address requests per window, per bucket |
 | `SIGNER_LOGIN_RATE_WINDOW_SECONDS` | `60` | That window |
@@ -330,14 +363,14 @@ Full suite on **JDK 21.0.12.1 LTS** (the version the build targets) with a real
 PostgreSQL 16.15.
 
 ```
-Tests run: 578, Failures: 0, Errors: 0, Skipped: 8
-BUILD SUCCESS — 5 min 37 s
+Tests run: 588, Failures: 0, Errors: 0, Skipped: 8
+BUILD SUCCESS — 4 min 52 s
 ```
 
 | | After Phase C | After Phase D1 |
 |---|---|---|
-| Found | 532 | **578** (+46) |
-| Passed | 524 | **570** |
+| Found | 532 | **588** (+56) |
+| Passed | 524 | **580** |
 | Failed | 0 | **0** |
 | Errors | 0 | **0** |
 | Skipped | 8 | **8** (unchanged) |
@@ -357,6 +390,7 @@ New in this phase:
 | `WebAccountRateLimitHttpTests` | 3 | the per-recipient mail cap (still 202, no further mail), the `\|account` bucket reaching 429 with `Retry-After` **without spending the sign-in budget**, and the same for the `\|csrf` bucket |
 | `WebSignUpThrottleHttpTests` | 2 | the fourth sign-up from one address is refused 429 with `Retry-After` **and writes no `users` row**, with the shared limiter left wide open so only the throttle can be what fired; and that the throttle covers sign-up alone — resend, reset-request, verification, sign-in and the CSRF bootstrap all still answer normally once it is spent |
 | `IdentityRateLimiterTests` | 6 | the sliding window itself: counting, the `Retry-After` it reports and how it shrinks, the budget returning after the window, identities counted separately and case-insensitively, a blank identity allowed, and a meaningless limit refused at construction |
+| `NeverVerifiedAccountSweepLiveTests` | 10 | one test **per guard** of the account sweep (§8): the abandoned sign-up deleted with its tokens cascading, and a verified account, an invitation identity, a disabled account, one ever signed in to, one inside the retention window, one holding a signer slot, one owning a workflow and one holding a claimed turn all surviving — the last three asserting the sweep **skips** them rather than failing — plus zero retention being a no-op |
 | `AccountTokenMigrationLiveTests` | 5 | V10 on a fresh database, the exact columns (no token column) and the unique hash, the expiry CHECK, cascade from `users`, and that V10 leaves an existing **V9** database — rows and session rows — intact |
 | `ProductionSafetyValidatorTests` | +2 | the anonymous idle timeout: longer than the signed-in one, and zero |
 
@@ -376,7 +410,7 @@ do not depend on how much budget earlier assertions spent.
 | # | Risk | Severity | Note |
 |---|---|---|---|
 | D1 | **Sign-up is open and creates a row before the address is proved** | Low (was Medium) | Decision D1 in the plan. Now throttled to 5 accounts per address per hour (§6), down from the shared bucket's 20 a minute, and an unverified account can do nothing (§5) while its tokens are swept (§8). **What remains:** the throttle is per address and in memory, so a botnet with many addresses, or a restart, gets a fresh budget; and nothing deletes an account that never verifies — see D11. It also lands harder on shared addresses than the per-minute limits do (risk C6): an office behind one NAT address gets 5 sign-ups an hour between everyone, which is the number to raise first if that is the deployment. A CAPTCHA belongs with the sign-up page (D2). |
-| D11 | **Nothing deletes an account that never verifies** | Low | The token rows are swept (§8); the `users` row is not. It can do nothing — unverified, and no password has ever been proved against it — but it holds a username and an address forever, and it blocks that address from being signed up again (answered 202, so the attempt is silent). A sweep is deliberately **not** written here: deleting a `users` row touches the one table every workflow, signer slot, invitation and audit row references, so it needs its own review of what cascades, not a quiet addition to this phase. |
+| ~~D11~~ | ~~Nothing deletes an account that never verifies~~ | **FIXED** | §8. Swept daily after 7 days, with every guard in SQL and a test per guard. **What remains:** an address stays unusable for its retention week — a sign-up for it is answered 202 and silently does nothing because the row is still there, so someone who mistyped and never got the e-mail must wait or ask. Narrowing that needs the sign-up path to distinguish "taken by an unverified stranger" from "taken", which is an enumeration question, not housekeeping. |
 | D2 | **E-mail delivery is the whole security of both flows** | Medium | A reset link in a mailbox is the account. Nothing here can fix a compromised or mis-delivered mailbox; the 30-minute life and single use are the mitigation. No second factor exists. |
 | D3 | **Both identity limits are in memory, per instance** | Medium (availability) | Same limitation as the address limiter (Phase C risk C6). Behind several instances the effective caps multiply by the instance count. Moving them to the database or a shared cache is the fix. |
 | ~~D4~~ | ~~Only workflow creation is gated on a verified address~~ | **FIXED** | §5. `SigningActionPolicy` + `AuthenticatedRequestFilter` now gate claim, the document download, signatures, certificate binding and launch-code issuing for account tokens, and Phase B's three existing `email_verified_at` reads were routed through `maySign` so there is one rule in one place. Guests are deliberately exempt. **What the original wording got wrong:** the launch-code path was never ungated — `issue`, `exchange` and `taskSessionState` each already read `email_verified_at` directly. The gap was the account-token signing routes, and the duplication that hid it. The document download was gated in a follow-up: it had first been left readable as "looking around", which was the wrong call — it is step one of signing. |
@@ -401,6 +435,6 @@ do not depend on how much budget earlier assertions spent.
   `WebSessionRegistry` now makes both straightforward.
 - No account deletion, no admin routes, no role management.
 - No CAPTCHA — it belongs with the sign-up page (D2), on top of the throttle.
-- No sweep of accounts that never verify (D11), and no notification e-mail (D8).
+- No notification e-mail (D8).
 - No workflow routes under `/web/api` — Phase E.
 - No change to the desktop login, guest invitations, launch codes or signing.

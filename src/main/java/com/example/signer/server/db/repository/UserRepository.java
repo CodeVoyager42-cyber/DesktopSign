@@ -67,4 +67,54 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
     @Modifying(clearAutomatically = true)
     @Query("update UserEntity u set u.failedLoginCount = 0, u.lockedUntil = null where u.id = :id")
     int clearFailedLogins(@Param("id") Long id);
+
+    /**
+     * Deletes accounts that were created by website sign-up, never proved
+     * their e-mail address and never did anything (security Phase D1 risk
+     * D11). Deliberately a <b>native</b> query: this is the one statement in
+     * the application that removes a {@code users} row, so every guard is
+     * spelled out where it can be read rather than inferred from JPQL.
+     *
+     * <p>An account is deleted only when <b>all</b> of these hold:
+     *
+     * <ul>
+     *   <li>{@code email_verified_at IS NULL} — the address was never proved;</li>
+     *   <li>{@code status = 'ACTIVE'} — which <b>excludes
+     *       {@code PENDING_INVITE}</b>, the invitation identities that also
+     *       have no verified address and must never be swept, and
+     *       {@code DISABLED}, which an operator chose;</li>
+     *   <li>{@code last_login_at IS NULL} — it was never signed in to;</li>
+     *   <li>it is older than {@code cutoff};</li>
+     *   <li>it holds no signer slot, owns no workflow and holds no claimed
+     *       turn.</li>
+     * </ul>
+     *
+     * <p>Those last three are also protected by foreign keys that are
+     * {@code NO ACTION}, so the database would refuse such a delete anyway;
+     * they are repeated here so the sweep skips those rows quietly instead of
+     * failing on them. What does cascade with the row is only its own
+     * secrets: refresh tokens (V6), launch codes (V8) and the two token
+     * tables (V10). {@code audit_events.actor} and
+     * {@code document_versions.created_by} are free text by design, so
+     * history is never rewritten by this.
+     *
+     * @param cutoff accounts created before this are eligible
+     * @return how many rows were deleted
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(nativeQuery = true, value = """
+            DELETE FROM users u
+             WHERE u.email_verified_at IS NULL
+               AND u.status = 'ACTIVE'
+               AND u.last_login_at IS NULL
+               AND u.created_at < :cutoff
+               AND NOT EXISTS (SELECT 1 FROM workflow_signers s
+                                WHERE s.username = u.username)
+               AND NOT EXISTS (SELECT 1 FROM workflows w
+                                WHERE w.created_by = u.username)
+               AND NOT EXISTS (SELECT 1 FROM workflows w
+                                WHERE w.claimed_turn_username = u.username)
+            """)
+    int deleteNeverVerifiedBefore(@Param("cutoff") Instant cutoff);
 }

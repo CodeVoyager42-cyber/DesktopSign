@@ -211,6 +211,13 @@ signature:
       # thousands. Below 1, or a non-positive window, fails startup.
       signup-limit: ${SIGNER_WEB_SIGNUP_LIMIT:5}
       signup-window: ${SIGNER_WEB_SIGNUP_WINDOW:PT1H}
+      # Risk D11: an account that never proved its address and was never used
+      # is deleted after this long. It never touches an invited placeholder,
+      # a disabled account, one that has been signed in to, or one that holds
+      # a signer slot or owns a workflow — see UserRepository. Set it to zero
+      # (PT0S) to switch the sweep off and keep such rows for ever; it is the
+      # only destructive housekeeping here, so it has an off switch.
+      unverified-retention: ${SIGNER_WEB_UNVERIFIED_RETENTION:P7D}
 
     # ── Email delivery (Phase 5) ─────────────────────────────────────────
     # console: development mailbox — links are printed to the server CONSOLE
