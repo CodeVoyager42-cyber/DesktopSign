@@ -171,6 +171,21 @@ public class DbUserAccounts implements UserAccountService {
     }
 
     /**
+     * Database accounts must have a verified address before they may sign
+     * (security Phase D decision). An unverified account can sign in and see
+     * its own page; it cannot commit its name to a document.
+     */
+    @Override
+    public boolean maySign(String username) {
+        if (username == null) {
+            return false;
+        }
+        return users.findByUsername(username.trim())
+                .map(user -> user.isActive() && user.getEmailVerifiedAt() != null)
+                .orElse(false);
+    }
+
+    /**
      * Username, e-mail and whether that address is verified — nothing else.
      * Deliberately not the role, the status, the lockout counters or the last
      * login: the website has no use for them yet, and the smallest answer is
