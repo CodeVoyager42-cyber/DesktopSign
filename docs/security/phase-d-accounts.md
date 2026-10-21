@@ -265,7 +265,22 @@ password_reset_tokens    (id, token_hash UNIQUE, username → users,
 - `CHECK (expires_at > created_at)` on both: a link that dies before it is
   issued cannot be stored.
 - Indexes on `username` (the supersede step and the throttles) and on
-  `expires_at` (an eventual expiry sweep — not written yet, risk D5).
+  `expires_at` (the hourly sweep below).
+
+### The sweep
+
+`WebAccountService.deleteExpiredTokens` runs **hourly** and deletes rows that
+expired **more than a day** ago, from both tables. Same shape as
+`DbRefreshTokenStore.deleteExpired` and `LaunchCodeService.deleteStaleCodes`,
+with a later initial delay (20 min) than either so the three do not all run at
+once on start-up. It logs counts only — never a hash.
+
+Nothing depends on it for safety: an expired token is refused on every path,
+and a consumed one is retired by `consumed_at`. It exists because the tables
+otherwise only ever grow — every sign-up, resend and reset request adds a row,
+and sign-up is open to anyone (risk D1). The one-day grace period after expiry
+is for answering a support question ("was a link ever issued?"), not for
+correctness.
 
 ## 9. Configuration
 
@@ -287,14 +302,14 @@ Full suite on **JDK 21.0.12.1 LTS** (the version the build targets) with a real
 PostgreSQL 16.15.
 
 ```
-Tests run: 568, Failures: 0, Errors: 0, Skipped: 8
-BUILD SUCCESS — 5 min 50 s
+Tests run: 570, Failures: 0, Errors: 0, Skipped: 8
+BUILD SUCCESS — 4 min 51 s
 ```
 
 | | After Phase C | After Phase D1 |
 |---|---|---|
-| Found | 532 | **568** (+36) |
-| Passed | 524 | **560** |
+| Found | 532 | **570** (+38) |
+| Passed | 524 | **562** |
 | Failed | 0 | **0** |
 | Errors | 0 | **0** |
 | Skipped | 8 | **8** (unchanged) |
@@ -308,7 +323,7 @@ New in this phase:
 
 | Class | Tests | Covers |
 |---|---|---|
-| `WebAccountHttpTests` | 17 | sign-up, the taken-address case changing nothing, weak password, verify once and never again, unknown vs malformed vs **expired** (24 h) being identical, resend, the unverified gate on workflow creation, **the gate on all five signing actions, the download included** (and that listing is still allowed), reset identical answers, reset ending every session and refresh token, **an expired reset link** (30 min), password change keeping this session and ending the others, change needing the current password and a session, the anonymous/signed-in idle timeouts, nothing secret in the log |
+| `WebAccountHttpTests` | 19 | sign-up, the taken-address case changing nothing, weak password, verify once and never again, unknown vs malformed vs **expired** (24 h) being identical, resend, the unverified gate on workflow creation, **the gate on all five signing actions, the download included** (and that listing is still allowed), reset identical answers, reset ending every session and refresh token, **an expired reset link** (30 min), password change keeping this session and ending the others, change needing the current password and a session, the anonymous/signed-in idle timeouts, nothing secret in the log |
 | `SigningActionPolicyTests` | 5 | the five covered actions, that listing and reading a task are not covered, that each path is paired with its method (and `HEAD` of the document is not a way round it), and that the match is anchored so no prefix or suffix smuggles a path past it |
 | `UnverifiedSigningGateHttpTests` | 4 | one test per gated step against a **real** workflow where the account holds a prepared slot — claim, download (and `HEAD`), submit — each refused `EMAIL_NOT_VERIFIED` with nothing changed in the database, plus the counterweight: the same account, verified, runs the whole desktop flow through to a cryptographically **valid** signature |
 | `WebAccountRateLimitHttpTests` | 3 | the per-recipient mail cap (still 202, no further mail), the `\|account` bucket reaching 429 with `Retry-After` **without spending the sign-in budget**, and the same for the `\|csrf` bucket |
@@ -334,7 +349,7 @@ do not depend on how much budget earlier assertions spent.
 | D2 | **E-mail delivery is the whole security of both flows** | Medium | A reset link in a mailbox is the account. Nothing here can fix a compromised or mis-delivered mailbox; the 30-minute life and single use are the mitigation. No second factor exists. |
 | D3 | **Both identity limits are in memory, per instance** | Medium (availability) | Same limitation as the address limiter (Phase C risk C6). Behind several instances the effective caps multiply by the instance count. Moving them to the database or a shared cache is the fix. |
 | ~~D4~~ | ~~Only workflow creation is gated on a verified address~~ | **FIXED** | §5. `SigningActionPolicy` + `AuthenticatedRequestFilter` now gate claim, the document download, signatures, certificate binding and launch-code issuing for account tokens, and Phase B's three existing `email_verified_at` reads were routed through `maySign` so there is one rule in one place. Guests are deliberately exempt. **What the original wording got wrong:** the launch-code path was never ungated — `issue`, `exchange` and `taskSessionState` each already read `email_verified_at` directly. The gap was the account-token signing routes, and the duplication that hid it. The document download was gated in a follow-up: it had first been left readable as "looking around", which was the wrong call — it is step one of signing. |
-| D5 | **Nothing deletes expired tokens** | Low | `deleteExpiredBefore` exists on both repositories and **is never called**; `idx_*_expires` is there for it. Expired rows are harmless (the expiry is checked on use) but they grow without limit. |
+| ~~D5~~ | ~~Nothing deletes expired tokens~~ | **FIXED** | §8. `WebAccountService.deleteExpiredTokens` sweeps both tables hourly, deleting rows that expired over a day ago, through the `deleteExpiredBefore` queries that had been written and never called. |
 | D6 | **The sliding window is implemented twice** | Low | `IdentityRateLimiter` repeats `LoginRateLimitFilter`'s algorithm instead of sharing it. Deliberate — folding them together inside this phase would have changed the behaviour of the tested one — but it is duplication to retire. |
 | D7 | **A reset does not end desktop *access* tokens, only refresh tokens** | Low | An access JWT already issued stays valid for up to its 15-minute life after a reset. Accepted: the same window Phase 2 accepted for a disabled account on the bearer chain. |
 | D8 | **No notification when a password changes** | Low | Neither a reset nor a change e-mails the account to say so, which is the usual way a victim notices. Worth adding with D2. |
@@ -354,6 +369,6 @@ do not depend on how much budget earlier assertions spent.
 - No "sign out everywhere" button and no session list (Phase C risk C4) —
   `WebSessionRegistry` now makes both straightforward.
 - No account deletion, no admin routes, no role management.
-- No expiry sweep (D5), no CAPTCHA (D1), no notification e-mail (D8).
+- No CAPTCHA (D1), no notification e-mail (D8).
 - No workflow routes under `/web/api` — Phase E.
 - No change to the desktop login, guest invitations, launch codes or signing.
