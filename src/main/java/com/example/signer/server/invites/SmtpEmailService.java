@@ -104,6 +104,14 @@ public class SmtpEmailService implements EmailService {
                 "password-reset link");
     }
 
+    @Override
+    public void sendPasswordChanged(String recipientEmail, Instant changedAt,
+                                    boolean afterReset) {
+        send(recipientEmail, AccountEmailTemplate.changedSubject(appName),
+                AccountEmailTemplate.changedText(changedAt, afterReset, appName),
+                "password-change notice");
+    }
+
     /** Sends one plain-text message. The body holds a secret, so it is never logged. */
     private void send(String recipientEmail, String subject, String body, String what) {
         try {

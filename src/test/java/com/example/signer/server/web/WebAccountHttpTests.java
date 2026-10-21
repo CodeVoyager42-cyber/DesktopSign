@@ -780,4 +780,63 @@ class WebAccountHttpTests {
                 json("token", tokenFromMailbox(address)), csrf(null)).statusCode())
                 .isEqualTo(204);
     }
+
+    /* ------------------- the password-change notice (D8) ---------------- */
+
+    @Test
+    void aResetSendsANoticeThatCarriesNoLink() throws Exception {
+        String address = newAddress();
+        registeredAndVerified(address);
+        post("/web/api/auth/password-reset/request", json("email", address), csrf(null));
+        String token = tokenFromMailbox(address);
+
+        assertThat(post("/web/api/auth/password-reset/confirm",
+                json("token", token, "newPassword", REPLACEMENT), csrf(null)).statusCode())
+                .isEqualTo(204);
+
+        String notice = mailbox.latestAccountNotice(address);
+        assertThat(notice).as("the holder is told their password changed").isNotNull();
+        assertThat(notice).contains("reset using an e-mailed link");
+        assertThat(notice).contains("signed out everywhere");
+        // The point of a notice with nothing to click: it cannot be mistaken
+        // for, or imitated by, a password-reset mail.
+        assertThat(notice).doesNotContain("token=", "http://", "https://");
+        assertThat(notice).doesNotContain(token, STRONG, REPLACEMENT);
+    }
+
+    @Test
+    void aPasswordChangeSendsItsOwnNotice() throws Exception {
+        String address = newAddress();
+        registeredAndVerified(address);
+        String mine = signIn(address, STRONG);
+        Csrf csrf = csrf(mine);
+
+        assertThat(postOn("/web/api/me/password",
+                json("currentPassword", STRONG, "newPassword", REPLACEMENT), csrf, mine)
+                .statusCode()).isEqualTo(204);
+
+        String notice = mailbox.latestAccountNotice(address);
+        assertThat(notice).isNotNull();
+        // Different wording from a reset, because only one of the two needed
+        // the old password.
+        assertThat(notice).contains("had to know your old password");
+        assertThat(notice).contains("except where the change was made");
+        assertThat(notice).doesNotContain("token=", "http://", "https://");
+        assertThat(notice).doesNotContain(STRONG, REPLACEMENT);
+    }
+
+    @Test
+    void aRefusedPasswordChangeSendsNoNotice() throws Exception {
+        String address = newAddress();
+        registeredAndVerified(address);
+        String mine = signIn(address, STRONG);
+        Csrf csrf = csrf(mine);
+
+        assertThat(postOn("/web/api/me/password",
+                json("currentPassword", "not-the-password", "newPassword", REPLACEMENT),
+                csrf, mine).statusCode()).isEqualTo(401);
+
+        assertThat(mailbox.latestAccountNotice(address))
+                .as("a failed attempt must not alarm the holder").isNull();
+    }
 }

@@ -298,6 +298,7 @@ public class WebAccountService {
         this.webSessions.revokeAll(user.getUsername());
         this.refreshTokens.revokeAllForUser(user.getUsername());
         log.info("Password reset for account '{}' — every session revoked", user.getUsername());
+        notifyPasswordChanged(user, now, true);
         return true;
     }
 
@@ -330,7 +331,37 @@ public class WebAccountService {
         this.webSessions.revokeAllExcept(user.getUsername(), keepSessionId);
         this.refreshTokens.revokeAllForUser(user.getUsername());
         log.info("Password changed for account '{}' — other sessions revoked", username);
+        notifyPasswordChanged(user, now, false);
         return true;
+    }
+
+    /**
+     * Tells the account holder their password changed (risk D8) — the usual
+     * way someone notices an account being taken over.
+     *
+     * <p><b>Best-effort, on purpose.</b> The password has already changed and
+     * the sessions are already gone; a mail server that is down must not undo
+     * any of that, so a failure is logged and swallowed rather than rolling
+     * the transaction back.
+     *
+     * <p><b>Not counted against the per-recipient e-mail cap</b>, also on
+     * purpose. Each of these requires a successful password change — a valid
+     * one-time token, or the current password — so it cannot be used to flood
+     * anyone, and the cap suppressing exactly the message that says "someone
+     * changed your password" would defeat the point of having it.
+     */
+    private void notifyPasswordChanged(UserEntity user, Instant when, boolean afterReset) {
+        String address = normalize(user.getEmail());
+        if (address == null) {
+            return; // no address on file; nothing to notify
+        }
+        try {
+            this.email.sendPasswordChanged(address, when, afterReset);
+        } catch (RuntimeException e) {
+            // The class of failure, never the address or the exception's text.
+            log.warn("Password-change notice could not be sent for account '{}' ({})",
+                    user.getUsername(), e.getClass().getSimpleName());
+        }
     }
 
     /* ------------------------------- sweep ----------------------------- */
