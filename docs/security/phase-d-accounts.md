@@ -134,6 +134,21 @@ who had the old password. A change keeps the browser doing the change signed
 in, because signing someone out of the tab they are typing in is pointless
 friction — but every *other* session goes.
 
+### And the holder is told — risk D8
+
+Both paths then e-mail the account: *your password was changed, at this time,
+and this is what it means*. That notice is how someone normally finds out their
+account has been taken over, so it matters more than the convenience of not
+sending it.
+
+| | |
+|---|---|
+| **No link, no token** | deliberately. A message saying something is wrong with your account is exactly what an attacker would dress up as a reset link, so this one gives the reader nothing to click and says so. |
+| Two wordings | a reset says the link was enough and no old password was needed; a change says whoever did it knew the old password. Only one of those tells the holder their password itself had leaked. |
+| **Best-effort** | the password has already changed and the sessions are already gone when it is sent. A mail server that is down must not undo any of that, so a failure is logged (its class, never the address) and swallowed. |
+| **Not counted against the e-mail cap** | each notice requires a *successful* password change — a valid one-time token, or the current password — so it cannot be used to flood anyone; and a cap that suppressed exactly the "someone changed your password" message would defeat the point of having it. |
+| Nothing is sent | when the account has no address on file, and when the attempt failed (a wrong current password must not alarm anyone). |
+
 ## 5. The unverified gate
 
 `UserAccountService.maySign(username)` is the seam, default `true`.
@@ -363,14 +378,14 @@ Full suite on **JDK 21.0.12.1 LTS** (the version the build targets) with a real
 PostgreSQL 16.15.
 
 ```
-Tests run: 588, Failures: 0, Errors: 0, Skipped: 8
-BUILD SUCCESS — 4 min 52 s
+Tests run: 595, Failures: 0, Errors: 0, Skipped: 8
+BUILD SUCCESS — 9 min 21 s
 ```
 
 | | After Phase C | After Phase D1 |
 |---|---|---|
-| Found | 532 | **588** (+56) |
-| Passed | 524 | **580** |
+| Found | 532 | **595** (+63) |
+| Passed | 524 | **587** |
 | Failed | 0 | **0** |
 | Errors | 0 | **0** |
 | Skipped | 8 | **8** (unchanged) |
@@ -384,7 +399,8 @@ New in this phase:
 
 | Class | Tests | Covers |
 |---|---|---|
-| `WebAccountHttpTests` | 19 | sign-up, the taken-address case changing nothing, weak password, verify once and never again, unknown vs malformed vs **expired** (24 h) being identical, resend, the unverified gate on workflow creation, **the gate on all five signing actions, the download included** (and that listing is still allowed), reset identical answers, reset ending every session and refresh token, **an expired reset link** (30 min), password change keeping this session and ending the others, change needing the current password and a session, the anonymous/signed-in idle timeouts, nothing secret in the log |
+| `WebAccountHttpTests` | 22 | sign-up, the taken-address case changing nothing, weak password, verify once and never again, unknown vs malformed vs **expired** (24 h) being identical, resend, the unverified gate on workflow creation, **the gate on all five signing actions, the download included** (and that listing is still allowed), reset identical answers, reset ending every session and refresh token, **an expired reset link** (30 min), password change keeping this session and ending the others, change needing the current password and a session, the anonymous/signed-in idle timeouts, **the password-change notice on both paths and none on a refused attempt**, nothing secret in the log |
+| `WebAccountNoticeTests` | 4 | the notice is best-effort: a mail server that throws does not undo the password change or the revocations, a wrong current password sends nothing, an account with no address on file is simply not notified, and the reset/change distinction reaches the mailer |
 | `SigningActionPolicyTests` | 5 | the five covered actions, that listing and reading a task are not covered, that each path is paired with its method (and `HEAD` of the document is not a way round it), and that the match is anchored so no prefix or suffix smuggles a path past it |
 | `UnverifiedSigningGateHttpTests` | 4 | one test per gated step against a **real** workflow where the account holds a prepared slot — claim, download (and `HEAD`), submit — each refused `EMAIL_NOT_VERIFIED` with nothing changed in the database, plus the counterweight: the same account, verified, runs the whole desktop flow through to a cryptographically **valid** signature |
 | `WebAccountRateLimitHttpTests` | 3 | the per-recipient mail cap (still 202, no further mail), the `\|account` bucket reaching 429 with `Retry-After` **without spending the sign-in budget**, and the same for the `\|csrf` bucket |
@@ -417,7 +433,7 @@ do not depend on how much budget earlier assertions spent.
 | ~~D5~~ | ~~Nothing deletes expired tokens~~ | **FIXED** | §8. `WebAccountService.deleteExpiredTokens` sweeps both tables hourly, deleting rows that expired over a day ago, through the `deleteExpiredBefore` queries that had been written and never called. |
 | D6 | **The sliding window is implemented twice** | Low | `IdentityRateLimiter` repeats `LoginRateLimitFilter`'s algorithm instead of sharing it. Deliberate — folding them together inside this phase would have changed the behaviour of the tested one — but it is duplication to retire. |
 | D7 | **A reset does not end desktop *access* tokens, only refresh tokens** | Low | An access JWT already issued stays valid for up to its 15-minute life after a reset. Accepted: the same window Phase 2 accepted for a disabled account on the bearer chain. |
-| D8 | **No notification when a password changes** | Low | Neither a reset nor a change e-mails the account to say so, which is the usual way a victim notices. Worth adding with D2. |
+| ~~D8~~ | ~~No notification when a password changes~~ | **FIXED** | §4. Both paths e-mail the holder, with no link in the message, best-effort so a mail failure cannot undo the change. **What remains:** nothing is sent when an address itself changes, because an account's address still cannot change at all (§12); and the notice says *when*, not *from where* — there is no stored client address to tell them, and inventing one would mean logging what visitors' addresses are. |
 | D9 | **`__Host-`/`Secure` on localhost still unverified in real browsers** | Low (dev only) | Phase C risk **C1**, unchanged: this phase still has no frontend and no browser. D2 must resolve it and delete the dev cookie override. |
 | D10 | **No CSP, and still no pages to apply one to** | — | Phase C risk C7, unchanged. D2. |
 | ~~C2~~ | ~~No sign-up, verification or password reset~~ | **FIXED** | This phase. |
@@ -435,6 +451,7 @@ do not depend on how much budget earlier assertions spent.
   `WebSessionRegistry` now makes both straightforward.
 - No account deletion, no admin routes, no role management.
 - No CAPTCHA — it belongs with the sign-up page (D2), on top of the throttle.
-- No notification e-mail (D8).
+- No notice when an *address* changes — an account's address cannot change at
+  all yet, so there is nothing to notify (D8 covers password changes only).
 - No workflow routes under `/web/api` — Phase E.
 - No change to the desktop login, guest invitations, launch codes or signing.
