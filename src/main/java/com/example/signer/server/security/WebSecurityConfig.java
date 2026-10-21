@@ -143,6 +143,17 @@ public class WebSecurityConfig {
                     // CSRF token (both are state-changing POSTs).
                     .requestMatchers(post("/web/api/auth/login")).permitAll()
                     .requestMatchers(post("/web/api/auth/logout")).permitAll()
+                    // Phase D account self-service. These are reached by
+                    // someone who cannot sign in yet — they have no account,
+                    // have not verified it, or have forgotten the password —
+                    // so they need no session, only a CSRF token. Each
+                    // answers the same whatever the address or token was, so
+                    // being open does not make them an oracle.
+                    .requestMatchers(post("/web/api/auth/register")).permitAll()
+                    .requestMatchers(post("/web/api/auth/verify-email")).permitAll()
+                    .requestMatchers(post("/web/api/auth/resend-verification")).permitAll()
+                    .requestMatchers(post("/web/api/auth/password-reset/request")).permitAll()
+                    .requestMatchers(post("/web/api/auth/password-reset/confirm")).permitAll()
                     // Everything else the website offers needs a session.
                     .requestMatchers(path("/web/api/**")).hasAuthority(ROLE_WEB_USER)
                     // No website pages are served yet (Phase D), so nothing

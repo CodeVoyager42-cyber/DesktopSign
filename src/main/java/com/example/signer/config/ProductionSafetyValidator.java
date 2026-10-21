@@ -219,6 +219,15 @@ public class ProductionSafetyValidator {
             problems.add("SIGNER_WEB_SESSION_ABSOLUTE must be between 0 and " + MAX_ABSOLUTE
                     + " (got " + absolute + ").");
         }
+        Duration anonymous = duration(env, "anonymous-idle-timeout", "PT5M", problems);
+        if (anonymous != null && idle != null
+                && (anonymous.isZero() || anonymous.isNegative()
+                        || anonymous.compareTo(idle) > 0)) {
+            problems.add("SIGNER_WEB_SESSION_ANON_IDLE must be positive and no longer than"
+                    + " SIGNER_WEB_SESSION_IDLE (got " + anonymous + " against " + idle
+                    + "): a visitor who never signs in must not hold a session longer than"
+                    + " one who did.");
+        }
         if (idle != null && absolute != null && absolute.compareTo(idle) < 0) {
             problems.add("SIGNER_WEB_SESSION_ABSOLUTE (" + absolute + ") is shorter than"
                     + " SIGNER_WEB_SESSION_IDLE (" + idle + "), so the idle window could"

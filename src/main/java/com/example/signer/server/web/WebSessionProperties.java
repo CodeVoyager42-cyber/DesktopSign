@@ -24,6 +24,7 @@ public class WebSessionProperties {
     private boolean secureCookie = true;
     private Duration idleTimeout = Duration.ofMinutes(30);
     private Duration absoluteTimeout = Duration.ofHours(8);
+    private Duration anonymousIdleTimeout = Duration.ofMinutes(5);
 
     public String getCookieName() {
         return cookieName;
@@ -55,5 +56,19 @@ public class WebSessionProperties {
 
     public void setAbsoluteTimeout(Duration absoluteTimeout) {
         this.absoluteTimeout = absoluteTimeout;
+    }
+
+    /**
+     * Idle timeout of a session that has not signed in (security Phase C risk
+     * C9). The CSRF bootstrap creates a session for every visitor, so these
+     * expire much sooner than a signed-in one; sign-in promotes the session to
+     * {@link #getIdleTimeout()}.
+     */
+    public Duration getAnonymousIdleTimeout() {
+        return anonymousIdleTimeout;
+    }
+
+    public void setAnonymousIdleTimeout(Duration anonymousIdleTimeout) {
+        this.anonymousIdleTimeout = anonymousIdleTimeout;
     }
 }

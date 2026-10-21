@@ -44,6 +44,21 @@ public interface UserAccountService {
     }
 
     /**
+     * Whether the account may take <b>signing-related</b> actions — creating
+     * a signing request, or opening a signing session (security Phase D
+     * decision). An account whose e-mail address is not verified may sign in
+     * and look around, but not this: everything here either commits the
+     * account's name to a document or sends e-mail in its name.
+     *
+     * <p>File-mode accounts have no address to verify, so they always may.
+     * The check lives behind this seam rather than in each caller so the
+     * desktop API and the website are gated by the same rule.
+     */
+    default boolean maySign(String username) {
+        return true;
+    }
+
+    /**
      * The non-secret profile of an account, for the website's {@code /me}
      * (security Phase C). Implementations must never put a password, a hash,
      * a token or any workflow data in it.

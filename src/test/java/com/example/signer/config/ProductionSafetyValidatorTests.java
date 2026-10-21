@@ -208,6 +208,25 @@ class ProductionSafetyValidatorTests {
     }
 
     @Test
+    void productionRefusesAnAnonymousIdleTimeoutLongerThanTheSignedInOne() {
+        MockEnvironment env = productionWebServer();
+        env.setProperty("signature.remote-server.web.session.idle-timeout", "PT30M");
+        env.setProperty("signature.remote-server.web.session.anonymous-idle-timeout", "PT1H");
+
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                .hasMessageContaining("SIGNER_WEB_SESSION_ANON_IDLE");
+    }
+
+    @Test
+    void productionRefusesAnAnonymousIdleTimeoutOfZero() {
+        MockEnvironment env = productionWebServer();
+        env.setProperty("signature.remote-server.web.session.anonymous-idle-timeout", "PT0S");
+
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                .hasMessageContaining("SIGNER_WEB_SESSION_ANON_IDLE");
+    }
+
+    @Test
     void productionRefusesAnUnparseableTimeout() {
         MockEnvironment env = productionWebServer();
         env.setProperty("signature.remote-server.web.session.idle-timeout", "30 minutes");

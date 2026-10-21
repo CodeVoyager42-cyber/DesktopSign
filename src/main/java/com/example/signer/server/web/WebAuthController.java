@@ -64,13 +64,16 @@ public class WebAuthController {
     private final UserAccountService accounts;
     private final SecurityContextRepository securityContextRepository;
     private final CsrfTokenRepository csrfTokenRepository;
+    private final WebSessionProperties sessionProperties;
 
     public WebAuthController(UserAccountService accounts,
                              SecurityContextRepository webSecurityContextRepository,
-                             CsrfTokenRepository webCsrfTokenRepository) {
+                             CsrfTokenRepository webCsrfTokenRepository,
+                             WebSessionProperties sessionProperties) {
         this.accounts = accounts;
         this.securityContextRepository = webSecurityContextRepository;
         this.csrfTokenRepository = webCsrfTokenRepository;
+        this.sessionProperties = sessionProperties;
     }
 
     /**
@@ -94,6 +97,7 @@ public class WebAuthController {
             current = csrfTokenRepository.generateToken(httpRequest);
         }
         csrfTokenRepository.saveToken(current, httpRequest, httpResponse);
+        capAnonymousSession(httpRequest);
         return ResponseEntity.noContent().build();
     }
 
@@ -124,6 +128,10 @@ public class WebAuthController {
         }
 
         rotateSession(httpRequest);
+        // Signing in promotes the session from the short anonymous idle
+        // timeout to the full one (Phase C risk C9).
+        HttpSession signedIn = httpRequest.getSession();
+        signedIn.setMaxInactiveInterval((int) sessionProperties.getIdleTimeout().toSeconds());
         rotateCsrfToken(httpRequest, httpResponse);
         Authentication authentication = new UsernamePasswordAuthenticationToken(
                 userId, null,
@@ -178,6 +186,27 @@ public class WebAuthController {
             existing.invalidate();
         }
         httpRequest.getSession(true);
+    }
+
+    /**
+     * Holds an anonymous session to a much shorter idle timeout than a
+     * signed-in one (security Phase C risk C9). The CSRF bootstrap has to
+     * create a session for every visitor, so without this a single page load
+     * would occupy a row for the full signed-in window.
+     */
+    private void capAnonymousSession(HttpServletRequest httpRequest) {
+        HttpSession session = httpRequest.getSession(false);
+        if (session == null) {
+            return;
+        }
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        boolean signedIn = auth != null && auth.isAuthenticated()
+                && auth.getAuthorities().stream().anyMatch(a ->
+                        WebSecurityConfig.ROLE_WEB_USER.equals(a.getAuthority()));
+        if (!signedIn) {
+            session.setMaxInactiveInterval(
+                    (int) sessionProperties.getAnonymousIdleTimeout().toSeconds());
+        }
     }
 
     /**

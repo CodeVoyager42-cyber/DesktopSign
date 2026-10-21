@@ -197,6 +197,13 @@ signature:
         idle-timeout: ${SIGNER_WEB_SESSION_IDLE:PT30M}
         # Hard ceiling measured from login, regardless of activity.
         absolute-timeout: ${SIGNER_WEB_SESSION_ABSOLUTE:PT8H}
+        # Security Phase D / risk C9: the CSRF bootstrap has to create a
+        # session for every visitor, so one that has not signed in expires
+        # much sooner. Signing in promotes it to idle-timeout above.
+        anonymous-idle-timeout: ${SIGNER_WEB_SESSION_ANON_IDLE:PT5M}
+      # At most this many account e-mails (verification, password reset) per
+      # recipient per 15 minutes, on top of the per-address limit.
+      mail-limit: ${SIGNER_WEB_MAIL_LIMIT:3}
 
     # ── Email delivery (Phase 5) ─────────────────────────────────────────
     # console: development mailbox — links are printed to the server CONSOLE

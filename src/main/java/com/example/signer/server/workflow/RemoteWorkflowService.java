@@ -138,6 +138,14 @@ public class RemoteWorkflowService {
     public WorkflowView createWorkflow(CreateWorkflowRequest request,
                                        byte[] originalPdf,
                                        String creator) {
+        // Phase D decision: an account with an unverified e-mail address may
+        // sign in, but may not start a signing request — it would put its
+        // name on a document and e-mail invitations in its name. File-mode
+        // accounts have no address to verify, so the seam answers true there.
+        if (!accounts.maySign(creator)) {
+            throw new ApiException(ApiErrorCode.EMAIL_NOT_VERIFIED,
+                    "Verify your e-mail address before creating a signing request");
+        }
         validate(request, creator);
         String workflowId = "WF-" + workflowSeq.incrementAndGet();
         WorkflowSigningPolicy policy = WorkflowSigningPolicy.parse(request.signingPolicy());
