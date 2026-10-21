@@ -204,6 +204,13 @@ signature:
       # At most this many account e-mails (verification, password reset) per
       # recipient per 15 minutes, on top of the per-address limit.
       mail-limit: ${SIGNER_WEB_MAIL_LIMIT:3}
+      # Risk D1: sign-up writes a users row before the address is proved, so
+      # it gets its own far tighter budget per client address — an HOUR-long
+      # window, not the shared limiter's minute. A household behind one
+      # address can still make a handful of accounts; a script cannot make
+      # thousands. Below 1, or a non-positive window, fails startup.
+      signup-limit: ${SIGNER_WEB_SIGNUP_LIMIT:5}
+      signup-window: ${SIGNER_WEB_SIGNUP_WINDOW:PT1H}
 
     # ── Email delivery (Phase 5) ─────────────────────────────────────────
     # console: development mailbox — links are printed to the server CONSOLE

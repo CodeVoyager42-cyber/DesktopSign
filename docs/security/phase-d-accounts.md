@@ -178,6 +178,32 @@ the whole session is void rather than one action refused.
 
 Three kinds of limit apply, and they are deliberately independent.
 
+### Sign-up alone — `SignUpThrottleFilter`
+
+At most **5 new accounts per client address per hour**
+(`SIGNER_WEB_SIGNUP_LIMIT`, `SIGNER_WEB_SIGNUP_WINDOW`), answering `429` with
+`Retry-After`. It runs **before** the shared limiter on the `/web/**` chain, so
+a sign-up flood is turned away without spending the budget the other account
+routes share.
+
+A third limit rather than a tightening of either existing one, because neither
+bounds sign-up:
+
+- the shared `|account` bucket allows 20 requests a **minute** per address
+  across all six account routes — right for someone clicking a link twice,
+  far too generous for creating accounts;
+- the per-recipient e-mail cap is keyed by the **recipient**, so a script
+  using a fresh address every time never comes near it.
+
+Minutes are the wrong unit for sign-up, and making the shared bucket this
+strict would punish someone retrying a verification link. A limit below 1, or
+a non-positive window, fails startup rather than silently allowing everything.
+
+**Why not a CAPTCHA.** One would mean a third-party service, an outbound call
+from a server that deliberately makes none, and a page to host the widget —
+and there is no frontend yet. The two are not alternatives in the long run: a
+CAPTCHA belongs with the sign-up page (D2), on top of this.
+
 ### Per client address — `LoginRateLimitFilter`
 
 One shared singleton filter on both chains, `SIGNER_LOGIN_RATE_LIMIT` (default
@@ -287,6 +313,8 @@ correctness.
 | Variable | Default | Meaning |
 |---|---|---|
 | `SIGNER_WEB_MAIL_LIMIT` | `3` | Account e-mails per recipient per 15 min |
+| `SIGNER_WEB_SIGNUP_LIMIT` | `5` | New accounts per client address per window |
+| `SIGNER_WEB_SIGNUP_WINDOW` | `PT1H` | That window |
 | `SIGNER_WEB_SESSION_ANON_IDLE` | `PT5M` | Idle timeout before sign-in |
 | `SIGNER_LOGIN_RATE_LIMIT` | `20` | Per-address requests per window, per bucket |
 | `SIGNER_LOGIN_RATE_WINDOW_SECONDS` | `60` | That window |
@@ -302,14 +330,14 @@ Full suite on **JDK 21.0.12.1 LTS** (the version the build targets) with a real
 PostgreSQL 16.15.
 
 ```
-Tests run: 570, Failures: 0, Errors: 0, Skipped: 8
-BUILD SUCCESS — 4 min 51 s
+Tests run: 578, Failures: 0, Errors: 0, Skipped: 8
+BUILD SUCCESS — 5 min 37 s
 ```
 
 | | After Phase C | After Phase D1 |
 |---|---|---|
-| Found | 532 | **570** (+38) |
-| Passed | 524 | **562** |
+| Found | 532 | **578** (+46) |
+| Passed | 524 | **570** |
 | Failed | 0 | **0** |
 | Errors | 0 | **0** |
 | Skipped | 8 | **8** (unchanged) |
@@ -327,6 +355,8 @@ New in this phase:
 | `SigningActionPolicyTests` | 5 | the five covered actions, that listing and reading a task are not covered, that each path is paired with its method (and `HEAD` of the document is not a way round it), and that the match is anchored so no prefix or suffix smuggles a path past it |
 | `UnverifiedSigningGateHttpTests` | 4 | one test per gated step against a **real** workflow where the account holds a prepared slot — claim, download (and `HEAD`), submit — each refused `EMAIL_NOT_VERIFIED` with nothing changed in the database, plus the counterweight: the same account, verified, runs the whole desktop flow through to a cryptographically **valid** signature |
 | `WebAccountRateLimitHttpTests` | 3 | the per-recipient mail cap (still 202, no further mail), the `\|account` bucket reaching 429 with `Retry-After` **without spending the sign-in budget**, and the same for the `\|csrf` bucket |
+| `WebSignUpThrottleHttpTests` | 2 | the fourth sign-up from one address is refused 429 with `Retry-After` **and writes no `users` row**, with the shared limiter left wide open so only the throttle can be what fired; and that the throttle covers sign-up alone — resend, reset-request, verification, sign-in and the CSRF bootstrap all still answer normally once it is spent |
+| `IdentityRateLimiterTests` | 6 | the sliding window itself: counting, the `Retry-After` it reports and how it shrinks, the budget returning after the window, identities counted separately and case-insensitively, a blank identity allowed, and a meaningless limit refused at construction |
 | `AccountTokenMigrationLiveTests` | 5 | V10 on a fresh database, the exact columns (no token column) and the unique hash, the expiry CHECK, cascade from `users`, and that V10 leaves an existing **V9** database — rows and session rows — intact |
 | `ProductionSafetyValidatorTests` | +2 | the anonymous idle timeout: longer than the signed-in one, and zero |
 
@@ -345,7 +375,8 @@ do not depend on how much budget earlier assertions spent.
 
 | # | Risk | Severity | Note |
 |---|---|---|---|
-| D1 | **Sign-up is open and creates a row before the address is proved** | Medium (abuse) | Decision D1 in the plan. Anyone can create unverified accounts at 20/min per address and 3 e-mails per recipient per 15 min. An unverified account can do nothing (§5), but the rows accumulate; there is no sweep and no CAPTCHA. |
+| D1 | **Sign-up is open and creates a row before the address is proved** | Low (was Medium) | Decision D1 in the plan. Now throttled to 5 accounts per address per hour (§6), down from the shared bucket's 20 a minute, and an unverified account can do nothing (§5) while its tokens are swept (§8). **What remains:** the throttle is per address and in memory, so a botnet with many addresses, or a restart, gets a fresh budget; and nothing deletes an account that never verifies — see D11. It also lands harder on shared addresses than the per-minute limits do (risk C6): an office behind one NAT address gets 5 sign-ups an hour between everyone, which is the number to raise first if that is the deployment. A CAPTCHA belongs with the sign-up page (D2). |
+| D11 | **Nothing deletes an account that never verifies** | Low | The token rows are swept (§8); the `users` row is not. It can do nothing — unverified, and no password has ever been proved against it — but it holds a username and an address forever, and it blocks that address from being signed up again (answered 202, so the attempt is silent). A sweep is deliberately **not** written here: deleting a `users` row touches the one table every workflow, signer slot, invitation and audit row references, so it needs its own review of what cascades, not a quiet addition to this phase. |
 | D2 | **E-mail delivery is the whole security of both flows** | Medium | A reset link in a mailbox is the account. Nothing here can fix a compromised or mis-delivered mailbox; the 30-minute life and single use are the mitigation. No second factor exists. |
 | D3 | **Both identity limits are in memory, per instance** | Medium (availability) | Same limitation as the address limiter (Phase C risk C6). Behind several instances the effective caps multiply by the instance count. Moving them to the database or a shared cache is the fix. |
 | ~~D4~~ | ~~Only workflow creation is gated on a verified address~~ | **FIXED** | §5. `SigningActionPolicy` + `AuthenticatedRequestFilter` now gate claim, the document download, signatures, certificate binding and launch-code issuing for account tokens, and Phase B's three existing `email_verified_at` reads were routed through `maySign` so there is one rule in one place. Guests are deliberately exempt. **What the original wording got wrong:** the launch-code path was never ungated — `issue`, `exchange` and `taskSessionState` each already read `email_verified_at` directly. The gap was the account-token signing routes, and the duplication that hid it. The document download was gated in a follow-up: it had first been left readable as "looking around", which was the wrong call — it is step one of signing. |
@@ -369,6 +400,7 @@ do not depend on how much budget earlier assertions spent.
 - No "sign out everywhere" button and no session list (Phase C risk C4) —
   `WebSessionRegistry` now makes both straightforward.
 - No account deletion, no admin routes, no role management.
-- No CAPTCHA (D1), no notification e-mail (D8).
+- No CAPTCHA — it belongs with the sign-up page (D2), on top of the throttle.
+- No sweep of accounts that never verify (D11), and no notification e-mail (D8).
 - No workflow routes under `/web/api` — Phase E.
 - No change to the desktop login, guest invitations, launch codes or signing.

@@ -3,6 +3,7 @@ package com.example.signer.server.security;
 import com.example.signer.server.auth.UserAccountService;
 import com.example.signer.server.web.WebSessionProperties;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
@@ -20,6 +21,9 @@ import org.springframework.security.web.csrf.CsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
+
+import java.time.Clock;
+import java.time.Duration;
 
 /**
  * Spring Security for the website (security Phase C).
@@ -89,12 +93,26 @@ public class WebSecurityConfig {
         return new SessionBackedCsrfTokenRepository(properties.isSecureCookie());
     }
 
+    /**
+     * The sign-up throttle (risk D1). Its own bean so the limits are
+     * configurable and the filter is testable on its own; the window is an
+     * hour rather than the shared limiter's minute, because minutes are the
+     * wrong unit for creating accounts.
+     */
+    @Bean
+    SignUpThrottleFilter signUpThrottleFilter(
+            @Value("${signature.remote-server.web.signup-limit:5}") int signUpLimit,
+            @Value("${signature.remote-server.web.signup-window:PT1H}") Duration signUpWindow) {
+        return new SignUpThrottleFilter(signUpLimit, signUpWindow, Clock.systemUTC());
+    }
+
     @Bean
     @Order(1)
     SecurityFilterChain webSecurityFilterChain(HttpSecurity http,
             SecurityContextRepository webSecurityContextRepository,
             CsrfTokenRepository webCsrfTokenRepository,
             LoginRateLimitFilter loginRateLimit,
+            SignUpThrottleFilter signUpThrottle,
             UserAccountService accounts,
             WebSessionProperties sessionProperties) throws Exception {
         http
@@ -127,6 +145,10 @@ public class WebSecurityConfig {
             // Shared instance, so a flood against /web/api/auth/login counts
             // against the very same per-address budget as /api/auth/login.
             .addFilterBefore(loginRateLimit, CsrfFilter.class)
+            // D1: a far tighter, hour-long budget on sign-up alone. Before
+            // the shared limiter, so a sign-up flood is turned away without
+            // spending the budget the other account routes share.
+            .addFilterBefore(signUpThrottle, LoginRateLimitFilter.class)
             // Both of these run with the security context already loaded from
             // the session and before the URL rules. Chained explicitly rather
             // than anchored on the same filter twice, so their order is not
