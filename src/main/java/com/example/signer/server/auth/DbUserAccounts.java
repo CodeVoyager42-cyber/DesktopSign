@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,19 +39,31 @@ public class DbUserAccounts implements UserAccountService {
     public static final int DEFAULT_MAX_FAILURES = 5;
     public static final Duration DEFAULT_LOCK = Duration.ofMinutes(15);
 
+    /** How long an unverified, unused account is kept (risk D11). */
+    public static final Duration DEFAULT_UNVERIFIED_RETENTION = Duration.ofDays(7);
+
     private final UserRepository users;
     private final int maxFailures;
     private final Duration lockDuration;
+    private final Duration unverifiedRetention;
 
     /** Default policy: 5 failures, 15 minutes. */
     public DbUserAccounts(UserRepository users) {
-        this(users, DEFAULT_MAX_FAILURES, DEFAULT_LOCK.toMinutes());
+        this(users, DEFAULT_MAX_FAILURES, DEFAULT_LOCK.toMinutes(),
+                DEFAULT_UNVERIFIED_RETENTION);
+    }
+
+    /** Chosen lockout policy, with the default unverified-account retention. */
+    public DbUserAccounts(UserRepository users, int maxFailures, long lockMinutes) {
+        this(users, maxFailures, lockMinutes, DEFAULT_UNVERIFIED_RETENTION);
     }
 
     @Autowired
     public DbUserAccounts(UserRepository users,
             @Value("${signature.remote-server.login.max-failures:5}") int maxFailures,
-            @Value("${signature.remote-server.login.lock-minutes:15}") long lockMinutes) {
+            @Value("${signature.remote-server.login.lock-minutes:15}") long lockMinutes,
+            @Value("${signature.remote-server.web.unverified-retention:P7D}")
+                    Duration unverifiedRetention) {
         if (maxFailures < 1 || lockMinutes < 1) {
             throw new IllegalStateException(
                     "signature.remote-server.login.max-failures and lock-minutes must be >= 1");
@@ -58,6 +71,7 @@ public class DbUserAccounts implements UserAccountService {
         this.users = users;
         this.maxFailures = maxFailures;
         this.lockDuration = Duration.ofMinutes(lockMinutes);
+        this.unverifiedRetention = unverifiedRetention;
     }
 
     @Override
@@ -183,6 +197,37 @@ public class DbUserAccounts implements UserAccountService {
         return users.findByUsername(username.trim())
                 .map(user -> user.isActive() && user.getEmailVerifiedAt() != null)
                 .orElse(false);
+    }
+
+    /**
+     * Daily: deletes accounts created by website sign-up that never proved
+     * their e-mail address and were never used (security Phase D1 risk D11).
+     *
+     * <p>The guards are in {@link UserRepository#deleteNeverVerifiedBefore},
+     * spelled out in SQL because this is the only statement in the
+     * application that removes a {@code users} row. In particular it never
+     * touches an invitation identity ({@code PENDING_INVITE}), an account an
+     * operator disabled, one that has ever been signed in to, or one that
+     * holds a signer slot, owns a workflow or holds a claimed turn.
+     *
+     * <p>Set {@code SIGNER_WEB_UNVERIFIED_RETENTION} to zero to switch the
+     * sweep off and keep such rows for ever: deleting accounts is the one
+     * destructive piece of housekeeping here, so it has an off switch, unlike
+     * the token sweeps.
+     */
+    @Scheduled(fixedDelay = 86_400_000, initialDelay = 1_800_000)
+    @Transactional
+    public void deleteNeverVerifiedAccounts() {
+        if (unverifiedRetention == null || unverifiedRetention.isZero()
+                || unverifiedRetention.isNegative()) {
+            return; // switched off on purpose
+        }
+        int removed = users.deleteNeverVerifiedBefore(Instant.now().minus(unverifiedRetention));
+        if (removed > 0) {
+            // A count, never a username or an address.
+            log.info("Deleted {} account(s) that never verified an e-mail address"
+                    + " and were never used", removed);
+        }
     }
 
     /**
