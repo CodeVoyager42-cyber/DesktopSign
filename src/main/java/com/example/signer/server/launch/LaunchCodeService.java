@@ -7,7 +7,6 @@ import com.example.signer.server.auth.JwtService;
 import com.example.signer.server.auth.UserAccountService;
 import com.example.signer.server.db.AuditLog;
 import com.example.signer.server.db.entity.LaunchCodeEntity;
-import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.entity.WorkflowEntity;
 import com.example.signer.server.db.repository.LaunchCodeRepository;
 import com.example.signer.server.db.repository.UserRepository;
@@ -145,10 +144,12 @@ public class LaunchCodeService {
     public ApiContracts.LaunchCodeIssued issue(String username, String workflowPublicId) {
         // Row lock: concurrent requests of one user are counted one at a
         // time, so the per-minute limit cannot be overrun by racing them.
-        UserEntity user = users.lockByUsername(username)
+        users.lockByUsername(username)
                 .orElseThrow(() -> new ApiException(ApiErrorCode.AUTHENTICATION_REQUIRED,
                         "Authentication required"));
-        if (user.getEmailVerifiedAt() == null) {
+        // Same rule as every other signing action, through the one seam
+        // (Phase D1 risk D4) rather than a second reading of the column.
+        if (!accounts.maySign(username)) {
             throw new ApiException(ApiErrorCode.EMAIL_NOT_VERIFIED,
                     "Verify your e-mail address before signing documents");
         }
@@ -230,9 +231,9 @@ public class LaunchCodeService {
                     || required == null || appVersion.compareTo(required) < 0) {
                 throw new LaunchRejected();
             }
-            UserEntity user = users.findByUsername(row.getUsername())
-                    .orElseThrow(LaunchRejected::new);
-            if (!user.isActive() || user.getEmailVerifiedAt() == null
+            // maySign covers "known, active and verified"; isRegistered adds
+            // "has completed registration" (Phase D1 risk D4).
+            if (!accounts.maySign(row.getUsername())
                     || !accounts.isRegistered(row.getUsername())) {
                 throw new LaunchRejected();
             }
@@ -285,10 +286,9 @@ public class LaunchCodeService {
                 .flatMap(c -> workflows.findById(c.getWorkflowId()))
                 .map(w -> w.getWorkflowId().equals(task.workflowId()))
                 .orElse(false);
-        boolean accountOk = users.findByUsername(task.principal())
-                .map(u -> u.isActive() && u.getEmailVerifiedAt() != null)
-                .orElse(false);
-        if (!codeMatches || !accountOk) {
+        // The same seam again: a task session dies the moment its account may
+        // no longer sign (Phase D1 risk D4).
+        if (!codeMatches || !accounts.maySign(task.principal())) {
             return RemoteWorkflowService.TaskSlotState.INVALID;
         }
         return workflowService.taskSlotState(task.workflowId(), task.principal(),

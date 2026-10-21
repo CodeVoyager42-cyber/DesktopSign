@@ -44,15 +44,30 @@ public interface UserAccountService {
     }
 
     /**
-     * Whether the account may take <b>signing-related</b> actions — creating
-     * a signing request, or opening a signing session (security Phase D
-     * decision). An account whose e-mail address is not verified may sign in
-     * and look around, but not this: everything here either commits the
-     * account's name to a document or sends e-mail in its name.
+     * Whether the account may take <b>signing-related</b> actions (security
+     * Phase D decision). An account whose e-mail address is not verified may
+     * sign in and look around, but not this: everything gated on it either
+     * commits the account's name to a document or opens a session that can.
      *
      * <p>File-mode accounts have no address to verify, so they always may.
-     * The check lives behind this seam rather than in each caller so the
-     * desktop API and the website are gated by the same rule.
+     * The check lives behind this seam rather than in each caller so that
+     * every path is gated by one rule. The callers are:
+     *
+     * <ul>
+     *   <li>{@code RemoteWorkflowService.createWorkflow} — starting a signing
+     *       request, for every caller path including the website;</li>
+     *   <li>{@code AuthenticatedRequestFilter}, for the account-token
+     *       requests in {@link SigningActionPolicy} — claiming a turn,
+     *       submitting a signature, binding a certificate, issuing a launch
+     *       code;</li>
+     *   <li>{@code LaunchCodeService} — issuing a launch code, exchanging one
+     *       for a task session, and re-checking that session on every
+     *       request.</li>
+     * </ul>
+     *
+     * <p>It does <b>not</b> gate guest signing sessions: a guest has no
+     * account, and proves control of its address by receiving an e-mailed
+     * code instead.
      */
     default boolean maySign(String username) {
         return true;
