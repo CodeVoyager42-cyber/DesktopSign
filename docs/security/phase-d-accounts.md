@@ -141,20 +141,27 @@ friction — but every *other* session goes.
 null". File-mode accounts have no address to verify, so they always may.
 
 An unverified account may sign in, see `/web/api/auth/me` with
-`emailVerified: false`, list its workflows, open a task and download the
-document. What it may not do is commit its name to one. Every such action is
-gated, each answering `403 EMAIL_NOT_VERIFIED`:
+`emailVerified: false`, list its workflows and read where a task stands. What
+it may not do is take any step of signing. Every such action is gated, each
+answering `403 EMAIL_NOT_VERIFIED`:
 
 | Where | Gates |
 |---|---|
 | `RemoteWorkflowService.createWorkflow` | starting a signing request — in the service, so it holds for **every** caller path, including the website routes of Phase E |
-| `AuthenticatedRequestFilter`, via `SigningActionPolicy` | the account-token requests: `POST …/claim`, `…/signatures`, `…/signers/{user}/certificate`, `…/launch-codes` |
+| `AuthenticatedRequestFilter`, via `SigningActionPolicy` | the account-token requests: `POST …/claim`, **`GET …/document`**, `POST …/signatures`, `…/signers/{user}/certificate`, `…/launch-codes` |
 | `LaunchCodeService` | issuing a launch code, exchanging one for a task session, and re-checking that session on **every** request (`taskSessionState` → `INVALID` → 401) |
 
 `SigningActionPolicy` is an anchored path list in the style of
-`TaskAccessPolicy`. It is checked in the filter rather than in the services
-because that is where the **kind** of principal is known, which matters for
-the exception below. Reading is deliberately absent from it.
+`TaskAccessPolicy`, pairing each path with its method. It is checked in the
+filter rather than in the services because that is where the **kind** of
+principal is known, which matters for the exception below.
+
+The document download is the one **read** in it. It is there because it is
+step one of signing rather than a way of looking around: handing the document
+to an account that has not proved its address serves no purpose when it cannot
+submit the result. `HEAD` counts as the download too, since Spring serves it
+from the same handler. Listing workflows and reading a task, its revisions and
+its audit trail stay open.
 
 **Guests are not subject to this.** A guest signing session has no account to
 verify and proves control of its address by receiving an e-mailed code;
@@ -280,14 +287,14 @@ Full suite on **JDK 21.0.12.1 LTS** (the version the build targets) with a real
 PostgreSQL 16.15.
 
 ```
-Tests run: 564, Failures: 0, Errors: 0, Skipped: 8
-BUILD SUCCESS — 5 min 45 s
+Tests run: 568, Failures: 0, Errors: 0, Skipped: 8
+BUILD SUCCESS — 5 min 50 s
 ```
 
 | | After Phase C | After Phase D1 |
 |---|---|---|
-| Found | 532 | **564** (+32) |
-| Passed | 524 | **556** |
+| Found | 532 | **568** (+36) |
+| Passed | 524 | **560** |
 | Failed | 0 | **0** |
 | Errors | 0 | **0** |
 | Skipped | 8 | **8** (unchanged) |
@@ -301,8 +308,9 @@ New in this phase:
 
 | Class | Tests | Covers |
 |---|---|---|
-| `WebAccountHttpTests` | 17 | sign-up, the taken-address case changing nothing, weak password, verify once and never again, unknown vs malformed vs **expired** (24 h) being identical, resend, the unverified gate on workflow creation, **the gate on all four signing actions** (and that reading is still allowed), reset identical answers, reset ending every session and refresh token, **an expired reset link** (30 min), password change keeping this session and ending the others, change needing the current password and a session, the anonymous/signed-in idle timeouts, nothing secret in the log |
-| `SigningActionPolicyTests` | 5 | the four covered actions, that reading and non-POST methods are not covered, and that the match is anchored so no prefix or suffix smuggles a path past it |
+| `WebAccountHttpTests` | 17 | sign-up, the taken-address case changing nothing, weak password, verify once and never again, unknown vs malformed vs **expired** (24 h) being identical, resend, the unverified gate on workflow creation, **the gate on all five signing actions, the download included** (and that listing is still allowed), reset identical answers, reset ending every session and refresh token, **an expired reset link** (30 min), password change keeping this session and ending the others, change needing the current password and a session, the anonymous/signed-in idle timeouts, nothing secret in the log |
+| `SigningActionPolicyTests` | 5 | the five covered actions, that listing and reading a task are not covered, that each path is paired with its method (and `HEAD` of the document is not a way round it), and that the match is anchored so no prefix or suffix smuggles a path past it |
+| `UnverifiedSigningGateHttpTests` | 4 | one test per gated step against a **real** workflow where the account holds a prepared slot — claim, download (and `HEAD`), submit — each refused `EMAIL_NOT_VERIFIED` with nothing changed in the database, plus the counterweight: the same account, verified, runs the whole desktop flow through to a cryptographically **valid** signature |
 | `WebAccountRateLimitHttpTests` | 3 | the per-recipient mail cap (still 202, no further mail), the `\|account` bucket reaching 429 with `Retry-After` **without spending the sign-in budget**, and the same for the `\|csrf` bucket |
 | `AccountTokenMigrationLiveTests` | 5 | V10 on a fresh database, the exact columns (no token column) and the unique hash, the expiry CHECK, cascade from `users`, and that V10 leaves an existing **V9** database — rows and session rows — intact |
 | `ProductionSafetyValidatorTests` | +2 | the anonymous idle timeout: longer than the signed-in one, and zero |
@@ -325,7 +333,7 @@ do not depend on how much budget earlier assertions spent.
 | D1 | **Sign-up is open and creates a row before the address is proved** | Medium (abuse) | Decision D1 in the plan. Anyone can create unverified accounts at 20/min per address and 3 e-mails per recipient per 15 min. An unverified account can do nothing (§5), but the rows accumulate; there is no sweep and no CAPTCHA. |
 | D2 | **E-mail delivery is the whole security of both flows** | Medium | A reset link in a mailbox is the account. Nothing here can fix a compromised or mis-delivered mailbox; the 30-minute life and single use are the mitigation. No second factor exists. |
 | D3 | **Both identity limits are in memory, per instance** | Medium (availability) | Same limitation as the address limiter (Phase C risk C6). Behind several instances the effective caps multiply by the instance count. Moving them to the database or a shared cache is the fix. |
-| ~~D4~~ | ~~Only workflow creation is gated on a verified address~~ | **FIXED** | §5. `SigningActionPolicy` + `AuthenticatedRequestFilter` now gate claim, signatures, certificate binding and launch-code issuing for account tokens, and Phase B's three existing `email_verified_at` reads were routed through `maySign` so there is one rule in one place. Guests are deliberately exempt. **What the original wording got wrong:** the launch-code path was never ungated — `issue`, `exchange` and `taskSessionState` each already read `email_verified_at` directly. The gap was the three account-token signing routes, and the duplication that hid it. |
+| ~~D4~~ | ~~Only workflow creation is gated on a verified address~~ | **FIXED** | §5. `SigningActionPolicy` + `AuthenticatedRequestFilter` now gate claim, the document download, signatures, certificate binding and launch-code issuing for account tokens, and Phase B's three existing `email_verified_at` reads were routed through `maySign` so there is one rule in one place. Guests are deliberately exempt. **What the original wording got wrong:** the launch-code path was never ungated — `issue`, `exchange` and `taskSessionState` each already read `email_verified_at` directly. The gap was the account-token signing routes, and the duplication that hid it. The document download was gated in a follow-up: it had first been left readable as "looking around", which was the wrong call — it is step one of signing. |
 | D5 | **Nothing deletes expired tokens** | Low | `deleteExpiredBefore` exists on both repositories and **is never called**; `idx_*_expires` is there for it. Expired rows are harmless (the expiry is checked on use) but they grow without limit. |
 | D6 | **The sliding window is implemented twice** | Low | `IdentityRateLimiter` repeats `LoginRateLimitFilter`'s algorithm instead of sharing it. Deliberate — folding them together inside this phase would have changed the behaviour of the tested one — but it is duplication to retire. |
 | D7 | **A reset does not end desktop *access* tokens, only refresh tokens** | Low | An access JWT already issued stays valid for up to its 15-minute life after a reset. Accepted: the same window Phase 2 accepted for a disabled account on the bearer chain. |

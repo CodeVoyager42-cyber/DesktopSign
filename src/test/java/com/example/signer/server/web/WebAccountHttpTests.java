@@ -651,11 +651,17 @@ class WebAccountHttpTests {
                     .contains("EMAIL_NOT_VERIFIED");
         }
 
-        // Reading is deliberately still allowed: the account may look around.
-        assertThat(http.send(HttpRequest.newBuilder(uri("/api/workflows/my-tasks"))
-                        .header("Authorization", "Bearer " + bearerFor(username))
-                        .GET().build(), HttpResponse.BodyHandlers.ofString())
-                .statusCode()).as("an unverified account may still read").isEqualTo(200);
+        // The download is gated too, even though it is a GET: it is step one
+        // of signing rather than a way of looking around.
+        HttpResponse<String> download =
+                getAs("/api/workflows/" + nowhere + "/document", username);
+        assertThat(download.statusCode()).as("GET /document unverified").isEqualTo(403);
+        assertThat(download.body()).contains("EMAIL_NOT_VERIFIED");
+
+        // Listing is deliberately still allowed: the account may see where it
+        // stands.
+        assertThat(getAs("/api/workflows/my-tasks", username).statusCode())
+                .as("an unverified account may still list its workflows").isEqualTo(200);
 
         // Once verified, none of the four is stopped by the gate any more.
         post("/web/api/auth/verify-email", json("token", tokenFromMailbox(address)),
@@ -665,6 +671,13 @@ class WebAccountHttpTests {
             assertThat(postAs("/api/workflows/" + nowhere + action, username).statusCode())
                     .as("POST " + action + " verified").isNotEqualTo(403);
         }
+    }
+
+    /** A GET of the desktop API as {@code username}. */
+    private HttpResponse<String> getAs(String path, String username) throws Exception {
+        return http.send(HttpRequest.newBuilder(uri(path))
+                        .header("Authorization", "Bearer " + bearerFor(username))
+                        .GET().build(), HttpResponse.BodyHandlers.ofString());
     }
 
     /** An empty POST to the desktop API as {@code username}. */
