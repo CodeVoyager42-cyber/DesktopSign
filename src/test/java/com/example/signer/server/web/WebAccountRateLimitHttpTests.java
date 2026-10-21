@@ -57,6 +57,9 @@ import static org.assertj.core.api.Assertions.assertThat;
                 // Two account e-mails per recipient per window, so the third
                 // is suppressed without having to send dozens.
                 "signature.remote-server.web.mail-limit=2",
+                // The sign-up throttle is measured by its own class; here it
+                // must not be what refuses anything.
+                "signature.remote-server.web.signup-limit=1000",
                 // The test classpath activates dev, which renames the session
                 // cookie; pin the production name so the CSRF bootstrap's
                 // session can be carried back on the POSTs.

@@ -53,8 +53,20 @@ public final class IdentityRateLimiter {
      * @return true when allowed, false when the identity is over its limit
      */
     public boolean tryAcquire(String identity) {
+        return retryAfterSeconds(identity) == 0;
+    }
+
+    /**
+     * The same decision, but saying <b>how long</b> to wait — so a caller that
+     * answers {@code 429} can send an accurate {@code Retry-After} instead of
+     * guessing. Same contract as {@code LoginRateLimitFilter.tryAcquire}.
+     *
+     * @return 0 when the action is allowed (and counted), otherwise the
+     *         seconds until the oldest counted attempt leaves the window
+     */
+    public long retryAfterSeconds(String identity) {
         if (identity == null || identity.isBlank()) {
-            return true; // nothing to key on; the address limit still applies
+            return 0; // nothing to key on; the address limit still applies
         }
         String key = identity.trim().toLowerCase(Locale.ROOT);
         long now = this.clock.millis();
@@ -72,10 +84,11 @@ public final class IdentityRateLimiter {
                 times.pollFirst();
             }
             if (times.size() >= this.max) {
-                return false;
+                long wait = this.windowMillis - (now - times.peekFirst());
+                return Math.max(1, (wait + 999) / 1000);
             }
             times.addLast(now);
-            return true;
+            return 0;
         }
     }
 }
