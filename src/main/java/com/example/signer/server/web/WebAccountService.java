@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,7 +48,8 @@ import java.util.Optional;
  * {@value #VERIFICATION_HOURS} h for verification, {@value #RESET_MINUTES} min
  * for a reset. Issuing a new one retires the account's older ones, and
  * consuming one is an update guarded by {@code consumed_at IS NULL} under a
- * row lock, so two clicks cannot both win.
+ * row lock, so two clicks cannot both win. Rows that expired over a day ago
+ * are deleted hourly by {@link #deleteExpiredTokens()}.
  *
  * <p><b>Revocation.</b> A reset or a change revokes the account's website
  * sessions AND its desktop refresh tokens (Phase C risk C8). A reset ends
@@ -70,6 +72,14 @@ public class WebAccountService {
     /** At most this many token submissions per account per window. */
     private static final int ATTEMPTS_PER_IDENTITY = 10;
     private static final Duration ATTEMPT_WINDOW = Duration.ofMinutes(15);
+
+    /**
+     * How long an expired token row is kept before the sweep deletes it. The
+     * row is unusable from the moment it expires — every path checks
+     * {@code expires_at} — so this grace period is for looking into a support
+     * question ("was a link ever issued?"), not for correctness.
+     */
+    private static final Duration TOKEN_RETENTION = Duration.ofDays(1);
 
     private static final Logger log = LoggerFactory.getLogger(WebAccountService.class);
 
@@ -321,6 +331,35 @@ public class WebAccountService {
         this.refreshTokens.revokeAllForUser(user.getUsername());
         log.info("Password changed for account '{}' — other sessions revoked", username);
         return true;
+    }
+
+    /* ------------------------------- sweep ----------------------------- */
+
+    /**
+     * Hourly: token rows that expired more than {@link #TOKEN_RETENTION} ago
+     * are deleted (security Phase D1 risk D5).
+     *
+     * <p>Nothing depends on this for safety — an expired token is refused on
+     * every path, and a consumed one is retired by {@code consumed_at}. It
+     * exists because the two tables otherwise only ever grow: every sign-up,
+     * resend and reset request adds a row, and open sign-up means anyone can
+     * add them.
+     *
+     * <p>The same shape as {@code DbRefreshTokenStore.deleteExpired} and
+     * {@code LaunchCodeService.deleteStaleCodes}, with a later initial delay
+     * than either so the three sweeps do not all run at once on start-up.
+     */
+    @Scheduled(fixedDelay = 3_600_000, initialDelay = 1_200_000)
+    @Transactional
+    public void deleteExpiredTokens() {
+        Instant cutoff = this.clock.instant().minus(TOKEN_RETENTION);
+        int staleVerifications = this.verifications.deleteExpiredBefore(cutoff);
+        int staleResets = this.resets.deleteExpiredBefore(cutoff);
+        if (staleVerifications + staleResets > 0) {
+            // Counts only: a token hash is still a secret's shadow.
+            log.info("Deleted {} expired verification token row(s) and {} expired"
+                    + " password-reset token row(s)", staleVerifications, staleResets);
+        }
     }
 
     /* ------------------------------ helpers ---------------------------- */
