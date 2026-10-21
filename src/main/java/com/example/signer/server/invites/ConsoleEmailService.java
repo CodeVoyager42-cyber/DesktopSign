@@ -56,6 +56,10 @@ public class ConsoleEmailService implements EmailService {
     private final java.util.Map<String, String> latestAccountLinks =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** Development mailbox: the last account notice sent to each address. */
+    private final java.util.Map<String, String> latestAccountNotices =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     @Override
     public void sendGuestVerificationCode(String recipientEmail, String workflowName,
                                           String code, Instant expiresAt) {
@@ -96,6 +100,16 @@ public class ConsoleEmailService implements EmailService {
                 AccountEmailTemplate.resetText(link, expiresAt, appName));
     }
 
+    @Override
+    public void sendPasswordChanged(String recipientEmail, Instant changedAt,
+                                    boolean afterReset) {
+        String body = AccountEmailTemplate.changedText(changedAt, afterReset, appName);
+        latestAccountNotices.put(recipientEmail, body);
+        // There is no secret in this one, so saying what it was is safe.
+        log.info("EMAIL (console mode) to {} — password-change notice", recipientEmail);
+        print(recipientEmail, AccountEmailTemplate.changedSubject(appName), body);
+    }
+
     /**
      * The last account link "sent" to {@code email} in console mode. Console
      * mode is refused outside the {@code dev} profile, so this mailbox never
@@ -103,6 +117,11 @@ public class ConsoleEmailService implements EmailService {
      */
     public String latestAccountLink(String email) {
         return latestAccountLinks.get(email);
+    }
+
+    /** The last account notice (no link in it) "sent" to {@code email}. */
+    public String latestAccountNotice(String email) {
+        return latestAccountNotices.get(email);
     }
 
     private static void print(String recipient, String subject, String body) {

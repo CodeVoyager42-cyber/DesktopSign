@@ -70,4 +70,25 @@ public interface EmailService {
         throw new IllegalStateException(getClass().getSimpleName()
                 + " cannot send password-reset links");
     }
+
+    /**
+     * Tells the account holder that their password has just changed (security
+     * Phase D1 risk D8). Carries <b>no link and no token</b>: it is a notice,
+     * and a notice with a link in it is the shape of the phishing message an
+     * attacker would send next.
+     *
+     * <p>Best-effort by contract — the caller has already changed the
+     * password, so an implementation that throws must not be allowed to undo
+     * that.
+     *
+     * @param recipientEmail the account's address
+     * @param changedAt      when it changed
+     * @param afterReset     true when a reset link was used, false when the
+     *                       holder changed it knowing the old password
+     */
+    default void sendPasswordChanged(String recipientEmail, Instant changedAt,
+                                     boolean afterReset) {
+        throw new IllegalStateException(getClass().getSimpleName()
+                + " cannot send password-change notices");
+    }
 }
