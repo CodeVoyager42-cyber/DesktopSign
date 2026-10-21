@@ -63,6 +63,11 @@ import static org.assertj.core.api.Assertions.assertThat;
                 // Per-recipient mail limit, raised so the tests can send
                 // several without tripping it; its own test lowers it.
                 "signature.remote-server.web.mail-limit=50",
+                // Likewise the sign-up throttle (risk D1): this class signs
+                // up many times from one address, which is exactly what the
+                // throttle exists to stop. WebSignUpThrottleHttpTests lowers
+                // it and measures it.
+                "signature.remote-server.web.signup-limit=1000",
                 "signature.remote-server.web.session.cookie-name=__Host-SF_SESSION",
                 "signature.remote-server.web.session.secure-cookie=true",
                 "signature.remote-server.web.session.anonymous-idle-timeout=PT5M",
