@@ -89,4 +89,36 @@ public class SmtpEmailService implements EmailService {
             throw new IllegalStateException("The verification email could not be sent", e);
         }
     }
+
+    @Override
+    public void sendEmailVerification(String recipientEmail, String link, Instant expiresAt) {
+        send(recipientEmail, AccountEmailTemplate.verificationSubject(appName),
+                AccountEmailTemplate.verificationText(link, expiresAt, appName),
+                "e-mail verification link");
+    }
+
+    @Override
+    public void sendPasswordReset(String recipientEmail, String link, Instant expiresAt) {
+        send(recipientEmail, AccountEmailTemplate.resetSubject(appName),
+                AccountEmailTemplate.resetText(link, expiresAt, appName),
+                "password-reset link");
+    }
+
+    /** Sends one plain-text message. The body holds a secret, so it is never logged. */
+    private void send(String recipientEmail, String subject, String body, String what) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, false,
+                    StandardCharsets.UTF_8.name());
+            helper.setFrom(from);
+            helper.setTo(recipientEmail);
+            helper.setSubject(subject);
+            helper.setText(body);
+            mailSender.send(message);
+            // Never the link itself.
+            log.info("Sent {} to {}", what, recipientEmail);
+        } catch (MessagingException e) {
+            throw new IllegalStateException("The " + what + " could not be sent", e);
+        }
+    }
 }

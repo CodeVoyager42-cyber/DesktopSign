@@ -42,4 +42,32 @@ public interface EmailService {
         throw new IllegalStateException(getClass().getSimpleName()
                 + " cannot send guest verification codes");
     }
+
+    /**
+     * Sends the one-time link that confirms an e-mail address (security
+     * Phase D). The link is a secret: implementations never log it.
+     *
+     * @param recipientEmail the address being confirmed, and the link's only
+     *                       destination
+     * @param link           one-time verification URL (raw token inside)
+     * @param expiresAt      when the link stops working
+     */
+    default void sendEmailVerification(String recipientEmail, String link,
+                                       Instant expiresAt) {
+        throw new IllegalStateException(getClass().getSimpleName()
+                + " cannot send e-mail verification links");
+    }
+
+    /**
+     * Sends the one-time link that sets a new password (security Phase D).
+     * The link is a secret: implementations never log it.
+     *
+     * @param recipientEmail the account's address, and the link's only destination
+     * @param link           one-time password-reset URL (raw token inside)
+     * @param expiresAt      when the link stops working
+     */
+    default void sendPasswordReset(String recipientEmail, String link, Instant expiresAt) {
+        throw new IllegalStateException(getClass().getSimpleName()
+                + " cannot send password-reset links");
+    }
 }

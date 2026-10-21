@@ -56,6 +56,36 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
     static final java.util.regex.Pattern GUEST_PATHS = java.util.regex.Pattern.compile(
             "^/api/invitations/[^/]+/(guest-code|guest-session)$");
 
+    /**
+     * Account self-service (security Phase D). Own bucket, so a flood of
+     * password-reset requests cannot lock an address out of signing in — and
+     * the other way round. Each of these either sends an e-mail or tests a
+     * one-time token, and each is ALSO limited per recipient by
+     * {@link IdentityRateLimiter}: the address limit stops one machine, the
+     * identity limit stops a distributed flood mailing one person.
+     */
+    static final Set<String> ACCOUNT_PATHS = Set.of(
+            "/web/api/auth/register",
+            "/web/api/auth/verify-email",
+            "/web/api/auth/resend-verification",
+            "/web/api/auth/password-reset/request",
+            "/web/api/auth/password-reset/confirm",
+            "/web/api/me/password");
+
+    /** Suffix of the account self-service bucket. */
+    private static final String ACCOUNT_BUCKET = "|account";
+
+    /**
+     * The CSRF bootstrap (security Phase C risk C9). It is a GET, and it
+     * creates a session for an anonymous visitor, so an unlimited flood would
+     * fill the session table. Own bucket, and a GET exception to the
+     * POST-only rule below.
+     */
+    static final String CSRF_PATH = "/web/api/csrf";
+
+    /** Suffix of the CSRF bootstrap bucket. */
+    private static final String CSRF_BUCKET = "|csrf";
+
     /** Above this many tracked addresses, idle ones are dropped. */
     private static final int MAX_TRACKED = 10_000;
 
@@ -76,8 +106,13 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String uri = request.getRequestURI();
+        if ("GET".equals(request.getMethod())) {
+            // The only limited GET: the CSRF bootstrap (Phase C risk C9).
+            return !CSRF_PATH.equals(uri);
+        }
         return !"POST".equals(request.getMethod())
-                || !(LIMITED_PATHS.contains(uri) || GUEST_PATHS.matcher(uri).matches());
+                || !(LIMITED_PATHS.contains(uri) || ACCOUNT_PATHS.contains(uri)
+                        || GUEST_PATHS.matcher(uri).matches());
     }
 
     @Override
@@ -87,17 +122,22 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
         String key = address == null ? "unknown" : address;
         // Launch exchanges get their own bucket (Phase B remediation): a
         // flood of one kind cannot lock the same address out of the other.
-        if (LAUNCH_PATH.equals(request.getRequestURI())) {
+        String uri = request.getRequestURI();
+        if (LAUNCH_PATH.equals(uri)) {
             key = key + "|launch";
+        } else if (ACCOUNT_PATHS.contains(uri)) {
+            key = key + ACCOUNT_BUCKET;
+        } else if (CSRF_PATH.equals(uri)) {
+            key = key + CSRF_BUCKET;
         }
         long retryAfterSeconds = tryAcquire(key);
         if (retryAfterSeconds > 0) {
-            log.warn("Sign-in rate limit reached for {} on {}", address, request.getRequestURI());
+            log.warn("Rate limit reached for {} on {}", address, uri);
             response.setStatus(429);
             response.setHeader("Retry-After", Long.toString(retryAfterSeconds));
             response.setContentType("application/json");
             response.getWriter().write("{\"code\":\"TOO_MANY_REQUESTS\",\"message\":"
-                    + "\"Too many sign-in attempts. Wait a minute, then try again.\"}");
+                    + "\"Too many attempts. Wait a minute, then try again.\"}");
             return;
         }
         chain.doFilter(request, response);

@@ -52,6 +52,10 @@ public class ConsoleEmailService implements EmailService {
     private final java.util.Map<String, String> latestGuestCodes =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** Development mailbox: the last account link sent to each address. */
+    private final java.util.Map<String, String> latestAccountLinks =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     @Override
     public void sendGuestVerificationCode(String recipientEmail, String workflowName,
                                           String code, Instant expiresAt) {
@@ -73,5 +77,39 @@ public class ConsoleEmailService implements EmailService {
      */
     public String latestGuestCode(String email) {
         return latestGuestCodes.get(email);
+    }
+
+    @Override
+    public void sendEmailVerification(String recipientEmail, String link, Instant expiresAt) {
+        latestAccountLinks.put(recipientEmail, link);
+        // The link is a secret: the server log only says that one was sent.
+        log.info("EMAIL (console mode) to {} — e-mail verification link", recipientEmail);
+        print(recipientEmail, AccountEmailTemplate.verificationSubject(appName),
+                AccountEmailTemplate.verificationText(link, expiresAt, appName));
+    }
+
+    @Override
+    public void sendPasswordReset(String recipientEmail, String link, Instant expiresAt) {
+        latestAccountLinks.put(recipientEmail, link);
+        log.info("EMAIL (console mode) to {} — password-reset link", recipientEmail);
+        print(recipientEmail, AccountEmailTemplate.resetSubject(appName),
+                AccountEmailTemplate.resetText(link, expiresAt, appName));
+    }
+
+    /**
+     * The last account link "sent" to {@code email} in console mode. Console
+     * mode is refused outside the {@code dev} profile, so this mailbox never
+     * exists on a production server.
+     */
+    public String latestAccountLink(String email) {
+        return latestAccountLinks.get(email);
+    }
+
+    private static void print(String recipient, String subject, String body) {
+        System.out.println("\n================================================================================\n"
+                + "  DEVELOPMENT MAILBOX (console mode) → " + recipient + "\n"
+                + "  Subject: " + subject + "\n\n"
+                + body + "\n"
+                + "================================================================================");
     }
 }
