@@ -624,4 +624,55 @@ class WebAccountHttpTests {
         // testing something rather than passing because nothing was sent.
         assertThat(logged).contains(verification);
     }
+
+    /* ------------------------- the signing gate (D4) -------------------- */
+
+    /**
+     * Risk D4: the verified-address requirement covers the signing actions,
+     * not just starting a workflow. The workflow id is deliberately one that
+     * does not exist, so the gate is the only thing that can answer 403 — a
+     * caller past it gets the uniform 404 for a workflow it cannot see.
+     */
+    @Test
+    void anUnverifiedAccountIsRefusedEverySigningAction() throws Exception {
+        String address = newAddress();
+        post("/web/api/auth/register",
+                json("email", address, "password", STRONG, "displayName", "Ada"), csrf(null));
+        String username = users.findByEmail(address).orElseThrow().getUsername();
+        String nowhere = "WF-does-not-exist";
+
+        for (String action : List.of("/claim", "/signatures", "/launch-codes",
+                "/signers/" + username + "/certificate")) {
+            HttpResponse<String> response =
+                    postAs("/api/workflows/" + nowhere + action, username);
+            assertThat(response.statusCode()).as("POST " + action + " unverified")
+                    .isEqualTo(403);
+            assertThat(response.body()).as("POST " + action + " unverified")
+                    .contains("EMAIL_NOT_VERIFIED");
+        }
+
+        // Reading is deliberately still allowed: the account may look around.
+        assertThat(http.send(HttpRequest.newBuilder(uri("/api/workflows/my-tasks"))
+                        .header("Authorization", "Bearer " + bearerFor(username))
+                        .GET().build(), HttpResponse.BodyHandlers.ofString())
+                .statusCode()).as("an unverified account may still read").isEqualTo(200);
+
+        // Once verified, none of the four is stopped by the gate any more.
+        post("/web/api/auth/verify-email", json("token", tokenFromMailbox(address)),
+                csrf(null));
+        for (String action : List.of("/claim", "/signatures", "/launch-codes",
+                "/signers/" + username + "/certificate")) {
+            assertThat(postAs("/api/workflows/" + nowhere + action, username).statusCode())
+                    .as("POST " + action + " verified").isNotEqualTo(403);
+        }
+    }
+
+    /** An empty POST to the desktop API as {@code username}. */
+    private HttpResponse<String> postAs(String path, String username) throws Exception {
+        return http.send(HttpRequest.newBuilder(uri(path))
+                        .header("Authorization", "Bearer " + bearerFor(username))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString("{}")).build(),
+                HttpResponse.BodyHandlers.ofString());
+    }
 }

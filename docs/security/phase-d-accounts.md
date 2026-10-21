@@ -34,8 +34,9 @@ them reveals anything (§3).
 
 New files: `server/web/WebAccountController`, `server/web/WebAccountService`,
 `server/web/WebSessionRegistry`, `server/auth/OneTimeTokens`,
-`server/security/IdentityRateLimiter`, `server/invites/AccountEmailTemplate`,
-the two token entities and repositories, and `V10__account_tokens.sql`.
+`server/auth/SigningActionPolicy`, `server/security/IdentityRateLimiter`,
+`server/invites/AccountEmailTemplate`, the two token entities and
+repositories, and `V10__account_tokens.sql`.
 
 ### A deliberate deviation from the plan
 
@@ -135,17 +136,36 @@ friction — but every *other* session goes.
 
 ## 5. The unverified gate
 
-`UserAccountService.maySign(username)` is a new seam, default `true`.
+`UserAccountService.maySign(username)` is the seam, default `true`.
 `DbUserAccounts` implements it as "active **and** `email_verified_at` is not
 null". File-mode accounts have no address to verify, so they always may.
 
-Enforced at **one** call site: `RemoteWorkflowService.createWorkflow`, which
-answers `403 EMAIL_NOT_VERIFIED`. So an unverified account can sign in, see
-`/web/api/auth/me` with `emailVerified: false`, and do nothing that commits
-its name to a document or sends e-mail in its name.
+An unverified account may sign in, see `/web/api/auth/me` with
+`emailVerified: false`, list its workflows, open a task and download the
+document. What it may not do is commit its name to one. Every such action is
+gated, each answering `403 EMAIL_NOT_VERIFIED`:
 
-The seam's own javadoc also mentions "opening a signing session". **That is
-not enforced yet** — see risk D4.
+| Where | Gates |
+|---|---|
+| `RemoteWorkflowService.createWorkflow` | starting a signing request — in the service, so it holds for **every** caller path, including the website routes of Phase E |
+| `AuthenticatedRequestFilter`, via `SigningActionPolicy` | the account-token requests: `POST …/claim`, `…/signatures`, `…/signers/{user}/certificate`, `…/launch-codes` |
+| `LaunchCodeService` | issuing a launch code, exchanging one for a task session, and re-checking that session on **every** request (`taskSessionState` → `INVALID` → 401) |
+
+`SigningActionPolicy` is an anchored path list in the style of
+`TaskAccessPolicy`. It is checked in the filter rather than in the services
+because that is where the **kind** of principal is known, which matters for
+the exception below. Reading is deliberately absent from it.
+
+**Guests are not subject to this.** A guest signing session has no account to
+verify and proves control of its address by receiving an e-mailed code;
+`GuestAccessPolicy` is what bounds it. Guests use `claim`, `signatures` and
+the certificate route, so a gate placed in those services instead of the
+filter would have stopped guest signing altogether.
+
+Desktop **task sessions** (Phase B launch codes) are not in the filter's check
+either, because `LaunchCodeService.taskSessionState` already re-evaluates the
+same rule on every request of such a session — and answers 401, not 403, since
+the whole session is void rather than one action refused.
 
 ## 6. Every limit, in one place
 
@@ -260,14 +280,14 @@ Full suite on **JDK 21.0.12.1 LTS** (the version the build targets) with a real
 PostgreSQL 16.15.
 
 ```
-Tests run: 558, Failures: 0, Errors: 0, Skipped: 8
-BUILD SUCCESS — 5 min 30 s
+Tests run: 564, Failures: 0, Errors: 0, Skipped: 8
+BUILD SUCCESS — 5 min 45 s
 ```
 
 | | After Phase C | After Phase D1 |
 |---|---|---|
-| Found | 532 | **558** (+26) |
-| Passed | 524 | **550** |
+| Found | 532 | **564** (+32) |
+| Passed | 524 | **556** |
 | Failed | 0 | **0** |
 | Errors | 0 | **0** |
 | Skipped | 8 | **8** (unchanged) |
@@ -281,7 +301,8 @@ New in this phase:
 
 | Class | Tests | Covers |
 |---|---|---|
-| `WebAccountHttpTests` | 16 | sign-up, the taken-address case changing nothing, weak password, verify once and never again, unknown vs malformed vs **expired** (24 h) being identical, resend, the unverified gate, reset identical answers, reset ending every session and refresh token, **an expired reset link** (30 min), password change keeping this session and ending the others, change needing the current password and a session, the anonymous/signed-in idle timeouts, nothing secret in the log |
+| `WebAccountHttpTests` | 17 | sign-up, the taken-address case changing nothing, weak password, verify once and never again, unknown vs malformed vs **expired** (24 h) being identical, resend, the unverified gate on workflow creation, **the gate on all four signing actions** (and that reading is still allowed), reset identical answers, reset ending every session and refresh token, **an expired reset link** (30 min), password change keeping this session and ending the others, change needing the current password and a session, the anonymous/signed-in idle timeouts, nothing secret in the log |
+| `SigningActionPolicyTests` | 5 | the four covered actions, that reading and non-POST methods are not covered, and that the match is anchored so no prefix or suffix smuggles a path past it |
 | `WebAccountRateLimitHttpTests` | 3 | the per-recipient mail cap (still 202, no further mail), the `\|account` bucket reaching 429 with `Retry-After` **without spending the sign-in budget**, and the same for the `\|csrf` bucket |
 | `AccountTokenMigrationLiveTests` | 5 | V10 on a fresh database, the exact columns (no token column) and the unique hash, the expiry CHECK, cascade from `users`, and that V10 leaves an existing **V9** database — rows and session rows — intact |
 | `ProductionSafetyValidatorTests` | +2 | the anonymous idle timeout: longer than the signed-in one, and zero |
@@ -304,7 +325,7 @@ do not depend on how much budget earlier assertions spent.
 | D1 | **Sign-up is open and creates a row before the address is proved** | Medium (abuse) | Decision D1 in the plan. Anyone can create unverified accounts at 20/min per address and 3 e-mails per recipient per 15 min. An unverified account can do nothing (§5), but the rows accumulate; there is no sweep and no CAPTCHA. |
 | D2 | **E-mail delivery is the whole security of both flows** | Medium | A reset link in a mailbox is the account. Nothing here can fix a compromised or mis-delivered mailbox; the 30-minute life and single use are the mitigation. No second factor exists. |
 | D3 | **Both identity limits are in memory, per instance** | Medium (availability) | Same limitation as the address limiter (Phase C risk C6). Behind several instances the effective caps multiply by the instance count. Moving them to the database or a shared cache is the fix. |
-| D4 | **Only workflow creation is gated on a verified address** | Medium | `maySign`'s javadoc also claims "opening a signing session", but no launch-code or signature route calls it. An unverified account that someone invited as a signer can still open a task and sign. Either gate those routes too, or narrow the javadoc — the gate is currently narrower than it reads. |
+| ~~D4~~ | ~~Only workflow creation is gated on a verified address~~ | **FIXED** | §5. `SigningActionPolicy` + `AuthenticatedRequestFilter` now gate claim, signatures, certificate binding and launch-code issuing for account tokens, and Phase B's three existing `email_verified_at` reads were routed through `maySign` so there is one rule in one place. Guests are deliberately exempt. **What the original wording got wrong:** the launch-code path was never ungated — `issue`, `exchange` and `taskSessionState` each already read `email_verified_at` directly. The gap was the three account-token signing routes, and the duplication that hid it. |
 | D5 | **Nothing deletes expired tokens** | Low | `deleteExpiredBefore` exists on both repositories and **is never called**; `idx_*_expires` is there for it. Expired rows are harmless (the expiry is checked on use) but they grow without limit. |
 | D6 | **The sliding window is implemented twice** | Low | `IdentityRateLimiter` repeats `LoginRateLimitFilter`'s algorithm instead of sharing it. Deliberate — folding them together inside this phase would have changed the behaviour of the tested one — but it is duplication to retire. |
 | D7 | **A reset does not end desktop *access* tokens, only refresh tokens** | Low | An access JWT already issued stays valid for up to its 15-minute life after a reset. Accepted: the same window Phase 2 accepted for a disabled account on the bearer chain. |

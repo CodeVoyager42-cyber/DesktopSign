@@ -2,6 +2,7 @@ package com.example.signer.server.security;
 
 import com.example.signer.server.api.ApiErrorType;
 import com.example.signer.server.auth.GuestAccessPolicy;
+import com.example.signer.server.auth.SigningActionPolicy;
 import com.example.signer.server.auth.TaskAccessPolicy;
 import com.example.signer.server.auth.UserAccountService;
 import com.example.signer.server.auth.JwtService;
@@ -31,7 +32,9 @@ import java.io.IOException;
  * <ul>
  *   <li><b>Account token</b>: the account must still be able to sign in.
  *       A disabled or removed account is refused at once (401) instead of
- *       working until its access token expires.</li>
+ *       working until its access token expires. For the requests in
+ *       {@link SigningActionPolicy} it must also have a verified e-mail
+ *       address (403 otherwise) — Phase D1 risk D4.</li>
  *   <li><b>Guest token</b>: only the requests in {@link GuestAccessPolicy},
  *       on its own workflow, while its invitation is still active (403
  *       otherwise).</li>
@@ -131,6 +134,16 @@ public final class AuthenticatedRequestFilter extends OncePerRequestFilter {
                 log.info("Access token refused: account '{}' can no longer sign in", userId);
                 SecurityContextHolder.clearContext();
                 JsonSecurityErrors.unauthorized(response);
+                return;
+            }
+            // Phase D1 risk D4: an unverified address may sign in and read,
+            // but not commit the account's name to a document.
+            if (SigningActionPolicy.requiresVerifiedEmail(request.getMethod(),
+                    request.getRequestURI()) && !accounts.maySign(userId)) {
+                log.info("Signing action refused for '{}': the account's e-mail address"
+                        + " is not verified", userId);
+                JsonSecurityErrors.forbidden(response, "EMAIL_NOT_VERIFIED",
+                        "Verify your e-mail address before signing documents");
                 return;
             }
             request.setAttribute(USER_ATTR, userId);
