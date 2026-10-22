@@ -3,6 +3,7 @@ package com.example.signer.server.security;
 import com.example.signer.server.auth.AccessTokenDenyList;
 import com.example.signer.server.auth.JwtService;
 import com.example.signer.server.auth.UserAccountService;
+import com.example.signer.server.web.FrontendRoutingConfiguration;
 import com.example.signer.server.invites.InvitationService;
 import com.example.signer.server.launch.LaunchCodeService;
 
@@ -76,6 +77,17 @@ public class SecurityConfig {
             get("/invitations/*"),
             get("/sign/*"),
             get("/sign/*/document"),
+            // The website, served from this application's own origin (D2).
+            // Named one by one rather than as a wildcard: this list is what
+            // needs no token, so anything added to it is a decision. The
+            // chain below ends in denyAll(), which is why a static file has
+            // to be listed at all.
+            get("/"),
+            get("/index.html"),
+            get("/favicon.ico"),
+            get("/assets/**"),
+            get(FrontendRoutingConfiguration.VERIFY_EMAIL_PAGE),
+            get(FrontendRoutingConfiguration.RESET_PASSWORD_PAGE),
             // Spring's error dispatch, so a failure reports its real status.
             path("/error"));
 

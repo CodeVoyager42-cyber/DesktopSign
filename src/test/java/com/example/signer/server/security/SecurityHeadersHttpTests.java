@@ -36,8 +36,9 @@ class SecurityHeadersHttpTests {
 
     /** The policy both chains send. Restated here because this is its spec. */
     private static final String POLICY =
-            "default-src 'none'; style-src 'unsafe-inline'; form-action 'none';"
-                    + " base-uri 'none'; frame-ancestors 'none'";
+            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';"
+                    + " img-src 'self'; font-src 'self'; connect-src 'self';"
+                    + " form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 
     @DynamicPropertySource
     static void storage(DynamicPropertyRegistry registry) {
@@ -111,11 +112,17 @@ class SecurityHeadersHttpTests {
 
         assertThat(policy).contains("default-src 'none'");
         assertThat(policy)
-                .as("no script-src directive exists to loosen, and no eval")
-                .doesNotContain("script-src").doesNotContain("unsafe-eval");
+                .as("script comes from this origin only — an injected <script> tag,"
+                        + " which is the ordinary shape of XSS, cannot run")
+                .contains("script-src 'self'")
+                .doesNotContain("script-src 'self' 'unsafe-inline'")
+                .doesNotContain("unsafe-eval");
         assertThat(policy)
                 .as("the one concession is for styles, which cannot execute")
-                .contains("style-src 'unsafe-inline'");
+                .contains("style-src 'self' 'unsafe-inline'");
+        assertThat(policy)
+                .as("and nothing external: every relaxation is 'self'")
+                .doesNotContain("http://").doesNotContain("https://").doesNotContain("*");
     }
 
     @Test
