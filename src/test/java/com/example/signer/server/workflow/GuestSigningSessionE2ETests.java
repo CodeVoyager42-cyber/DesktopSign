@@ -25,14 +25,18 @@ import com.example.signer.token.mock.MockSigningToken;
 import com.example.signer.token.mock.MockTokenSimulator;
 import com.example.signer.verification.SignatureStatus;
 import com.example.signer.workflow.WorkflowSigningService;
+import com.example.signer.server.security.RateLimitTestSupport;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+
+import javax.sql.DataSource;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -93,6 +97,20 @@ class GuestSigningSessionE2ETests {
 
     @Autowired
     private UserRepository users;
+
+    @Autowired
+    private DataSource dataSource;
+
+    /**
+     * D3: the guest-code and guest-session endpoints are limited per client
+     * address, and since that count moved into the shared test database an
+     * earlier class can have spent this address's budget. This class is a
+     * victim of the limit, not a test of it.
+     */
+    @BeforeEach
+    void clearRateLimits() {
+        RateLimitTestSupport.clear(dataSource);
+    }
 
     @Autowired
     private WorkflowSigningService workflowSigningService;

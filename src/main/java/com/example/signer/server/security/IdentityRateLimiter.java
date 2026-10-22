@@ -2,11 +2,7 @@ package com.example.signer.server.security;
 
 import java.time.Clock;
 import java.time.Duration;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Sliding-window limit per <b>identity</b> — an e-mail address or a username
@@ -17,33 +13,51 @@ import java.util.concurrent.ConcurrentHashMap;
  * mailing one person over and over, so the endpoints that SEND e-mail are
  * limited on the recipient too.
  *
- * <p>Keys are the identity, lower-cased, never a password or token. State is
- * in memory, so it is per server instance and resets on restart — the same
- * limitation the address limiter has, and the reason the one-time tokens
- * themselves are short-lived and single use rather than relying on this.
+ * <p>Keys are the identity, lower-cased and namespaced by the limiter that
+ * owns it, never a password or token. Where those counts are kept is the
+ * {@link RateLimitStore}'s business: a database when the deployment has one,
+ * so the cap holds across instances and restarts (risk D3), a map on the heap
+ * when it does not.
  *
- * <p>Note: the sliding window is implemented again here rather than shared
- * with {@code LoginRateLimitFilter}, whose own copy is covered by its tests;
- * folding the two together is a tidy-up for later, not a behaviour change to
- * make inside this phase.
+ * <p>The window itself is no longer implemented here — that was risk D6, the
+ * same algorithm written once in this class and once in the address filter.
+ * Both now call the one copy in the store, and what is left here is what is
+ * actually particular to an identity: lower-casing it, namespacing it, and
+ * declining to guess when there is nothing to key on.
  */
 public final class IdentityRateLimiter {
 
-    /** Above this many tracked identities, idle ones are dropped. */
-    private static final int MAX_TRACKED = 50_000;
-
+    private final String name;
     private final int max;
-    private final long windowMillis;
-    private final Clock clock;
-    private final Map<String, Deque<Long>> attempts = new ConcurrentHashMap<>();
+    private final Duration window;
+    private final RateLimitStore store;
 
-    public IdentityRateLimiter(int max, Duration window, Clock clock) {
+    /**
+     * @param name   the bucket namespace, so two limiters sharing a store
+     *               cannot count against each other ({@code mail},
+     *               {@code attempt}, {@code signup})
+     * @param max    attempts allowed per identity within the window
+     * @param window how far back the count reaches
+     */
+    public IdentityRateLimiter(String name, int max, Duration window, RateLimitStore store) {
+        if (name == null || name.isBlank() || store == null) {
+            throw new IllegalArgumentException("name and store are required");
+        }
         if (max < 1 || window == null || window.isZero() || window.isNegative()) {
             throw new IllegalArgumentException("max must be >= 1 and window positive");
         }
+        this.name = name;
         this.max = max;
-        this.windowMillis = window.toMillis();
-        this.clock = clock;
+        this.window = window;
+        this.store = store;
+    }
+
+    /**
+     * Counts on the heap, with a clock of the caller's choosing. For a
+     * context with no database, and for tests that drive time by hand.
+     */
+    public IdentityRateLimiter(int max, Duration window, Clock clock) {
+        this("identity", max, window, new InMemoryRateLimitStore(clock));
     }
 
     /**
@@ -68,27 +82,7 @@ public final class IdentityRateLimiter {
         if (identity == null || identity.isBlank()) {
             return 0; // nothing to key on; the address limit still applies
         }
-        String key = identity.trim().toLowerCase(Locale.ROOT);
-        long now = this.clock.millis();
-        if (this.attempts.size() > MAX_TRACKED) {
-            this.attempts.entrySet().removeIf(e -> {
-                synchronized (e.getValue()) {
-                    Long last = e.getValue().peekLast();
-                    return last == null || now - last >= this.windowMillis;
-                }
-            });
-        }
-        Deque<Long> times = this.attempts.computeIfAbsent(key, k -> new ArrayDeque<>());
-        synchronized (times) {
-            while (!times.isEmpty() && now - times.peekFirst() >= this.windowMillis) {
-                times.pollFirst();
-            }
-            if (times.size() >= this.max) {
-                long wait = this.windowMillis - (now - times.peekFirst());
-                return Math.max(1, (wait + 999) / 1000);
-            }
-            times.addLast(now);
-            return 0;
-        }
+        String key = this.name + ":" + identity.trim().toLowerCase(Locale.ROOT);
+        return this.store.retryAfterSeconds(key, this.max, this.window);
     }
 }

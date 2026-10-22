@@ -10,11 +10,13 @@ import com.example.signer.server.db.entity.InvitationEntity;
 import com.example.signer.server.db.repository.InvitationRepository;
 import com.example.signer.server.db.repository.WorkflowRepository;
 import com.example.signer.server.invites.WorkflowInvitationCoordinator;
+import com.example.signer.server.security.RateLimitTestSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -23,6 +25,8 @@ import org.springframework.test.context.ActiveProfiles;
 
 import java.net.URI;
 import java.net.http.HttpClient;
+import javax.sql.DataSource;
+
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.security.SecureRandom;
@@ -73,8 +77,21 @@ class AuthorizationMatrixHttpTests {
     @Autowired
     private WorkflowRepository workflowRepository;
 
+    @Autowired
+    private DataSource dataSource;
+
     private final HttpClient http = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
+
+    /**
+     * D3: the per-address counts live in the shared test database now, so an
+     * earlier class may have spent this address's budget. This class signs in
+     * repeatedly and is not testing a limit.
+     */
+    @BeforeEach
+    void clearRateLimits() {
+        RateLimitTestSupport.clear(dataSource);
+    }
 
     /* ------------------------------ helpers ----------------------------- */
 

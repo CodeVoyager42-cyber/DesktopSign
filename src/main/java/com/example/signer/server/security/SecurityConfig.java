@@ -26,7 +26,6 @@ import org.springframework.security.web.servlet.util.matcher.PathPatternRequestM
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
-import java.time.Clock;
 
 /**
  * Spring Security for the coordination server (security Phase 2).
@@ -85,12 +84,19 @@ public class SecurityConfig {
      * against the same budget. Two instances would mean two independent maps,
      * so a flood could get twice the attempts simply by alternating between
      * {@code /api/auth/login} and {@code /web/api/auth/login}.
+     *
+     * <p>The store behind it decides whether one budget also spans several
+     * server instances and survives a restart (risk C6, with D3): a shared
+     * database table when there is a database, the heap when there is not.
+     * This chain is configured with or without one, which is why the store is
+     * injected rather than created here.
      */
     @Bean
     LoginRateLimitFilter loginRateLimitFilter(
             @Value("${signature.remote-server.login.rate-limit:20}") int rateLimit,
-            @Value("${signature.remote-server.login.rate-window-seconds:60}") long rateWindow) {
-        return new LoginRateLimitFilter(rateLimit, rateWindow, Clock.systemUTC());
+            @Value("${signature.remote-server.login.rate-window-seconds:60}") long rateWindow,
+            RateLimitStore rateLimitStore) {
+        return new LoginRateLimitFilter(rateLimit, rateWindow, rateLimitStore);
     }
 
     /**

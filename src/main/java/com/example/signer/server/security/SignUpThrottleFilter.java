@@ -43,10 +43,11 @@ import java.time.Duration;
  * and the two are not alternatives in the long run: a CAPTCHA belongs with the
  * sign-up page (D2), on top of this.
  *
- * <p>State is in memory, so it is per instance and resets on restart — the
- * same limitation every other limiter here has, and the reason an unverified
- * account can do nothing until the address is proved
- * ({@code SigningActionPolicy}) and its rows are swept.
+ * <p>Counts go wherever the {@link RateLimitStore} keeps them — a shared
+ * PostgreSQL table when the deployment has a database (risk D3), the heap
+ * when it does not. This is the limiter that gains the most from the former:
+ * its window is an hour, so a restart used to wipe a budget that was meant to
+ * last far longer than one.
  *
  * <p>Like {@code LoginRateLimitFilter}, the address is the connection's own
  * remote address; a forwarded-address header is ignored because any client can
@@ -61,11 +62,16 @@ public final class SignUpThrottleFilter extends OncePerRequestFilter {
 
     private final IdentityRateLimiter limiter;
 
-    public SignUpThrottleFilter(int max, Duration window, Clock clock) {
+    public SignUpThrottleFilter(int max, Duration window, RateLimitStore store) {
         // The limiter refuses a max below 1 or a non-positive window, so a
         // misconfigured throttle fails startup instead of silently allowing
         // everything.
-        this.limiter = new IdentityRateLimiter(max, window, clock);
+        this.limiter = new IdentityRateLimiter("signup", max, window, store);
+    }
+
+    /** Counts on the heap: no database, or a test driving time by hand. */
+    public SignUpThrottleFilter(int max, Duration window, Clock clock) {
+        this(max, window, new InMemoryRateLimitStore(clock));
     }
 
     @Override

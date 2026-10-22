@@ -104,6 +104,9 @@ class UnverifiedSigningGateHttpTests {
     @BeforeEach
     void setUp() {
         jdbc = new JdbcTemplate(dataSource);
+        // D3: the per-address counts are shared and persistent now, so an
+        // earlier class could have spent this address's budget.
+        RateLimitTestSupport.clear(dataSource);
     }
 
     @AfterEach

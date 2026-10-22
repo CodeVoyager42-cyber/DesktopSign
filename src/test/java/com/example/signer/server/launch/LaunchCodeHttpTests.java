@@ -5,6 +5,7 @@ import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
 import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 import com.example.signer.server.workflow.RemoteWorkflowService;
+import com.example.signer.server.security.RateLimitTestSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -82,6 +83,9 @@ class LaunchCodeHttpTests {
     @BeforeEach
     void ageEarlierCodes() {
         jdbc = new JdbcTemplate(dataSource);
+        // D3: the per-address counts are shared and persistent now, so an
+        // earlier class could have spent this address's budget.
+        RateLimitTestSupport.clear(dataSource);
         // Only the per-minute issue throttle looks at created_at: move codes
         // from earlier tests out of that window (test database only).
         jdbc.update("UPDATE launch_codes SET created_at = created_at - interval '5 minutes'"
