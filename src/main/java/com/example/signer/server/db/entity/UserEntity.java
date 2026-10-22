@@ -192,6 +192,27 @@ public class UserEntity {
         this.passwordChangedAt = when;
     }
 
+    /**
+     * Forgets the account-wide lockout — the failure count and any lock
+     * (security Phase 2 risk L3).
+     *
+     * <p>It lives here, rather than as an update query, because both callers
+     * hold the managed row already and because a bulk update that cleared the
+     * persistence context would discard whatever else they had pending — on
+     * the password-reset path, the new password itself. The two callers are
+     * the operator unlock and a successful password reset or change: the
+     * e-mailed token, or the current password, proves the holder's identity
+     * more strongly than a sign-in attempt does, so being locked out must not
+     * survive it.
+     *
+     * <p>The per-address locks are rows in {@code login_failures} and are
+     * forgotten separately, by {@code LoginFailureRepository.forgetAll}.
+     */
+    public void clearLockout() {
+        this.failedLoginCount = 0;
+        this.lockedUntil = null;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }

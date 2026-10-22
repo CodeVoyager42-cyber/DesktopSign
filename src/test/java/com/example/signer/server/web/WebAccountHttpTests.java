@@ -500,6 +500,63 @@ class WebAccountHttpTests {
     }
 
     @Test
+    void aSuccessfulResetAlsoUnlocksAnAccountThatWasLockedOut() throws Exception {
+        // Phase 2 risk L3, the self-service half of the unlock. Since the
+        // lock became progressive an address can be refused for up to a day,
+        // so a reset that left the holder locked out would be useless — and
+        // the e-mailed token proves their identity more strongly than a
+        // sign-in attempt does. Most lockouts should never need an operator.
+        String address = newAddress();
+        String username = registeredAndVerified(address);
+
+        // Locked out both ways: the account, and this very address.
+        exec("UPDATE users SET failed_login_count = 50,"
+                + " locked_until = now() + INTERVAL '15 minutes'"
+                + " WHERE username = '" + username + "'");
+        exec("INSERT INTO login_failures (username, client_address, failed_count,"
+                + " locked_until, first_failure_at, last_failure_at) VALUES ('"
+                + username + "', '127.0.0.1', 9, now() + INTERVAL '24 hours',"
+                + " now(), now())");
+        assertThat(post("/web/api/auth/login", json("username", address, "password", STRONG),
+                csrf(null)).statusCode())
+                .as("the right password is refused while the lock holds").isEqualTo(401);
+
+        post("/web/api/auth/password-reset/request", json("email", address), csrf(null));
+        assertThat(post("/web/api/auth/password-reset/confirm",
+                json("token", tokenFromMailbox(address), "newPassword", REPLACEMENT),
+                csrf(null)).statusCode()).isEqualTo(204);
+
+        assertThat(signIn(address, REPLACEMENT))
+                .as("and now they are back in, without waiting the lock out").isNotBlank();
+        assertThat(count("SELECT count(*) FROM login_failures WHERE username = '"
+                + username + "'")).as("the address locks went too").isZero();
+        assertThat(count("SELECT count(*) FROM users WHERE username = '" + username
+                + "' AND locked_until IS NULL AND failed_login_count = 0")).isEqualTo(1);
+    }
+
+    @Test
+    void requestingAResetDoesNotUnlockAnything() throws Exception {
+        // The distinction that keeps the above from being a hole: asking for
+        // a reset needs no token and no secret, so if THAT cleared the lock,
+        // anyone could clear it for anyone. Only confirming one does.
+        String address = newAddress();
+        String username = registeredAndVerified(address);
+        exec("INSERT INTO login_failures (username, client_address, failed_count,"
+                + " locked_until, first_failure_at, last_failure_at) VALUES ('"
+                + username + "', '127.0.0.1', 9, now() + INTERVAL '24 hours',"
+                + " now(), now())");
+
+        assertThat(post("/web/api/auth/password-reset/request", json("email", address),
+                csrf(null)).statusCode()).isEqualTo(202);
+
+        assertThat(count("SELECT count(*) FROM login_failures WHERE username = '"
+                + username + "' AND locked_until IS NOT NULL"))
+                .as("still locked: nothing has been proved yet").isEqualTo(1);
+        assertThat(post("/web/api/auth/login", json("username", address, "password", STRONG),
+                csrf(null)).statusCode()).isEqualTo(401);
+    }
+
+    @Test
     void aResetLinkOlderThan30MinutesIsRefusedLikeAnUnknownOne() throws Exception {
         String address = newAddress();
         String username = registeredAndVerified(address);

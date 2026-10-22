@@ -49,7 +49,9 @@ class WebAccountNoticeTests {
     private final WebSessionRegistry webSessions = mock(WebSessionRegistry.class);
 
     private WebAccountService service() {
-        return new WebAccountService(users, verifications, resets, email,
+        return new WebAccountService(users,
+                mock(com.example.signer.server.db.repository.LoginFailureRepository.class),
+                verifications, resets, email,
                 mock(InvitationLinkResolver.class), refreshTokens, webSessions,
                 Clock.fixed(Instant.parse("2026-10-21T17:00:00Z"), ZoneOffset.UTC), 3);
     }
