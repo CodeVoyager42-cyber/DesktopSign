@@ -1,5 +1,7 @@
 package com.example.signer.server.auth;
 
+import java.time.Instant;
+
 /**
  * Credential verification seam (brief Phase 2/§45): the workflow API
  * authenticates against fixed configuration accounts (legacy/dev mode) or
@@ -71,6 +73,36 @@ public interface UserAccountService {
      */
     default boolean maySign(String username) {
         return true;
+    }
+
+    /**
+     * Whether the account's password changed <b>after</b> a token was issued
+     * (security Phase D1 risk D7) — in which case that token belongs to the
+     * session the password change was meant to end.
+     *
+     * <p>A reset or a change already revokes every website session and every
+     * refresh token, but an access token is a signed JWT: nothing is stored
+     * for it, so nothing can be deleted, and it stayed usable for the rest of
+     * its life. This is what closes that window, and it costs nothing extra
+     * to check: {@code AuthenticatedRequestFilter} already loads the account
+     * on every request to see whether it can still sign in at all.
+     *
+     * <p>Compared at the token's own resolution — {@code iat} is whole
+     * seconds — rather than the column's microseconds. Otherwise a sign-in in
+     * the same second as the change would be refused its brand new token,
+     * which is precisely the "reset, then sign in again" path this is here to
+     * serve. The cost is that a token issued within the same second as the
+     * change survives; the benefit is that the common flow works.
+     *
+     * <p>File-mode passwords are configuration and never change at runtime,
+     * so the default is {@code false}.
+     *
+     * @param tokenIssuedAt the token's {@code iat}, which every token this
+     *                      server issues carries and
+     *                      {@code JwtService.lifetimeValidator} requires
+     */
+    default boolean passwordChangedSince(String username, Instant tokenIssuedAt) {
+        return false;
     }
 
     /**

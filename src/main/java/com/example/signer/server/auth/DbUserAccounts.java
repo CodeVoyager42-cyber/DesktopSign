@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
 /**
@@ -196,6 +197,32 @@ public class DbUserAccounts implements UserAccountService {
         }
         return users.findByUsername(username.trim())
                 .map(user -> user.isActive() && user.getEmailVerifiedAt() != null)
+                .orElse(false);
+    }
+
+    /**
+     * Security Phase D1 risk D7: a token issued before the account's password
+     * changed is refused, which is what finally ends an access token on a
+     * reset. {@code password_changed_at} has been written by
+     * {@code UserEntity.changePasswordHash} since Phase D1 — both the reset
+     * and the change path go through it — and nothing else writes it. In
+     * particular {@link #rehash} deliberately does not: upgrading a bcrypt
+     * cost is not a password change, and stamping it there would sign an
+     * account out of its other sessions every time it signed in.
+     *
+     * <p>An account with no recorded change — every account before this
+     * phase, and every account that has never changed its password — answers
+     * {@code false}, so no existing token is invalidated by deploying this.
+     */
+    @Override
+    public boolean passwordChangedSince(String username, Instant tokenIssuedAt) {
+        if (username == null || tokenIssuedAt == null) {
+            return false;
+        }
+        return users.findByUsername(username.trim())
+                .map(UserEntity::getPasswordChangedAt)
+                .map(changedAt -> changedAt.truncatedTo(ChronoUnit.SECONDS)
+                        .isAfter(tokenIssuedAt))
                 .orElse(false);
     }
 
