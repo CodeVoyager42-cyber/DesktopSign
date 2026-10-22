@@ -11,11 +11,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.time.Clock;
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Map;
+import java.time.Duration;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Limits password and guest-code attempts per client address (security
@@ -30,8 +27,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * (Tomcat {@code RemoteIpValve}, enabled by
  * {@code server.forward-headers-strategy=native}) if a proxy is used.
  *
- * <p>State is in memory: it is per server instance and resets on restart.
- * Account lockout ({@code DbUserAccounts}) is the second, persistent layer.
+ * <p>Where the counts are kept is the {@link RateLimitStore}'s business: a
+ * shared PostgreSQL table when the deployment has a database, so the cap
+ * holds across instances and restarts (risk C6, with D3), a map on the heap
+ * when it does not. The sliding window itself used to be implemented here as
+ * well as in {@code IdentityRateLimiter} — that was risk D6; both now call
+ * the one copy in the store. Account lockout ({@code DbUserAccounts}) remains
+ * the second, and strongest, layer.
  */
 public class LoginRateLimitFilter extends OncePerRequestFilter {
 
@@ -86,21 +88,34 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
     /** Suffix of the CSRF bootstrap bucket. */
     private static final String CSRF_BUCKET = "|csrf";
 
-    /** Above this many tracked addresses, idle ones are dropped. */
-    private static final int MAX_TRACKED = 10_000;
+    /**
+     * Bucket namespace, so the addresses counted here cannot collide with an
+     * identity counted by {@link IdentityRateLimiter} in the same store.
+     */
+    private static final String ADDRESS_PREFIX = "addr:";
 
     private final int max;
-    private final long windowMillis;
-    private final Clock clock;
-    private final Map<String, Deque<Long>> attempts = new ConcurrentHashMap<>();
+    private final Duration window;
+    private final RateLimitStore store;
 
-    public LoginRateLimitFilter(int max, long windowSeconds, Clock clock) {
+    public LoginRateLimitFilter(int max, long windowSeconds, RateLimitStore store) {
         if (max < 1 || windowSeconds < 1) {
             throw new IllegalArgumentException("rate limit and window must be >= 1");
         }
+        if (store == null) {
+            throw new IllegalArgumentException("store is required");
+        }
         this.max = max;
-        this.windowMillis = windowSeconds * 1000;
-        this.clock = clock;
+        this.window = Duration.ofSeconds(windowSeconds);
+        this.store = store;
+    }
+
+    /**
+     * Counts on the heap, with a clock of the caller's choosing. For a
+     * context with no database, and for tests that drive time by hand.
+     */
+    public LoginRateLimitFilter(int max, long windowSeconds, Clock clock) {
+        this(max, windowSeconds, new InMemoryRateLimitStore(clock));
     }
 
     @Override
@@ -145,26 +160,6 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
 
     /** 0 when allowed, otherwise the seconds until the next attempt is allowed. */
     long tryAcquire(String address) {
-        long now = clock.millis();
-        if (attempts.size() > MAX_TRACKED) {
-            attempts.entrySet().removeIf(e -> {
-                synchronized (e.getValue()) {
-                    Long last = e.getValue().peekLast();
-                    return last == null || now - last >= windowMillis;
-                }
-            });
-        }
-        Deque<Long> times = attempts.computeIfAbsent(address, a -> new ArrayDeque<>());
-        synchronized (times) {
-            while (!times.isEmpty() && now - times.peekFirst() >= windowMillis) {
-                times.pollFirst();
-            }
-            if (times.size() >= max) {
-                long wait = windowMillis - (now - times.peekFirst());
-                return Math.max(1, (wait + 999) / 1000);
-            }
-            times.addLast(now);
-            return 0;
-        }
+        return this.store.retryAfterSeconds(ADDRESS_PREFIX + address, this.max, this.window);
     }
 }

@@ -22,7 +22,6 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
-import java.time.Clock;
 import java.time.Duration;
 
 /**
@@ -102,8 +101,9 @@ public class WebSecurityConfig {
     @Bean
     SignUpThrottleFilter signUpThrottleFilter(
             @Value("${signature.remote-server.web.signup-limit:5}") int signUpLimit,
-            @Value("${signature.remote-server.web.signup-window:PT1H}") Duration signUpWindow) {
-        return new SignUpThrottleFilter(signUpLimit, signUpWindow, Clock.systemUTC());
+            @Value("${signature.remote-server.web.signup-window:PT1H}") Duration signUpWindow,
+            RateLimitStore rateLimitStore) {
+        return new SignUpThrottleFilter(signUpLimit, signUpWindow, rateLimitStore);
     }
 
     @Bean

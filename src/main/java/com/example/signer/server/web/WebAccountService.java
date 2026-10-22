@@ -15,6 +15,8 @@ import com.example.signer.server.db.repository.UserRepository;
 import com.example.signer.server.invites.EmailService;
 import com.example.signer.server.invites.InvitationLinkResolver;
 import com.example.signer.server.security.IdentityRateLimiter;
+import com.example.signer.server.security.InMemoryRateLimitStore;
+import com.example.signer.server.security.RateLimitStore;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -103,9 +105,10 @@ public class WebAccountService {
                              InvitationLinkResolver links,
                              RefreshTokenStore refreshTokens,
                              WebSessionRegistry webSessions,
-                             @Value("${signature.remote-server.web.mail-limit:3}") int mailLimit) {
+                             @Value("${signature.remote-server.web.mail-limit:3}") int mailLimit,
+                             RateLimitStore rateLimits) {
         this(users, verifications, resets, email, links, refreshTokens, webSessions,
-                Clock.systemUTC(), mailLimit);
+                Clock.systemUTC(), mailLimit, rateLimits);
     }
 
     WebAccountService(UserRepository users,
@@ -117,6 +120,20 @@ public class WebAccountService {
                       WebSessionRegistry webSessions,
                       Clock clock,
                       int mailLimit) {
+        this(users, verifications, resets, email, links, refreshTokens, webSessions,
+                clock, mailLimit, new InMemoryRateLimitStore(clock));
+    }
+
+    WebAccountService(UserRepository users,
+                      EmailVerificationTokenRepository verifications,
+                      PasswordResetTokenRepository resets,
+                      EmailService email,
+                      InvitationLinkResolver links,
+                      RefreshTokenStore refreshTokens,
+                      WebSessionRegistry webSessions,
+                      Clock clock,
+                      int mailLimit,
+                      RateLimitStore rateLimits) {
         this.users = users;
         this.verifications = verifications;
         this.resets = resets;
@@ -125,10 +142,12 @@ public class WebAccountService {
         this.refreshTokens = refreshTokens;
         this.webSessions = webSessions;
         this.clock = clock;
-        this.mailLimiter = new IdentityRateLimiter(
-                mailLimit < 1 ? MAILS_PER_IDENTITY : mailLimit, MAIL_WINDOW, clock);
-        this.attemptLimiter = new IdentityRateLimiter(
-                ATTEMPTS_PER_IDENTITY, ATTEMPT_WINDOW, clock);
+        // Two namespaces in one store, so a recipient's mail cap and an
+        // account's token-attempt cap cannot spend each other's budget.
+        this.mailLimiter = new IdentityRateLimiter("mail",
+                mailLimit < 1 ? MAILS_PER_IDENTITY : mailLimit, MAIL_WINDOW, rateLimits);
+        this.attemptLimiter = new IdentityRateLimiter("attempt",
+                ATTEMPTS_PER_IDENTITY, ATTEMPT_WINDOW, rateLimits);
     }
 
     /* ------------------------------ sign-up ---------------------------- */

@@ -11,11 +11,14 @@ import com.example.signer.server.db.repository.InvitationRepository;
 import com.example.signer.server.db.repository.WorkflowRepository;
 import com.example.signer.server.invites.InvitationService;
 import com.example.signer.server.invites.WorkflowInvitationCoordinator;
+import com.example.signer.server.security.RateLimitTestSupport;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.api.extension.ExtendWith;
+import javax.sql.DataSource;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -67,9 +70,16 @@ class GuestVerificationCodeTests {
     private record Invite(String workflowId, String email, String token) {
     }
 
+    @Autowired
+    private DataSource dataSource;
+
     @BeforeEach
     void emptyMailbox() {
         InvitationSignerLifecycleTests.CapturedMailbox.CODES.clear();
+        // D3: guest-code requests are limited per client address, and that
+        // count is shared and persistent now — an earlier class may have
+        // spent this address's budget.
+        RateLimitTestSupport.clear(dataSource);
     }
 
     private Invite invite() {

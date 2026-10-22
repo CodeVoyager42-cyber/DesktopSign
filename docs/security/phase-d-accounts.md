@@ -193,6 +193,48 @@ the whole session is void rather than one action refused.
 
 Three kinds of limit apply, and they are deliberately independent.
 
+### Where the counts live — risks D3, C6 and D6
+
+Every limit below counts through one seam, `RateLimitStore`:
+
+```
+RateLimitStore.retryAfterSeconds(bucket, max, window)
+  ├── DbRateLimitStore        rate_limit_hits (V11) — when there is a database
+  └── InMemoryRateLimitStore  a map on the heap     — when there is not
+```
+
+Deciding and counting are the same call, so a caller cannot ask whether it
+may act and then forget to record that it did. The window is a genuine
+sliding one — the count is of the rows inside it and `Retry-After` is measured
+from the **oldest** row still in it — which is why the hit times are kept
+rather than one counter per bucket.
+
+Until now every limit was a map on the heap. That made each cap **per server
+instance** and reset it on every restart: behind two instances a cap of 20 was
+really 40, and a restart handed an attacker a fresh budget. The sign-up
+throttle suffered most, its window being an hour. That was risk **D3** for the
+identity limits and **C6** for the address limit; both are now closed wherever
+a database is configured.
+
+Three decisions hold the database implementation up:
+
+| | |
+|---|---|
+| **Its own connection, always** | It never joins the caller's transaction. The per-account token-attempt cap is called inside a transaction that *rolls back on a failed attempt*, and a count that vanished with the rollback would mean failures — the attempts worth counting — were never counted. |
+| **Serialised per bucket** | Counting and inserting are two statements, so without a lock concurrent callers would each read the same count and each be admitted, turning a cap of 20 into 20 *per concurrent request*. There is no bucket row to lock, so the bucket name is locked with `pg_advisory_xact_lock(hashtext(bucket))`, released when the transaction ends. |
+| **It fails open** | An unreachable database allows the attempt, logged at WARN. A limiter is an availability guard, not an authentication gate: the gate is the account lockout, which is persistent and in that same database, and every endpoint behind these limits needs that database to do anything at all — so failing closed would answer `429` to requests that were going to fail anyway, turning an outage into a lockout of everyone. |
+
+Buckets are namespaced by the limiter that owns them — `addr:`, `signup:`,
+`mail:`, `attempt:` — so limiters sharing the store cannot spend each other's
+budget. A bucket holds a client address or an e-mail address, **never** a
+password, a token or a token hash: these rows outlive the request.
+
+This is also the end of risk **D6**. The sliding window used to be written
+twice, once in `LoginRateLimitFilter` and once in `IdentityRateLimiter`. It is
+now written once per store, and both of those are thin callers: what is left
+in `IdentityRateLimiter` is lower-casing an identity, namespacing it, and
+declining to guess when there is nothing to key on.
+
 ### Sign-up alone — `SignUpThrottleFilter`
 
 At most **5 new accounts per client address per hour**
@@ -251,9 +293,10 @@ the **recipient** too, keyed by the lower-cased address:
 | Token submissions per account | **10** per **15 min** | verify-email, password-reset/confirm |
 
 Over the e-mail cap the answer is **still 202** and simply no e-mail is sent —
-otherwise the cap itself would be an oracle. State is in memory, so it is per
-instance and resets on restart; that is why the tokens are short-lived and
-single use rather than relying on it (risk D3).
+otherwise the cap itself would be an oracle. The counts are now shared and
+persistent where a database is configured (above), so these two caps mean what
+they say across instances and restarts; the tokens are still short-lived and
+single use, because a limit is never the only thing protecting them.
 
 ### Per account — unchanged
 
@@ -288,7 +331,7 @@ in must not hold a session longer than one who did.
 Together with the `|csrf` bucket, a visitor who only loads the page costs a row
 for five minutes, and a flood is capped per address.
 
-## 8. Database — V10
+## 8. Database — V10 and V11
 
 `V10__account_tokens.sql` creates **two new tables and nothing else**. No
 existing table, column, row or index is dropped, altered or rewritten.
@@ -307,6 +350,22 @@ password_reset_tokens    (id, token_hash UNIQUE, username → users,
   issued cannot be stored.
 - Indexes on `username` (the supersede step and the throttles) and on
   `expires_at` (the hourly sweep below).
+
+`V11__rate_limit_hits.sql` adds **one table and nothing else**, for §6:
+
+```
+rate_limit_hits(id, bucket, hit_at)
+```
+
+- One row per counted attempt, deleted once it leaves its window.
+- `bucket VARCHAR(320)` — the limiter's key, namespaced by the limiter that
+  owns it. It holds a client address or an e-mail address. **There is no
+  column for anything secret**, which is the first thing the migration test
+  asserts.
+- Index on `(bucket, hit_at)` for the hot path — count and prune one bucket —
+  and on `hit_at` alone for the sweep, which crosses every bucket.
+- No foreign key: a bucket is not always an account, and a count that
+  disappeared when an account did would be a way to clear one's own limit.
 
 ### The account sweep — risk D11
 
@@ -355,6 +414,17 @@ and sign-up is open to anyone (risk D1). The one-day grace period after expiry
 is for answering a support question ("was a link ever issued?"), not for
 correctness.
 
+### The counter sweep
+
+`DbRateLimitStore.deleteOldHits` runs **hourly** too (initial delay 25 min,
+again offset from the others) and deletes counter rows older than **a day**,
+whatever their bucket. A bucket is otherwise pruned only by its own next
+request, so an address that knocks once and never returns would keep its row
+for ever. The retention is far longer than any window in use, deliberately:
+housekeeping must never be the thing that refuses a request. Like the token
+sweep it cannot bring the server down with it — a failure is logged as a class
+name and the next run tries again.
+
 ## 9. Configuration
 
 | Variable | Default | Meaning |
@@ -367,6 +437,13 @@ correctness.
 | `SIGNER_LOGIN_RATE_LIMIT` | `20` | Per-address requests per window, per bucket |
 | `SIGNER_LOGIN_RATE_WINDOW_SECONDS` | `60` | That window |
 
+No new variable chooses where the limits are counted: `SIGNER_DB_ENABLED`
+already does. With a database they are counted in it and shared; without one
+they are counted on the heap, because there is nowhere else (§6). The two
+store beans are mutually exclusive conditions on that one property rather
+than a bean plus a fallback — a context that silently got the in-memory store
+while running several instances would believe it had limits it does not have.
+
 The links in the e-mails are built from `InvitationLinkResolver.baseUrl()`,
 the same base the invitation links already use, as
 `<base>/verify-email?token=…` and `<base>/reset-password?token=…`. **Those two
@@ -378,14 +455,14 @@ Full suite on **JDK 21.0.12.1 LTS** (the version the build targets) with a real
 PostgreSQL 16.15.
 
 ```
-Tests run: 595, Failures: 0, Errors: 0, Skipped: 8
-BUILD SUCCESS — 9 min 21 s
+Tests run: 614, Failures: 0, Errors: 0, Skipped: 8
+BUILD SUCCESS — 8 min 08 s
 ```
 
 | | After Phase C | After Phase D1 |
 |---|---|---|
-| Found | 532 | **595** (+63) |
-| Passed | 524 | **587** |
+| Found | 532 | **614** (+82) |
+| Passed | 524 | **606** |
 | Failed | 0 | **0** |
 | Errors | 0 | **0** |
 | Skipped | 8 | **8** (unchanged) |
@@ -405,7 +482,10 @@ New in this phase:
 | `UnverifiedSigningGateHttpTests` | 4 | one test per gated step against a **real** workflow where the account holds a prepared slot — claim, download (and `HEAD`), submit — each refused `EMAIL_NOT_VERIFIED` with nothing changed in the database, plus the counterweight: the same account, verified, runs the whole desktop flow through to a cryptographically **valid** signature |
 | `WebAccountRateLimitHttpTests` | 3 | the per-recipient mail cap (still 202, no further mail), the `\|account` bucket reaching 429 with `Retry-After` **without spending the sign-in budget**, and the same for the `\|csrf` bucket |
 | `WebSignUpThrottleHttpTests` | 2 | the fourth sign-up from one address is refused 429 with `Retry-After` **and writes no `users` row**, with the shared limiter left wide open so only the throttle can be what fired; and that the throttle covers sign-up alone — resend, reset-request, verification, sign-in and the CSRF bootstrap all still answer normally once it is spent |
-| `IdentityRateLimiterTests` | 6 | the sliding window itself: counting, the `Retry-After` it reports and how it shrinks, the budget returning after the window, identities counted separately and case-insensitively, a blank identity allowed, and a meaningless limit refused at construction |
+| `IdentityRateLimiterTests` | 8 | the sliding window itself, against the in-memory store: counting, the `Retry-After` it reports and how it shrinks, the budget returning after the window, identities counted separately and case-insensitively, a blank identity allowed, a meaningless limit refused at construction, and — new — that two limiters sharing one store do not spend each other's budget, and that a nameless limiter or one with no store is refused |
+| `DbRateLimitStoreLiveTests` | 9 | not the window again, but everything the move to the database was *for*: the wiring really resolves to the shared store, a row per counted attempt and none for a refusal, `Retry-After` shrinking, the window sliding and the rows leaving with it, buckets counted separately, **another instance seeing the budget already spent**, **24 concurrent callers admitting exactly the cap and no more**, **a counted attempt surviving the rollback of the caller's transaction**, and the sweep deleting what is long dead while leaving a fresh row |
+| `DbRateLimitStoreFailOpenTests` | 3 | the fail-open decision, needing no PostgreSQL because the point is that there is none: an unreachable database allows the attempt rather than throwing into the filter chain (three times over, so a cached broken connection would show), the sweep survives it too, and a *misconfigured* limit is still refused loudly before any connection is tried |
+| `RateLimitMigrationLiveTests` | 5 | V11 on a fresh database, the exact three columns (no column for anything secret) with `hit_at` not-null and `timestamptz`, both indexes and why each exists, that the `pg_advisory_xact_lock(hashtext(…)::bigint)` cast the store depends on resolves on this server, and that V11 leaves an existing **V10** database — accounts and tokens — intact |
 | `NeverVerifiedAccountSweepLiveTests` | 10 | one test **per guard** of the account sweep (§8): the abandoned sign-up deleted with its tokens cascading, and a verified account, an invitation identity, a disabled account, one ever signed in to, one inside the retention window, one holding a signer slot, one owning a workflow and one holding a claimed turn all surviving — the last three asserting the sweep **skips** them rather than failing — plus zero retention being a no-op |
 | `AccountTokenMigrationLiveTests` | 5 | V10 on a fresh database, the exact columns (no token column) and the unique hash, the expiry CHECK, cascade from `users`, and that V10 leaves an existing **V9** database — rows and session rows — intact |
 | `ProductionSafetyValidatorTests` | +2 | the anonymous idle timeout: longer than the signed-in one, and zero |
@@ -421,6 +501,23 @@ its buckets are one piece of state for the whole class. The tests are
 it — and they loop until the 429 rather than assuming an exact count, so they
 do not depend on how much budget earlier assertions spent.
 
+**What moving the counts to the database cost the test suite.** In memory the
+buckets lived in the application context, so every test class started with an
+empty one for free. In the database they outlive the context, and the classes
+that enable a database nearly all share one (`signer_test`) and all reach it
+from `127.0.0.1` — so they now share a single `addr:127.0.0.1` budget, and one
+class spending it made the next answer `429` to its first request. Two classes
+did fail that way on the first full run: `LaunchExchangeRateLimitTests`, which
+asserts the exact sequence of statuses a budget of 4 produces and so needs to
+start from zero, and `GuestSigningSessionE2ETests`, which was simply a victim.
+
+The fix belongs in the tests, not in the store: that shared budget is the
+whole point of the change in production. `RateLimitTestSupport.clear` empties
+the table, and the seven classes that reach a limited endpoint call it in
+`@BeforeEach`. They are now *less* order-dependent than before, since they no
+longer rely on getting a fresh application context. It is the same move
+`LaunchCodeHttpTests` already made for the launch-code issue throttle.
+
 ## 11. Residual risks
 
 | # | Risk | Severity | Note |
@@ -428,15 +525,16 @@ do not depend on how much budget earlier assertions spent.
 | D1 | **Sign-up is open and creates a row before the address is proved** | Low (was Medium) | Decision D1 in the plan. Now throttled to 5 accounts per address per hour (§6), down from the shared bucket's 20 a minute, and an unverified account can do nothing (§5) while its tokens are swept (§8). **What remains:** the throttle is per address and in memory, so a botnet with many addresses, or a restart, gets a fresh budget; and nothing deletes an account that never verifies — see D11. It also lands harder on shared addresses than the per-minute limits do (risk C6): an office behind one NAT address gets 5 sign-ups an hour between everyone, which is the number to raise first if that is the deployment. A CAPTCHA belongs with the sign-up page (D2). |
 | ~~D11~~ | ~~Nothing deletes an account that never verifies~~ | **FIXED** | §8. Swept daily after 7 days, with every guard in SQL and a test per guard. **What remains:** an address stays unusable for its retention week — a sign-up for it is answered 202 and silently does nothing because the row is still there, so someone who mistyped and never got the e-mail must wait or ask. Narrowing that needs the sign-up path to distinguish "taken by an unverified stranger" from "taken", which is an enumeration question, not housekeeping. |
 | D2 | **E-mail delivery is the whole security of both flows** | Medium | A reset link in a mailbox is the account. Nothing here can fix a compromised or mis-delivered mailbox; the 30-minute life and single use are the mitigation. No second factor exists. |
-| D3 | **Both identity limits are in memory, per instance** | Medium (availability) | Same limitation as the address limiter (Phase C risk C6). Behind several instances the effective caps multiply by the instance count. Moving them to the database or a shared cache is the fix. |
+| ~~D3~~ | ~~Both identity limits are in memory, per instance~~ | **FIXED** | §6. Every limit — both identity caps, the sign-up throttle and the per-address filter (so Phase C risk **C6** with it) — now counts through `RateLimitStore`, backed by `rate_limit_hits` (V11) wherever a database is configured: one budget across instances, and it survives a restart. **What remains:** a server running *without* a database still counts on the heap, because it has nowhere else to count — that is a real deployment mode, not an oversight, and the in-memory store is the same algorithm. And the limits now fail **open** on a database outage; the reasoning, and why failing closed would be worse, is in §6 and in `DbRateLimitStoreFailOpenTests`. |
 | ~~D4~~ | ~~Only workflow creation is gated on a verified address~~ | **FIXED** | §5. `SigningActionPolicy` + `AuthenticatedRequestFilter` now gate claim, the document download, signatures, certificate binding and launch-code issuing for account tokens, and Phase B's three existing `email_verified_at` reads were routed through `maySign` so there is one rule in one place. Guests are deliberately exempt. **What the original wording got wrong:** the launch-code path was never ungated — `issue`, `exchange` and `taskSessionState` each already read `email_verified_at` directly. The gap was the account-token signing routes, and the duplication that hid it. The document download was gated in a follow-up: it had first been left readable as "looking around", which was the wrong call — it is step one of signing. |
 | ~~D5~~ | ~~Nothing deletes expired tokens~~ | **FIXED** | §8. `WebAccountService.deleteExpiredTokens` sweeps both tables hourly, deleting rows that expired over a day ago, through the `deleteExpiredBefore` queries that had been written and never called. |
-| D6 | **The sliding window is implemented twice** | Low | `IdentityRateLimiter` repeats `LoginRateLimitFilter`'s algorithm instead of sharing it. Deliberate — folding them together inside this phase would have changed the behaviour of the tested one — but it is duplication to retire. |
+| ~~D6~~ | ~~The sliding window is implemented twice~~ | **FIXED** | §6. Folded into `RateLimitStore` while D3 was being fixed, which is the change that made it safe to do: both callers had to move onto one store anyway, so sharing the algorithm stopped being a behaviour change and became the point. `LoginRateLimitFilter` and `IdentityRateLimiter` are now thin callers, and their existing tests passed unchanged — which is the evidence that the behaviour of the tested one was preserved. |
 | D7 | **A reset does not end desktop *access* tokens, only refresh tokens** | Low | An access JWT already issued stays valid for up to its 15-minute life after a reset. Accepted: the same window Phase 2 accepted for a disabled account on the bearer chain. |
 | ~~D8~~ | ~~No notification when a password changes~~ | **FIXED** | §4. Both paths e-mail the holder, with no link in the message, best-effort so a mail failure cannot undo the change. **What remains:** nothing is sent when an address itself changes, because an account's address still cannot change at all (§12); and the notice says *when*, not *from where* — there is no stored client address to tell them, and inventing one would mean logging what visitors' addresses are. |
 | D9 | **`__Host-`/`Secure` on localhost still unverified in real browsers** | Low (dev only) | Phase C risk **C1**, unchanged: this phase still has no frontend and no browser. D2 must resolve it and delete the dev cookie override. |
 | D10 | **No CSP, and still no pages to apply one to** | — | Phase C risk C7, unchanged. D2. |
 | ~~C2~~ | ~~No sign-up, verification or password reset~~ | **FIXED** | This phase. |
+| ~~C6~~ | ~~The per-address limiter is in memory, per instance~~ | **FIXED** | §6, with D3 — the address filter moved onto the same store, so the two were one fix. It is the hottest path of the four, and the one where the shared count matters least on its own (the account lockout already spans instances) and most in combination: an attacker alternating instances no longer gets a fresh per-address budget on each. |
 | ~~C8~~ | ~~Website sessions and desktop refresh tokens are independent on a password change~~ | **FIXED** | §4. |
 | ~~C9~~ | ~~The CSRF bootstrap creates a session for an anonymous visitor~~ | **FIXED** | §7: 5-minute idle timeout before sign-in, promoted at sign-in, plus its own rate-limit bucket. |
 
@@ -451,6 +549,12 @@ do not depend on how much budget earlier assertions spent.
   `WebSessionRegistry` now makes both straightforward.
 - No account deletion, no admin routes, no role management.
 - No CAPTCHA — it belongs with the sign-up page (D2), on top of the throttle.
+- No shared cache for the rate limits. Redis or similar would suit the shape
+  of the data better than a table does — it expires rows by itself, and these
+  rows are worth nothing after their window — but it would be a second piece
+  of required infrastructure for counters, and the database is already there
+  and already required by every endpoint behind these limits. The table is
+  swept hourly instead (§8).
 - No notice when an *address* changes — an account's address cannot change at
   all yet, so there is nothing to notify (D8 covers password changes only).
 - No workflow routes under `/web/api` — Phase E.
