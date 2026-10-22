@@ -10,6 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.bcrypt.BCrypt;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -149,13 +150,85 @@ class DbUserAccountsTests {
 
         verify(failures).countFailure(org.mockito.ArgumentMatchers.eq("mo"),
                 org.mockito.ArgumentMatchers.eq("10.0.0.1"), any());
-        verify(failures).lockIfTooManyFailures(org.mockito.ArgumentMatchers.eq("mo"),
-                org.mockito.ArgumentMatchers.eq("10.0.0.1"),
-                org.mockito.ArgumentMatchers.eq(DbUserAccounts.DEFAULT_MAX_FAILURES), any());
+        verify(failures, never()).lockUntil(anyString(), anyString(), any());
         verify(repo).incrementFailedLogins(user.getId());
         verify(repo).lockIfTooManyFailures(org.mockito.ArgumentMatchers.eq(user.getId()),
                 org.mockito.ArgumentMatchers.eq(DbUserAccounts.DEFAULT_ACCOUNT_MAX_FAILURES),
                 any());
+    }
+
+    @Test
+    void theDelayGrowsWithTheFailuresAndNeverPastItsCap() {
+        // Risk L3, the progressive delay. The first two cost nothing because
+        // people mistype their own password; after that an address pays
+        // exponentially for guesses it is not getting.
+        assertThat(accounts.delayFor(1)).isZero();
+        assertThat(accounts.delayFor(2)).isZero();
+        assertThat(accounts.delayFor(3)).isEqualTo(Duration.ofSeconds(2));
+        assertThat(accounts.delayFor(4)).isEqualTo(Duration.ofSeconds(8));
+        assertThat(accounts.delayFor(5))
+                .as("the fifth is the lock this always had").isEqualTo(Duration.ofMinutes(15));
+        assertThat(accounts.delayFor(6)).isEqualTo(Duration.ofMinutes(30));
+        assertThat(accounts.delayFor(7)).isEqualTo(Duration.ofHours(1));
+        assertThat(accounts.delayFor(8)).isEqualTo(Duration.ofHours(2));
+        assertThat(accounts.delayFor(12)).isEqualTo(DbUserAccounts.MAX_DELAY);
+        assertThat(accounts.delayFor(500))
+                .as("no overflow however long an address keeps at it")
+                .isEqualTo(DbUserAccounts.MAX_DELAY);
+        assertThat(accounts.delayFor(Integer.MAX_VALUE)).isEqualTo(DbUserAccounts.MAX_DELAY);
+    }
+
+    @Test
+    void theDelayCapNeverOutlivesTheRowThatCarriesIt() {
+        // The sweep forgets a pair a day after its last failure, and
+        // forgetting it releases the lock. A cap longer than the retention
+        // would mean the longest locks were quietly cut short.
+        assertThat(DbUserAccounts.MAX_DELAY)
+                .isLessThanOrEqualTo(DbUserAccounts.FAILURE_RETENTION);
+    }
+
+    @Test
+    void theDelayIsScaledToAChosenLockDurationNotToFifteenMinutes() {
+        DbUserAccounts strict = new DbUserAccounts(repo, failures, 3, 50, 1);
+
+        // max-failures 3 and a one-minute lock. The threshold decides first,
+        // so the third failure gets the configured lock and the doubling
+        // starts from it — the fixed 2 s and 8 s steps only ever fill the
+        // room BELOW the threshold, and here there is none above the second.
+        assertThat(strict.delayFor(2)).isZero();
+        assertThat(strict.delayFor(3))
+                .as("the operator asked for a lock at three, so three locks")
+                .isEqualTo(Duration.ofMinutes(1));
+        assertThat(strict.delayFor(4)).isEqualTo(Duration.ofMinutes(2));
+        assertThat(strict.delayFor(5)).isEqualTo(Duration.ofMinutes(4));
+
+        // And a threshold above the fixed steps keeps them.
+        DbUserAccounts lax = new DbUserAccounts(repo, failures, 8, 50, 15);
+        assertThat(lax.delayFor(3)).isEqualTo(Duration.ofSeconds(2));
+        assertThat(lax.delayFor(4)).isEqualTo(Duration.ofSeconds(8));
+        assertThat(lax.delayFor(7))
+                .as("still the short step: the lock is not due until eight")
+                .isEqualTo(Duration.ofSeconds(8));
+        assertThat(lax.delayFor(8)).isEqualTo(Duration.ofMinutes(15));
+    }
+
+    @Test
+    void theNthFailureSetsTheNthDelayFromTheCountAlreadyOnTheRow() {
+        // The count behind the escalation is the one on the row, so a lock
+        // that has expired does not hand back a fresh budget.
+        account("mo", HASH, AccountStatus.ACTIVE);
+        LoginFailureEntity pair = mock(LoginFailureEntity.class);
+        when(pair.getFailedCount()).thenReturn(5);
+        when(pair.getLockedUntil()).thenReturn(Instant.now().minusSeconds(1));
+        when(failures.findByUsernameAndClientAddress("mo", "10.0.0.1"))
+                .thenReturn(Optional.of(pair));
+
+        assertThat(accounts.matches("mo", "wrong-password", "10.0.0.1")).isFalse();
+
+        verify(failures).lockUntil(org.mockito.ArgumentMatchers.eq("mo"),
+                org.mockito.ArgumentMatchers.eq("10.0.0.1"),
+                org.mockito.ArgumentMatchers.argThat(until ->
+                        until.isAfter(Instant.now().plus(Duration.ofMinutes(29)))));
     }
 
     @Test

@@ -42,20 +42,25 @@ public interface LoginFailureRepository extends JpaRepository<LoginFailureEntity
                      @Param("now") Instant now);
 
     /**
-     * Locks the pair until {@code until} once it reached {@code max}
-     * failures, and starts its count again. Returns 1 when it locked. Same
-     * shape as {@code UserRepository.lockIfTooManyFailures}, deliberately:
-     * one rule, applied at two scopes.
+     * Refuses this pair until {@code until}. The caller decides how long,
+     * because the duration grows with how many times the pair has failed
+     * (security Phase 2 risk L3, the progressive delay).
+     *
+     * <p>Deliberately <b>does not reset {@code failed_count}</b>, which is
+     * what {@code UserRepository.lockIfTooManyFailures} does at the account
+     * scope and what this method used to do. Resetting it is what made a
+     * lock forgiving: when it expired the attacker got a fresh five fast
+     * attempts, for ever. The count now survives the lock, so the next lock
+     * is longer, and only a successful sign-in ({@link #forget}) or the
+     * sweep clears it.
      */
     @Transactional
     @Modifying(clearAutomatically = true)
-    @Query("update LoginFailureEntity f set f.lockedUntil = :until, f.failedCount = 0"
-            + " where f.username = :username and f.clientAddress = :address"
-            + " and f.failedCount >= :max")
-    int lockIfTooManyFailures(@Param("username") String username,
-                              @Param("address") String clientAddress,
-                              @Param("max") int max,
-                              @Param("until") Instant until);
+    @Query("update LoginFailureEntity f set f.lockedUntil = :until"
+            + " where f.username = :username and f.clientAddress = :address")
+    int lockUntil(@Param("username") String username,
+                  @Param("address") String clientAddress,
+                  @Param("until") Instant until);
 
     /**
      * Forgets this pair after a successful sign-in. A delete rather than a

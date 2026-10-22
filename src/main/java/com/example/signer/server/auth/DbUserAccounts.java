@@ -57,10 +57,26 @@ public class DbUserAccounts implements UserAccountService {
      * How long a pair row is kept after its last failure. Far longer than any
      * lock, so this is housekeeping and can never be what forgives a lock.
      */
-    private static final Duration FAILURE_RETENTION = Duration.ofDays(1);
+    static final Duration FAILURE_RETENTION = Duration.ofDays(1);
 
     /** Length of {@code login_failures.client_address} (V13). */
     private static final int MAX_ADDRESS_LENGTH = 64;
+
+    /**
+     * Ceiling on the progressive delay (risk L3). A day, because beyond that
+     * the escalation stops buying anything an attacker would not simply wait
+     * out, and an address that has been wrong this many times in a row is
+     * not a person who will come back tomorrow having remembered.
+     *
+     * <p><b>It must not exceed {@link #FAILURE_RETENTION}</b>, and is equal
+     * to it. The sweep forgets a pair a day after its last failure, and
+     * forgetting a pair releases its lock — so a cap longer than the
+     * retention would mean the longest locks were quietly cut short by
+     * housekeeping. At equality the row is forgotten exactly as the lock
+     * expires. A test pins the relation so that changing one of the two
+     * cannot silently break the other.
+     */
+    static final Duration MAX_DELAY = Duration.ofHours(24);
 
     /**
      * The pair key for an attempt that arrives with no address — a caller
@@ -166,7 +182,7 @@ public class DbUserAccounts implements UserAccountService {
         }
         boolean ok = PasswordHashing.matches(password, user.getPasswordHash());
         if (!ok) {
-            recordFailure(user, address, now);
+            recordFailure(user, address, now, pair == null ? 0 : pair.getFailedCount());
             return false;
         }
         if (pair != null) {
@@ -209,20 +225,74 @@ public class DbUserAccounts implements UserAccountService {
     }
 
     /**
+     * How long this address is refused for that account after its
+     * {@code consecutiveFailures}-th wrong password in a row (security Phase
+     * 2 risk L3, the progressive delay).
+     *
+     * <pre>
+     *   1–2  no delay          people mistype their own password
+     *     3  2 s
+     *     4  8 s
+     *     5  lock-minutes      the lock this always had (15 min by default)
+     *     6  twice that, and so on, doubling, capped at {@link #MAX_DELAY}
+     * </pre>
+     *
+     * <p><b>It is a refusal, not a slow answer.</b> Making the request itself
+     * take longer is the obvious reading of "progressive delay" and it would
+     * be a mistake: holding a servlet worker thread for seconds hands an
+     * attacker resource exhaustion for the price of opening connections. The
+     * answer comes back immediately and says the attempt was refused.
+     *
+     * <p><b>What the doubling is for.</b> The count behind it survives the
+     * lock, so this is the part that makes a repeat offender dearer over
+     * time. Before, a lock reset the count: when it expired the same address
+     * got another five fast attempts, for ever — five guesses per fifteen
+     * minutes, indefinitely. Now the sixth failure costs thirty minutes, the
+     * seventh an hour, and an attacker who keeps coming back is paying
+     * exponentially for guesses they are not getting.
+     *
+     * <p>None of this touches the holder: the delay belongs to a pair, and
+     * the holder's own address has no failures on it. The first two being
+     * free is for them, not the attacker — two tries at 250 ms of bcrypt is
+     * no brute-force budget.
+     */
+    Duration delayFor(int consecutiveFailures) {
+        // The configured threshold decides first, and the short delays only
+        // fill the room below it. Checking them first would mean a
+        // deployment that set max-failures to 3 or 4 never reached its own
+        // lock, because the second and eighth second would have answered for
+        // it.
+        if (consecutiveFailures >= maxFailures) {
+            int doublings = consecutiveFailures - maxFailures;
+            if (doublings >= 20) {
+                return MAX_DELAY;   // guard before the shift, not after it
+            }
+            Duration escalated = lockDuration.multipliedBy(1L << doublings);
+            return escalated.compareTo(MAX_DELAY) > 0 ? MAX_DELAY : escalated;
+        }
+        if (consecutiveFailures <= 2) {
+            return Duration.ZERO;
+        }
+        return consecutiveFailures == 3 ? Duration.ofSeconds(2) : Duration.ofSeconds(8);
+    }
+
+    /**
      * Counts the failure at both scopes. The order matters only for the log:
      * the pair lock is the one that will normally fire, and it is the one
      * worth seeing first.
      */
-    private void recordFailure(UserEntity user, String address, Instant now) {
+    private void recordFailure(UserEntity user, String address, Instant now,
+                              int failuresBefore) {
         loginFailures.countFailure(user.getUsername(), address, now);
-        if (loginFailures.lockIfTooManyFailures(user.getUsername(), address, maxFailures,
-                now.plus(lockDuration)) > 0) {
+        Duration delay = delayFor(failuresBefore + 1);
+        if (!delay.isZero()) {
+            loginFailures.lockUntil(user.getUsername(), address, now.plus(delay));
             // The address beside the account: during an attack this is the
             // one line an operator needs, and the rate limiter already
             // reports addresses at this level.
-            log.warn("Address {} locked out of account '{}' for {} minutes after {} failed"
-                            + " sign-ins", address, user.getUsername(),
-                    lockDuration.toMinutes(), maxFailures);
+            log.warn("Address {} refused for account '{}' for {}s after {} failed sign-ins"
+                            + " in a row", address, user.getUsername(), delay.toSeconds(),
+                    failuresBefore + 1);
         }
         users.incrementFailedLogins(user.getId());
         if (users.lockIfTooManyFailures(user.getId(), accountMaxFailures,
