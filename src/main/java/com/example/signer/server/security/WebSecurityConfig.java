@@ -117,6 +117,10 @@ public class WebSecurityConfig {
             WebSessionProperties sessionProperties) throws Exception {
         http
             .securityMatcher(path("/web/**"))
+            // The same two headers as the other chain, from the same place:
+            // risks L9 and C7/D10. D2 will have to widen the policy when
+            // there are scripts and styles of its own to serve.
+            .headers(SecurityHeaders::apply)
             .httpBasic(AbstractHttpConfigurer::disable)
             .formLogin(AbstractHttpConfigurer::disable)
             // Logout is a JSON endpoint of our own, so Spring's HTML-oriented

@@ -17,6 +17,29 @@ class SignPageRendererTests {
     }
 
     @Test
+    void noPageOfThisRendererCarriesScript() {
+        // What makes the Content-Security-Policy on these pages as strict as
+        // it is (risks L9 and C7/D10): it permits no script at all, because
+        // there is none to permit. Coupled here on purpose — if script is
+        // ever added to one of these pages this test fails, and whoever adds
+        // it has to revisit the policy with a nonce rather than find out in a
+        // browser that it was silently blocked.
+        for (String html : new String[] {
+                SignPageRenderer.pending(view()),
+                SignPageRenderer.notice("Link expired", "Ask for a new one.", "SignFlow")}) {
+            assertThat(html)
+                    .doesNotContain("<script")
+                    .doesNotContain("javascript:")
+                    .doesNotContain("onclick")
+                    .doesNotContain("onload");
+            // And nothing is fetched from anywhere: the stylesheet is inline,
+            // which is the one thing the policy has to allow.
+            assertThat(html).doesNotContain("<img").doesNotContain("<link ");
+            assertThat(html).contains("<style>");
+        }
+    }
+
+    @Test
     void liveInvitationShowsRequestAndBothActions() {
         String html = SignPageRenderer.pending(view());
 
