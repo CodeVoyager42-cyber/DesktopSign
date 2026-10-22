@@ -79,6 +79,47 @@ public final class AccountEmailTemplate {
                 + "Regards,\n" + appName;
     }
 
+    public static String lockedOutSubject(String appName) {
+        return "Your " + appName + " account is temporarily locked";
+    }
+
+    /**
+     * The notice sent when an account is locked by failed sign-ins (security
+     * Phase 2 risk L3, the last of its four parts) — so that someone who
+     * cannot get in knows why, and someone who is being guessed at knows it
+     * is happening.
+     *
+     * <p>No link, for the same reason as {@link #changedText}: a message
+     * saying something is wrong with your account is exactly what an attacker
+     * would dress up as a reset link.
+     *
+     * <p><b>It does not say where the attempts came from.</b> The server knows
+     * the address but telling the holder is worth less than it looks: it is
+     * usually a proxy or a shared NAT address, it may belong to an innocent
+     * third party, and there is nothing a recipient can do with it. The
+     * password-change notice made the same choice.
+     *
+     * <p>It is careful not to alarm someone whose own typing locked them out,
+     * which is the likelier cause, while still saying plainly what it would
+     * mean if it was not them.
+     */
+    public static String lockedOutText(Instant lockedUntil, String appName) {
+        return "Your " + appName + " account has been locked for a short time after\n"
+                + "too many failed sign-in attempts.\n\n"
+                + "It unlocks by itself on " + WHEN.format(lockedUntil) + ".\n\n"
+                + "If that was you — a forgotten or mistyped password — you can wait,\n"
+                + "or set a new password yourself, which unlocks the account straight\n"
+                + "away. Go to " + appName + " and choose to reset your password; do not\n"
+                + "follow a link in any e-mail about this, including this one, which\n"
+                + "deliberately contains none.\n\n"
+                + "If it was NOT you, someone is trying to guess your password. They\n"
+                + "have not got in — this message would say your password had changed\n"
+                + "if they had. Your password still works once the lock lifts, but if\n"
+                + "it is one you use anywhere else, change it.\n\n"
+                + "Either way, nothing has been signed and nothing has been changed.\n\n"
+                + "Regards,\n" + appName;
+    }
+
     public static String resetSubject(String appName) {
         return "Set a new " + appName + " password";
     }

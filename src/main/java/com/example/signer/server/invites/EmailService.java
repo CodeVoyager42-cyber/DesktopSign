@@ -91,4 +91,26 @@ public interface EmailService {
         throw new IllegalStateException(getClass().getSimpleName()
                 + " cannot send password-change notices");
     }
+
+    /**
+     * Tells the account holder that their account has been locked by failed
+     * sign-ins (security Phase 2 risk L3). Carries <b>no link and no
+     * token</b>, like the password-change notice, and does not say which
+     * address the attempts came from.
+     *
+     * <p>Best-effort by contract: the lock is already in place when this is
+     * sent, and a mail server that is down must not change that.
+     *
+     * <p>Unlike the password-change notice, this one <b>can be triggered by
+     * someone other than the holder</b> — that is the whole point of it — so
+     * the caller caps how often it may be sent per account. An implementation
+     * does not need to.
+     *
+     * @param recipientEmail the account's own address, the only destination
+     * @param lockedUntil    when the lock lifts by itself
+     */
+    default void sendAccountLocked(String recipientEmail, Instant lockedUntil) {
+        throw new IllegalStateException(getClass().getSimpleName()
+                + " cannot send account-lock notices");
+    }
 }
