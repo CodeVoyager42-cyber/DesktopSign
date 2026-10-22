@@ -112,6 +112,13 @@ public class SmtpEmailService implements EmailService {
                 "password-change notice");
     }
 
+    @Override
+    public void sendAccountLocked(String recipientEmail, Instant lockedUntil) {
+        send(recipientEmail, AccountEmailTemplate.lockedOutSubject(appName),
+                AccountEmailTemplate.lockedOutText(lockedUntil, appName),
+                "account-lock notice");
+    }
+
     /** Sends one plain-text message. The body holds a secret, so it is never logged. */
     private void send(String recipientEmail, String subject, String body, String what) {
         try {

@@ -298,7 +298,7 @@ class NeverVerifiedAccountSweepLiveTests {
 
         new DbUserAccounts(users, loginFailures, DbUserAccounts.DEFAULT_MAX_FAILURES,
                 DbUserAccounts.DEFAULT_ACCOUNT_MAX_FAILURES,
-                DbUserAccounts.DEFAULT_LOCK.toMinutes(), Duration.ZERO)
+                DbUserAccounts.DEFAULT_LOCK.toMinutes(), Duration.ZERO, null, null)
                 .deleteNeverVerifiedAccounts();
 
         assertThat(exists(username)).as("zero retention deletes nothing").isTrue();

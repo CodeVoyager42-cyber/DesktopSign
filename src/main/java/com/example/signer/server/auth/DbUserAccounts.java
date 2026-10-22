@@ -4,6 +4,10 @@ import com.example.signer.server.db.entity.LoginFailureEntity;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.LoginFailureRepository;
 import com.example.signer.server.db.repository.UserRepository;
+import com.example.signer.server.invites.EmailService;
+import com.example.signer.server.security.IdentityRateLimiter;
+import com.example.signer.server.security.InMemoryRateLimitStore;
+import com.example.signer.server.security.RateLimitStore;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +18,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -86,24 +91,49 @@ public class DbUserAccounts implements UserAccountService {
      */
     static final String UNKNOWN_ADDRESS = "unknown";
 
+    /**
+     * How many account-lock notices one account may be sent per
+     * {@link #LOCK_NOTICE_WINDOW}. One: the message says "your account is
+     * locked right now", and a second copy of it inside six hours tells the
+     * holder nothing the first did not.
+     */
+    private static final int LOCK_NOTICES = 1;
+
+    /** The window for {@link #LOCK_NOTICES}. */
+    private static final Duration LOCK_NOTICE_WINDOW = Duration.ofHours(6);
+
     private final UserRepository users;
     private final LoginFailureRepository loginFailures;
+    private final EmailService email;
+    private final IdentityRateLimiter lockNoticeLimiter;
     private final int maxFailures;
     private final int accountMaxFailures;
     private final Duration lockDuration;
     private final Duration unverifiedRetention;
 
-    /** Default policy: 5 failures per address, 50 per account, 15 minutes. */
+    /**
+     * Default policy: 5 failures per address, 50 per account, 15 minutes, and
+     * <b>no account-lock notice</b> — for unit tests, which have nobody to
+     * tell. The notice itself is covered by tests that pass a mailer.
+     */
     public DbUserAccounts(UserRepository users, LoginFailureRepository loginFailures) {
         this(users, loginFailures, DEFAULT_MAX_FAILURES, DEFAULT_ACCOUNT_MAX_FAILURES,
-                DEFAULT_LOCK.toMinutes(), DEFAULT_UNVERIFIED_RETENTION);
+                DEFAULT_LOCK.toMinutes(), DEFAULT_UNVERIFIED_RETENTION, null, null);
     }
 
     /** Chosen lockout policy, with the default unverified-account retention. */
     public DbUserAccounts(UserRepository users, LoginFailureRepository loginFailures,
                           int maxFailures, int accountMaxFailures, long lockMinutes) {
         this(users, loginFailures, maxFailures, accountMaxFailures, lockMinutes,
-                DEFAULT_UNVERIFIED_RETENTION);
+                DEFAULT_UNVERIFIED_RETENTION, null, null);
+    }
+
+    /** Chosen policy with a mailer, for the notice (risk L3). */
+    public DbUserAccounts(UserRepository users, LoginFailureRepository loginFailures,
+                          int maxFailures, int accountMaxFailures, long lockMinutes,
+                          EmailService email, RateLimitStore rateLimits) {
+        this(users, loginFailures, maxFailures, accountMaxFailures, lockMinutes,
+                DEFAULT_UNVERIFIED_RETENTION, email, rateLimits);
     }
 
     @Autowired
@@ -113,7 +143,9 @@ public class DbUserAccounts implements UserAccountService {
                     int accountMaxFailures,
             @Value("${signature.remote-server.login.lock-minutes:15}") long lockMinutes,
             @Value("${signature.remote-server.web.unverified-retention:P7D}")
-                    Duration unverifiedRetention) {
+                    Duration unverifiedRetention,
+            EmailService email,
+            RateLimitStore rateLimits) {
         if (maxFailures < 1 || lockMinutes < 1) {
             throw new IllegalStateException(
                     "signature.remote-server.login.max-failures and lock-minutes must be >= 1");
@@ -130,6 +162,13 @@ public class DbUserAccounts implements UserAccountService {
         }
         this.users = users;
         this.loginFailures = loginFailures;
+        this.email = email;
+        // Its own namespace in the shared store (§6), so the notice cap
+        // cannot spend, or be spent by, any other limit.
+        this.lockNoticeLimiter = new IdentityRateLimiter("lock-notice", LOCK_NOTICES,
+                LOCK_NOTICE_WINDOW,
+                rateLimits == null ? new InMemoryRateLimitStore(Clock.systemUTC())
+                        : rateLimits);
         this.maxFailures = maxFailures;
         this.accountMaxFailures = accountMaxFailures;
         this.lockDuration = Duration.ofMinutes(lockMinutes);
@@ -300,6 +339,54 @@ public class DbUserAccounts implements UserAccountService {
             log.warn("Account '{}' locked for {} minutes after {} failed sign-ins in total:"
                             + " the per-address limit was spread across addresses",
                     user.getUsername(), lockDuration.toMinutes(), accountMaxFailures);
+            notifyLocked(user, now.plus(lockDuration));
+        }
+    }
+
+    /**
+     * Tells the holder their account has been locked (security Phase 2 risk
+     * L3, the last of its four parts). Someone who cannot sign in learns why,
+     * and someone being guessed at learns it is happening — which is the only
+     * part of L3 that reaches the person it is actually happening to.
+     *
+     * <p><b>Only the account-wide lock sends this, never a per-address one.</b>
+     * That is the whole of the design. A pair lock is what an attacker trips,
+     * on purpose, repeatedly and cheaply — notifying on it would have turned
+     * the notice into a way to mail-bomb the holder, which is a worse denial
+     * of service than the lockout this risk is about. The account-wide lock
+     * costs 50 failures to reach and resets its count when it fires, so it is
+     * already expensive to trigger once.
+     *
+     * <p><b>And it is capped anyway</b>, at {@link #LOCK_NOTICES} per account
+     * per {@link #LOCK_NOTICE_WINDOW}, through the same {@code RateLimitStore}
+     * as every other limit (§6). This is the opposite choice from the
+     * password-change notice (risk D8), which is deliberately *not* capped —
+     * that one needs a successful password change, so nobody but the holder
+     * can cause it, and suppressing it would hide the one message that matters
+     * most. This one can be caused by a stranger, so it has to be.
+     *
+     * <p>Only to a <b>verified</b> address. An unverified one has not been
+     * shown to belong to the holder, and the sign-up confirmation is the only
+     * thing that should ever reach it.
+     *
+     * <p>Best-effort, and last: the lock is already in place, so a mail server
+     * that throws must not turn a refused sign-in into a server error.
+     */
+    private void notifyLocked(UserEntity user, Instant lockedUntil) {
+        if (email == null || user.getEmail() == null || user.getEmailVerifiedAt() == null) {
+            return;
+        }
+        if (!lockNoticeLimiter.tryAcquire(user.getUsername())) {
+            log.info("Account-lock notice for '{}' suppressed: one has been sent recently",
+                    user.getUsername());
+            return;
+        }
+        try {
+            email.sendAccountLocked(user.getEmail(), lockedUntil);
+        } catch (RuntimeException e) {
+            // The class, never the address or the message.
+            log.warn("Account-lock notice could not be sent ({})",
+                    e.getClass().getSimpleName());
         }
     }
 
