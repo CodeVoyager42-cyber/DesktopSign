@@ -1,6 +1,8 @@
 package com.example.signer.server.auth;
 
+import com.example.signer.server.db.entity.LoginFailureEntity;
 import com.example.signer.server.db.entity.UserEntity;
+import com.example.signer.server.db.repository.LoginFailureRepository;
 import com.example.signer.server.db.repository.UserRepository;
 
 import org.slf4j.Logger;
@@ -40,28 +42,59 @@ public class DbUserAccounts implements UserAccountService {
     public static final int DEFAULT_MAX_FAILURES = 5;
     public static final Duration DEFAULT_LOCK = Duration.ofMinutes(15);
 
+    /**
+     * Failures against one account from <b>all</b> addresses together before
+     * the account itself is locked (risk L3). Ten times the per-address
+     * figure: high enough that locking someone out is no longer five cheap
+     * requests, low enough to still cap guessing spread over many addresses.
+     */
+    public static final int DEFAULT_ACCOUNT_MAX_FAILURES = 50;
+
     /** How long an unverified, unused account is kept (risk D11). */
     public static final Duration DEFAULT_UNVERIFIED_RETENTION = Duration.ofDays(7);
 
+    /**
+     * How long a pair row is kept after its last failure. Far longer than any
+     * lock, so this is housekeeping and can never be what forgives a lock.
+     */
+    private static final Duration FAILURE_RETENTION = Duration.ofDays(1);
+
+    /** Length of {@code login_failures.client_address} (V13). */
+    private static final int MAX_ADDRESS_LENGTH = 64;
+
+    /**
+     * The pair key for an attempt that arrives with no address — a caller
+     * that is not a request. The same sentinel {@code LoginRateLimitFilter}
+     * uses, and deliberately a pair rather than an exemption: an
+     * unidentified caller must not get the looser of the two limits.
+     */
+    static final String UNKNOWN_ADDRESS = "unknown";
+
     private final UserRepository users;
+    private final LoginFailureRepository loginFailures;
     private final int maxFailures;
+    private final int accountMaxFailures;
     private final Duration lockDuration;
     private final Duration unverifiedRetention;
 
-    /** Default policy: 5 failures, 15 minutes. */
-    public DbUserAccounts(UserRepository users) {
-        this(users, DEFAULT_MAX_FAILURES, DEFAULT_LOCK.toMinutes(),
-                DEFAULT_UNVERIFIED_RETENTION);
+    /** Default policy: 5 failures per address, 50 per account, 15 minutes. */
+    public DbUserAccounts(UserRepository users, LoginFailureRepository loginFailures) {
+        this(users, loginFailures, DEFAULT_MAX_FAILURES, DEFAULT_ACCOUNT_MAX_FAILURES,
+                DEFAULT_LOCK.toMinutes(), DEFAULT_UNVERIFIED_RETENTION);
     }
 
     /** Chosen lockout policy, with the default unverified-account retention. */
-    public DbUserAccounts(UserRepository users, int maxFailures, long lockMinutes) {
-        this(users, maxFailures, lockMinutes, DEFAULT_UNVERIFIED_RETENTION);
+    public DbUserAccounts(UserRepository users, LoginFailureRepository loginFailures,
+                          int maxFailures, int accountMaxFailures, long lockMinutes) {
+        this(users, loginFailures, maxFailures, accountMaxFailures, lockMinutes,
+                DEFAULT_UNVERIFIED_RETENTION);
     }
 
     @Autowired
-    public DbUserAccounts(UserRepository users,
+    public DbUserAccounts(UserRepository users, LoginFailureRepository loginFailures,
             @Value("${signature.remote-server.login.max-failures:5}") int maxFailures,
+            @Value("${signature.remote-server.login.account-max-failures:50}")
+                    int accountMaxFailures,
             @Value("${signature.remote-server.login.lock-minutes:15}") long lockMinutes,
             @Value("${signature.remote-server.web.unverified-retention:P7D}")
                     Duration unverifiedRetention) {
@@ -69,14 +102,41 @@ public class DbUserAccounts implements UserAccountService {
             throw new IllegalStateException(
                     "signature.remote-server.login.max-failures and lock-minutes must be >= 1");
         }
+        if (accountMaxFailures < maxFailures) {
+            // Otherwise the account-wide lock would trip first and the
+            // per-address one could never fire, which is the configuration
+            // risk L3 was about — silently back to locking the holder out.
+            throw new IllegalStateException(
+                    "signature.remote-server.login.account-max-failures (" + accountMaxFailures
+                            + ") must be >= max-failures (" + maxFailures + "): the account-wide"
+                            + " lock is a backstop for guessing spread over many addresses,"
+                            + " not the first limit to fire");
+        }
         this.users = users;
+        this.loginFailures = loginFailures;
         this.maxFailures = maxFailures;
+        this.accountMaxFailures = accountMaxFailures;
         this.lockDuration = Duration.ofMinutes(lockMinutes);
         this.unverifiedRetention = unverifiedRetention;
     }
 
     @Override
     public boolean matches(String usernameOrEmail, String password) {
+        return matches(usernameOrEmail, password, null);
+    }
+
+    /**
+     * Security Phase 2 risk L3: the five-failure lock is per (account,
+     * address) pair, and the account-wide one is a backstop at
+     * {@code account-max-failures}.
+     *
+     * <p>Both are checked before any password is, and both are counted on a
+     * failure — so an attacker from one address locks out their own address
+     * after five tries, exactly as they locked out the account before, while
+     * the holder arriving from a different address is unaffected.
+     */
+    @Override
+    public boolean matches(String usernameOrEmail, String password, String clientAddress) {
         if (usernameOrEmail == null || usernameOrEmail.isBlank() || password == null) {
             return false;
         }
@@ -87,20 +147,30 @@ public class DbUserAccounts implements UserAccountService {
         if (user == null || !user.isActive()) {
             // Same answer as a wrong password, after the same bcrypt work, so
             // neither the answer nor the response time reveals whether the
-            // account exists or can sign in.
+            // account exists or can sign in. Deliberately not counted
+            // against the pair either: an unknown account has no row, and
+            // creating one would be a way to find out that it has none.
             PasswordHashing.simulateCheck(password);
             return false;
         }
         Instant now = Instant.now();
-        if (user.getLockedUntil() != null && now.isBefore(user.getLockedUntil())) {
+        String address = addressKey(clientAddress);
+        // One read, used for both the lock decision and the clean-up below.
+        LoginFailureEntity pair = loginFailures
+                .findByUsernameAndClientAddress(user.getUsername(), address)
+                .orElse(null);
+        if (lockedOut(pair, now) || lockedOut(user, now)) {
             // Locked: no password is checked, but the time spent is the same.
             PasswordHashing.simulateCheck(password);
             return false;
         }
         boolean ok = PasswordHashing.matches(password, user.getPasswordHash());
         if (!ok) {
-            recordFailure(user, now);
+            recordFailure(user, address, now);
             return false;
+        }
+        if (pair != null) {
+            loginFailures.forget(user.getUsername(), address);
         }
         if (user.getFailedLoginCount() != 0 || user.getLockedUntil() != null) {
             users.clearFailedLogins(user.getId());
@@ -111,11 +181,75 @@ public class DbUserAccounts implements UserAccountService {
         return true;
     }
 
-    private void recordFailure(UserEntity user, Instant now) {
+    private static boolean lockedOut(LoginFailureEntity pair, Instant now) {
+        return pair != null && pair.getLockedUntil() != null
+                && now.isBefore(pair.getLockedUntil());
+    }
+
+    private static boolean lockedOut(UserEntity user, Instant now) {
+        return user.getLockedUntil() != null && now.isBefore(user.getLockedUntil());
+    }
+
+    /**
+     * The pair key for an address. Truncated to what the column holds, which
+     * is safe in a way the deny-list's token ids were not: two addresses
+     * sharing a 64-character prefix would merely share one budget, which is
+     * more restrictive and never less. No address a servlet container reports
+     * is anywhere near that long — the longest textual IPv6 form is 45
+     * characters.
+     */
+    static String addressKey(String clientAddress) {
+        if (clientAddress == null || clientAddress.isBlank()) {
+            return UNKNOWN_ADDRESS;
+        }
+        String trimmed = clientAddress.trim();
+        return trimmed.length() <= MAX_ADDRESS_LENGTH
+                ? trimmed
+                : trimmed.substring(0, MAX_ADDRESS_LENGTH);
+    }
+
+    /**
+     * Counts the failure at both scopes. The order matters only for the log:
+     * the pair lock is the one that will normally fire, and it is the one
+     * worth seeing first.
+     */
+    private void recordFailure(UserEntity user, String address, Instant now) {
+        loginFailures.countFailure(user.getUsername(), address, now);
+        if (loginFailures.lockIfTooManyFailures(user.getUsername(), address, maxFailures,
+                now.plus(lockDuration)) > 0) {
+            // The address beside the account: during an attack this is the
+            // one line an operator needs, and the rate limiter already
+            // reports addresses at this level.
+            log.warn("Address {} locked out of account '{}' for {} minutes after {} failed"
+                            + " sign-ins", address, user.getUsername(),
+                    lockDuration.toMinutes(), maxFailures);
+        }
         users.incrementFailedLogins(user.getId());
-        if (users.lockIfTooManyFailures(user.getId(), maxFailures, now.plus(lockDuration)) > 0) {
-            log.warn("Account '{}' locked for {} minutes after {} failed sign-ins",
-                    user.getUsername(), lockDuration.toMinutes(), maxFailures);
+        if (users.lockIfTooManyFailures(user.getId(), accountMaxFailures,
+                now.plus(lockDuration)) > 0) {
+            log.warn("Account '{}' locked for {} minutes after {} failed sign-ins in total:"
+                            + " the per-address limit was spread across addresses",
+                    user.getUsername(), lockDuration.toMinutes(), accountMaxFailures);
+        }
+    }
+
+    /**
+     * Hourly: forgets pair rows idle for more than {@link #FAILURE_RETENTION}.
+     * A pair is otherwise cleared only by a successful sign-in from that
+     * address, so an attacker who tries once and never returns would keep a
+     * row — and the address in it — for ever. The retention is far longer
+     * than any lock, so this can never be what forgives one.
+     *
+     * <p>Last of the staggered sweeps (initial delay 40 min), after the
+     * deny-list at 35.
+     */
+    @Scheduled(fixedDelay = 3_600_000, initialDelay = 2_400_000)
+    @Transactional
+    public void deleteIdleLoginFailures() {
+        int removed = loginFailures.deleteIdleBefore(Instant.now().minus(FAILURE_RETENTION));
+        if (removed > 0) {
+            // A count, never an address or a username.
+            log.info("Forgot {} idle sign-in failure row(s)", removed);
         }
     }
 

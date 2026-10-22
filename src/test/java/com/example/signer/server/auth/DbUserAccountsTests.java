@@ -1,7 +1,9 @@
 package com.example.signer.server.auth;
 
 import com.example.signer.server.db.entity.AccountStatus;
+import com.example.signer.server.db.entity.LoginFailureEntity;
 import com.example.signer.server.db.entity.UserEntity;
+import com.example.signer.server.db.repository.LoginFailureRepository;
 import com.example.signer.server.db.repository.UserRepository;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -26,14 +28,26 @@ class DbUserAccountsTests {
     private static final String HASH = PasswordHashing.hash(PASSWORD);
 
     private UserRepository repo;
+    private LoginFailureRepository failures;
     private DbUserAccounts accounts;
 
     @BeforeEach
     void setUp() {
         repo = mock(UserRepository.class);
+        failures = mock(LoginFailureRepository.class);
         when(repo.findByUsername(anyString())).thenReturn(Optional.empty());
         when(repo.findByEmail(anyString())).thenReturn(Optional.empty());
-        accounts = new DbUserAccounts(repo);
+        when(failures.findByUsernameAndClientAddress(anyString(), anyString()))
+                .thenReturn(Optional.empty());
+        accounts = new DbUserAccounts(repo, failures);
+    }
+
+    /** A (account, address) pair locked until {@code lockedUntil}. */
+    private void lockedPair(String username, String address, Instant lockedUntil) {
+        LoginFailureEntity pair = mock(LoginFailureEntity.class);
+        when(pair.getLockedUntil()).thenReturn(lockedUntil);
+        when(failures.findByUsernameAndClientAddress(username, address))
+                .thenReturn(Optional.of(pair));
     }
 
     private UserEntity account(String username, String hash, AccountStatus status) {
@@ -125,12 +139,76 @@ class DbUserAccountsTests {
     }
 
     @Test
-    void aWrongPasswordIsCountedAndMayLock() {
+    void aWrongPasswordIsCountedAtBothScopes() {
+        // Risk L3. The pair is what will normally lock; the account-wide
+        // count still runs, but at ten times the threshold, so one address
+        // can no longer lock the holder out with five requests.
         UserEntity user = account("mo", HASH, AccountStatus.ACTIVE);
-        assertThat(accounts.matches("mo", "wrong-password")).isFalse();
+
+        assertThat(accounts.matches("mo", "wrong-password", "10.0.0.1")).isFalse();
+
+        verify(failures).countFailure(org.mockito.ArgumentMatchers.eq("mo"),
+                org.mockito.ArgumentMatchers.eq("10.0.0.1"), any());
+        verify(failures).lockIfTooManyFailures(org.mockito.ArgumentMatchers.eq("mo"),
+                org.mockito.ArgumentMatchers.eq("10.0.0.1"),
+                org.mockito.ArgumentMatchers.eq(DbUserAccounts.DEFAULT_MAX_FAILURES), any());
         verify(repo).incrementFailedLogins(user.getId());
         verify(repo).lockIfTooManyFailures(org.mockito.ArgumentMatchers.eq(user.getId()),
-                org.mockito.ArgumentMatchers.eq(DbUserAccounts.DEFAULT_MAX_FAILURES), any());
+                org.mockito.ArgumentMatchers.eq(DbUserAccounts.DEFAULT_ACCOUNT_MAX_FAILURES),
+                any());
+    }
+
+    @Test
+    void aLockedAddressIsRefusedTheRightPasswordAndAnotherAddressIsNot() {
+        // The whole of risk L3: the attacker's address is locked out, and the
+        // holder arriving from their own address signs in.
+        account("nina", HASH, AccountStatus.ACTIVE);
+        lockedPair("nina", "10.0.0.66", Instant.now().plusSeconds(600));
+
+        assertThat(accounts.matches("nina", PASSWORD, "10.0.0.66"))
+                .as("the address that spent its five attempts").isFalse();
+        assertThat(accounts.matches("nina", PASSWORD, "192.168.1.5"))
+                .as("the holder, from somewhere else, is unaffected").isTrue();
+
+        // And being refused did not count against the account either.
+        verify(repo, never()).incrementFailedLogins(any());
+    }
+
+    @Test
+    void anExpiredPairLockNoLongerBlocks() {
+        account("nina", HASH, AccountStatus.ACTIVE);
+        lockedPair("nina", "10.0.0.66", Instant.now().minusSeconds(1));
+
+        assertThat(accounts.matches("nina", PASSWORD, "10.0.0.66")).isTrue();
+        verify(failures).forget("nina", "10.0.0.66");
+    }
+
+    @Test
+    void anAttemptWithNoAddressCountsAgainstOneSharedPair() {
+        // Not an exemption: a caller that is not a request must not get the
+        // looser of the two limits.
+        UserEntity user = account("mo", HASH, AccountStatus.ACTIVE);
+
+        assertThat(accounts.matches("mo", "wrong-password")).isFalse();
+
+        verify(failures).countFailure(org.mockito.ArgumentMatchers.eq("mo"),
+                org.mockito.ArgumentMatchers.eq(DbUserAccounts.UNKNOWN_ADDRESS), any());
+        verify(repo).incrementFailedLogins(user.getId());
+    }
+
+    @Test
+    void anAddressLongerThanTheColumnIsTruncatedRatherThanDropped() {
+        // Truncation is safe here and would not have been for a token id:
+        // two addresses sharing a 64-character prefix share one budget,
+        // which is more restrictive, never less. No real address is close.
+        String absurd = "2001:db8:" + "0:".repeat(60) + "1";
+
+        assertThat(DbUserAccounts.addressKey(absurd))
+                .hasSize(64)
+                .isEqualTo(absurd.substring(0, 64));
+        assertThat(DbUserAccounts.addressKey("  10.0.0.1  ")).isEqualTo("10.0.0.1");
+        assertThat(DbUserAccounts.addressKey("   ")).isEqualTo(DbUserAccounts.UNKNOWN_ADDRESS);
+        assertThat(DbUserAccounts.addressKey(null)).isEqualTo(DbUserAccounts.UNKNOWN_ADDRESS);
     }
 
     @Test
@@ -215,10 +293,21 @@ class DbUserAccountsTests {
 
     @Test
     void invalidPolicyValuesAreRefusedAtStartup() {
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new DbUserAccounts(repo, 0, 15))
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> new DbUserAccounts(repo, failures, 0, 50, 15))
                 .isInstanceOf(IllegalStateException.class);
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new DbUserAccounts(repo, 5, 0))
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> new DbUserAccounts(repo, failures, 5, 50, 0))
                 .isInstanceOf(IllegalStateException.class);
+        // Risk L3: an account-wide threshold below the per-address one would
+        // fire first, so the per-address lock could never fire and the
+        // holder would be lockable again — silently, which is worse.
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> new DbUserAccounts(repo, failures, 5, 4, 15))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("account-max-failures");
+        // Equal is allowed: it is the old behaviour, chosen explicitly.
+        new DbUserAccounts(repo, failures, 5, 5, 15);
     }
 
     private static long median(Runnable check) {

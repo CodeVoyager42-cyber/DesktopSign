@@ -51,12 +51,20 @@ public class AuthController {
         this.deniedTokens = deniedTokens;
     }
 
-    /** Password login → access JWT + refresh token. */
+    /**
+     * Password login → access JWT + refresh token.
+     *
+     * <p>The client address goes with the credentials: lockout is per
+     * (account, address) pair, so that five wrong passwords lock out whoever
+     * sent them rather than the account's holder (Phase 2 risk L3).
+     */
     @PostMapping("/login")
-    public ResponseEntity<TokenPairResponse> login(@RequestBody LoginRequest request) {
+    public ResponseEntity<TokenPairResponse> login(@RequestBody LoginRequest request,
+                                                   HttpServletRequest httpRequest) {
         if (request == null || request.username() == null
                 || request.password() == null
-                || !accounts.matches(request.username(), request.password())) {
+                || !accounts.matches(request.username(), request.password(),
+                        clientAddress(httpRequest))) {
             // Never the typed text: it is sometimes a password typed into the
             // wrong field, and it could inject fake log lines.
             log.info("Login failed for identifier {}",
@@ -160,6 +168,19 @@ public class AuthController {
         deniedTokens.deny(token.tokenId(), token.expiresAt());
         log.info("Logout: access token of '{}' denied for the rest of its life",
                 token.subject());
+    }
+
+    /**
+     * The connection's own remote address, or {@code null} when there is no
+     * request to ask. Deliberately not {@code X-Forwarded-For}: any client
+     * can send one, and an attacker who could choose their own lockout key
+     * would have no lockout at all. A server behind a proxy must rewrite the
+     * remote address instead ({@code SIGNER_FORWARD_HEADERS_STRATEGY=native},
+     * which the production validator already requires when TLS is offloaded)
+     * — the same rule, and the same value, as the per-address rate limit.
+     */
+    public static String clientAddress(HttpServletRequest request) {
+        return request == null ? null : request.getRemoteAddr();
     }
 
     /** The {@code Authorization: Bearer} value, or {@code null}. */
