@@ -15,6 +15,7 @@ import com.example.signer.token.mock.MockSigningToken;
 import com.example.signer.token.mock.MockTokenSimulator;
 import com.example.signer.verification.SignatureStatus;
 import com.example.signer.workflow.WorkflowSigningService;
+import com.example.signer.server.security.RateLimitTestSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -95,6 +96,9 @@ class TaskSessionScopeHttpTests {
     @BeforeEach
     void setUp() {
         jdbc = new JdbcTemplate(dataSource);
+        // D3: the per-address counts are shared and persistent now, so an
+        // earlier class could have spent this address's budget.
+        RateLimitTestSupport.clear(dataSource);
         // Keep the per-user issue limit out of the way (test database only).
         jdbc.update("UPDATE launch_codes SET created_at = created_at - interval '5 minutes',"
                 + " expires_at = expires_at - interval '5 minutes'"

@@ -110,6 +110,34 @@ class IdentityRateLimiterTests {
     }
 
     @Test
+    void limitersSharingOneStoreDoNotSpendEachOtherSBudget() {
+        // Every limiter now counts in the same store, so the bucket
+        // namespace is what keeps them apart: the mail cap for an address
+        // and the token-attempt cap for the account of the same name must be
+        // two budgets, not one.
+        RateLimitStore shared = new InMemoryRateLimitStore(new TestClock());
+        IdentityRateLimiter mail = new IdentityRateLimiter("mail", 1, Duration.ofHours(1), shared);
+        IdentityRateLimiter attempts =
+                new IdentityRateLimiter("attempt", 1, Duration.ofHours(1), shared);
+
+        assertThat(mail.tryAcquire("ada@example.test")).isTrue();
+        assertThat(mail.tryAcquire("ada@example.test")).isFalse();
+        assertThat(attempts.tryAcquire("ada@example.test"))
+                .as("a different limiter, so a different budget").isTrue();
+    }
+
+    @Test
+    void aNamelessLimiterOrOneWithNoStoreIsRefused() {
+        // The name IS the namespace, so an empty one would quietly merge two
+        // limiters' counts.
+        RateLimitStore store = new InMemoryRateLimitStore(new TestClock());
+        assertThatThrownBy(() -> new IdentityRateLimiter("  ", 1, Duration.ofHours(1), store))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new IdentityRateLimiter("mail", 1, Duration.ofHours(1), null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void aMeaninglessLimitIsRefusedAtConstruction() {
         // So a misconfigured throttle fails startup instead of silently
         // allowing everything.

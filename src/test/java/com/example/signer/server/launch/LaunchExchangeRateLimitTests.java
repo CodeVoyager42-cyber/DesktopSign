@@ -2,11 +2,17 @@ package com.example.signer.server.launch;
 
 import com.example.signer.server.WorkflowServerApplication;
 
+import com.example.signer.server.security.RateLimitTestSupport;
+
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.ActiveProfiles;
+
+import javax.sql.DataSource;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -33,6 +39,20 @@ class LaunchExchangeRateLimitTests {
 
     @LocalServerPort
     private int port;
+
+    @Autowired
+    private DataSource dataSource;
+
+    /**
+     * This test asserts the exact sequence of statuses a budget of 4
+     * produces, so it can only be right if it starts from zero — and since
+     * D3 the count is in the shared test database, where an earlier class
+     * may have spent some of it.
+     */
+    @BeforeEach
+    void startFromAnEmptyBudget() {
+        RateLimitTestSupport.clear(dataSource);
+    }
 
     @Test
     void guessingCodesIsCutOffAfterTheLimit() throws Exception {
