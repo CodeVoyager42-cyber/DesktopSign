@@ -104,6 +104,10 @@ class LoginLockoutPerAddressLiveTests {
 
         for (int i = 0; i < 5; i++) {
             assertThat(apiLogin(name, "wrong-" + i, ATTACKER)).isEqualTo(401);
+            if (i < 4) {
+                // Never after the last one — that lock is what this asserts.
+                asIfTheyWaited(name, ATTACKER);
+            }
         }
 
         assertThat(pairLock(name, ATTACKER))
@@ -129,9 +133,13 @@ class LoginLockoutPerAddressLiveTests {
 
         for (int i = 0; i < 3; i++) {
             assertThat(apiLogin(name, "wrong-" + i, ATTACKER)).isEqualTo(401);
+            asIfTheyWaited(name, ATTACKER);
         }
         for (int i = 0; i < 2; i++) {
             assertThat(webLogin(name, "wrong-web-" + i, ATTACKER)).isEqualTo(401);
+            if (i == 0) {
+                asIfTheyWaited(name, ATTACKER);
+            }
         }
 
         assertThat(failures.findByUsernameAndClientAddress(name, ATTACKER))
@@ -157,6 +165,9 @@ class LoginLockoutPerAddressLiveTests {
             request.addHeader("X-Forwarded-For", "10.0.0." + i);
             assertThat(api.login(new LoginRequest(name, "wrong-" + i), request)
                     .getStatusCode().value()).isEqualTo(401);
+            if (i < 4) {
+                asIfTheyWaited(name, ATTACKER);
+            }
         }
 
         assertThat(failures.findAll())
@@ -215,6 +226,18 @@ class LoginLockoutPerAddressLiveTests {
     private Instant pairLock(String name, String address) {
         return failures.findByUsernameAndClientAddress(name, address)
                 .orElseThrow().getLockedUntil();
+    }
+
+    /**
+     * Steps over the progressive delay, which the third and fourth failures
+     * set (2 s and 8 s). These tests are about which address the count lands
+     * on, not about how long it is refused for — {@code
+     * AuthenticationPersistenceLiveTests} measures that. Expiring the lock
+     * is what an attacker returning later would get, and deliberately does
+     * not reset the count.
+     */
+    private void asIfTheyWaited(String name, String address) {
+        failures.lockUntil(name, address, Instant.now().minusSeconds(1));
     }
 
     private int apiLogin(String user, String password, String address) {

@@ -378,7 +378,7 @@ persistent where a database is configured (above), so these two caps mean what
 they say across instances and restarts; the tokens are still short-lived and
 single use, because a limit is never the only thing protecting them.
 
-### Per account and address — Phase 2 risk L3
+### Per account and address, and progressively — Phase 2 risk L3
 
 `DbUserAccounts` locks for **15 min** after **5** wrong passwords in a row, as
 it always has, counted across both sign-in chains — but the count that locks
@@ -390,8 +390,37 @@ e-mail local part, so keeping a known person locked out of their own account
 cost five requests every fifteen minutes — comfortably under the per-address
 rate limit of twenty a minute. Phase 2 recorded it as **L3** and listed what
 it needed: lock per account *and* address, a progressive delay, an operator
-unlock and a notice to the holder. **This is the first of those four**; the
-other three are still open.
+unlock and a notice to the holder. **The first two of those four are done**;
+the operator unlock and the notice are still open.
+
+#### The progressive delay
+
+Every failure sets the pair's "not before", and the duration grows with how
+many failures that pair has in a row:
+
+| Consecutive failures from one address | Next attempt allowed after |
+|---|---|
+| 1–2 | immediately — people mistype their own password |
+| 3 | 2 s |
+| 4 | 8 s |
+| 5 | `lock-minutes` — 15 min, the lock this always had |
+| 6 | 30 min |
+| 7 | 1 h |
+| 8+ | doubling, capped at **24 h** |
+
+| | |
+|---|---|
+| **A refusal, not a slow answer** | The obvious reading of "progressive delay" is to make the request itself take longer, and it would be a mistake: holding a servlet worker thread for seconds hands an attacker resource exhaustion for the price of opening connections, and a 30-second sleep across a 200-thread pool is a dead server. The answer comes back immediately and says the attempt was refused. |
+| **The count survives the lock** | which is the part that actually closes something. Before, locking reset the count, so when the lock expired the same address got another five fast attempts — five guesses every fifteen minutes, *for ever*. Now the sixth failure costs half an hour and the seventh an hour, so an attacker who keeps coming back pays exponentially for guesses they are not getting. Only a successful sign-in from that address, or the sweep forgetting the idle pair, clears it. |
+| **The holder pays nothing** | The delay belongs to a pair, and the holder's address has no failures on it. The first two failures being free is for them too: two tries at 250 ms of bcrypt is not a brute-force budget, and someone who mistypes twice and gets it right on the third try never meets any of this. |
+| The threshold decides first | A deployment that sets `max-failures` to 3 gets its lock at 3, and the 2 s and 8 s steps only ever fill the room *below* the threshold. Checking them first was the first version of this and was wrong — such a deployment would never have reached its own lock, because the eighth second would have answered for it. |
+| **The cap equals the retention** | 24 h both. The sweep forgets a pair a day after its last failure and forgetting it releases the lock, so a cap *longer* than the retention would mean the longest locks were quietly cut short by housekeeping. A test pins the relation so changing one cannot silently break the other. |
+
+What the delay does **not** do is make the account-wide backstop dearer: ten
+addresses in parallel still spend five failures each in about ten seconds,
+because each address starts its own escalation from zero. Making that
+expensive without handing an attacker a way to delay the holder is the part
+with no clean answer here — see the residual below.
 
 | | |
 |---|---|
@@ -405,12 +434,16 @@ other three are still open.
 | No address is stored for an unknown account | An unknown or disabled account gets the same answer after the same bcrypt work as a wrong password, and no row: creating one would be a way to find out that it has none. |
 
 **What it costs, stated plainly.** This does not eliminate the denial of
-service, it prices it up: locking a holder out now takes 50 failures from at
+service, it prices it up: locking a holder out takes 50 failures from at
 least 10 addresses instead of 5 from one. With IPv6 that is not expensive,
-which is why the remaining three parts of L3 — a progressive delay, an
-operator unlock, and telling the holder it is happening — are still worth
-doing. The delay in particular is the one that makes the backstop costly to
-reach rather than merely higher.
+and the progressive delay does not change it — a rotating attacker meets a
+fresh escalation on every new address. What the delay does buy is the thing
+that was genuinely unbounded: guessing from one address, indefinitely, five
+attempts at a time. The two parts of L3 still open are an operator unlock
+and telling the holder it is happening; neither of them closes the rotating
+case either, and an honest reading is that the remaining exposure needs
+something this phase has not built — a reputation or proof-of-work input to
+the sign-in path, or a CAPTCHA, which belongs with the frontend (D2).
 
 **And it stores an address beside an account**, which nothing here did
 before: `rate_limit_hits` holds addresses but is not account-linked, and the
@@ -661,14 +694,14 @@ Full suite on **JDK 21.0.12.1 LTS** (the version the build targets) with a real
 PostgreSQL 16.15.
 
 ```
-Tests run: 662, Failures: 0, Errors: 0, Skipped: 8
-BUILD SUCCESS — 6 min 45 s
+Tests run: 667, Failures: 0, Errors: 0, Skipped: 8
+BUILD SUCCESS — 6 min 3 s
 ```
 
 | | After Phase C | After Phase D1 |
 |---|---|---|
-| Found | 532 | **662** (+130) |
-| Passed | 524 | **654** |
+| Found | 532 | **667** (+135) |
+| Passed | 524 | **659** |
 | Failed | 0 | **0** |
 | Errors | 0 | **0** |
 | Skipped | 8 | **8** (unchanged) |
@@ -695,8 +728,8 @@ New in this phase:
 | `DbUserAccountsTests` | +4 | the rule itself without a database: a token from before the change rejected and one from after it allowed, **a token from the change's own second allowed** (the documented trade-off, pinned down so it cannot drift by accident), a null column invalidating nothing, and an unknown account or absent `iat` answering false |
 | `LoginLockoutPerAddressLiveTests` | 5 | Phase 2 risk **L3** from the request down, which is the part neither the mocked nor the service-level tests can show: that the desktop API locks **the address the request came from** and not the account, so the holder still signs in; that the website and the API count against **one** pair rather than five attempts each; that a forwarded header **cannot choose the lockout key** (five different `X-Forwarded-For` values, one real address, one row); that the sweep forgets an idle pair without touching the account; and that deleting an account takes its failure rows with it |
 | `LoginFailureMigrationLiveTests` | 5 | V13 on a fresh database, the exact seven columns (**nothing for the password, the typed identifier or a user agent**) with a nullable `locked_until` and the 64-character address bound, the UNIQUE pair that forces the upsert (and that a second address for the same account is a second budget), the cascade from `users` together with the **absence** of an index on the address alone, and that V13 leaves an existing **V12** database — including an account lock that was in force — intact |
-| `AuthenticationPersistenceLiveTests` | +1 | the account-wide backstop: enough failures spread across enough addresses still lock the account itself, and then even an address with no failures of its own is refused. Its three existing lockout tests were **rewritten**, not added to — they asserted that the fifth failure locks the account, which is the behaviour L3 was about |
-| `DbUserAccountsTests` | +4 | the rule without a database: a failure counted at both scopes with the right threshold at each, a locked address refused the right password **while another address is let in**, an expired pair lock no longer blocking (and the success forgetting the pair), an attempt with no address counting against one shared pair rather than being exempt, and an over-long address truncated rather than dropped. Plus the startup refusal when the account-wide threshold is below the per-address one |
+| `AuthenticationPersistenceLiveTests` | +2 | the account-wide backstop (enough failures across enough addresses still lock the account, after which even an address with no failures of its own is refused), and the escalation against the real table: **coming back after a lock costs twice as long**, the count standing at 7 rather than having been reset, and the holder still signing in throughout. Its four existing lockout tests were **rewritten**, not added to — they asserted that the fifth failure locks the account and that locking resets the count, which is exactly what L3 changed. One of them now reads as the holder's case: two mistypes cost nothing and a success clears the escalation |
+| `DbUserAccountsTests` | +8 | the rules without a database: a failure counted at both scopes with the right threshold at each, a locked address refused the right password **while another address is let in**, an expired pair lock no longer blocking, an attempt with no address counting against one shared pair rather than being exempt, an over-long address truncated rather than dropped, the startup refusal when the account-wide threshold is below the per-address one — and for the delay: the whole schedule including the cap and that it cannot overflow however long an address keeps at it, that the cap never outlives the row carrying it, that the schedule scales to a **chosen** `lock-minutes` and `max-failures` (both below and above the fixed steps), and that the Nth delay is taken from the count already on the row |
 | `LogoutDeniesAccessTokenHttpTests` | 5 | Phase 2 risk **L4** over HTTP, in file mode: an access token refused the moment its session is signed out of — on `/api/auth/me` and on a workflow route, so it is the filter and not one endpoint — while **the same account's other session is untouched** (the distinction that rules out reusing D7's mechanism); signing out twice still a 204 with the token still denied; a logout that presents **no** bearer revoking only the refresh session, which is the honest limit of the fix rather than a hidden one; and a garbage or signature-tampered bearer still not blocking the logout, because `/api/auth/logout` is public on purpose |
 | `AccessTokenDenyListTests` | 7 | the list itself, with no database and no server: one token denied and no other, denying twice being one entry, an already-expired token not recorded at all (the one row the table's CHECK would refuse), an entry dropped once the token it denies would have expired, an absent id or expiry writing nothing, an id too long refused rather than truncated — and that the length it accepts comfortably covers the UUIDs `JwtService` issues |
 | `DbAccessTokenDenyListLiveTests` | 7 | what the database implementation is *for*: that database mode really resolves to it rather than silently to the heap, that the entry is in the **table** so another instance over the same database sees it, that the row holds the jti and the token's own expiry and nothing about the account, that `ON CONFLICT DO NOTHING` makes a second logout one row, that an expired token is never written, that an over-long id is refused before it reaches the column, and that the sweep deletes what is long dead while leaving a live entry alone |
@@ -763,7 +796,7 @@ before and after instead of counting history rows.
 | ~~C6~~ | ~~The per-address limiter is in memory, per instance~~ | **FIXED** | §6, with D3 — the address filter moved onto the same store, so the two were one fix. It is the hottest path of the four, and the one where the shared count matters least on its own (the account lockout already spans instances) and most in combination: an attacker alternating instances no longer gets a fresh per-address budget on each. |
 | ~~C8~~ | ~~Website sessions and desktop refresh tokens are independent on a password change~~ | **FIXED** | §4. |
 | ~~C9~~ | ~~The CSRF bootstrap creates a session for an anonymous visitor~~ | **FIXED** | §7: 5-minute idle timeout before sign-in, promoted at sign-in, plus its own rate-limit bucket. |
-| L3 | **Locking someone out of their own account is still possible, but dearer** | Low (was Medium) | §6. The 5-failure lock is now per (account, address) pair, so an attacker locks out their own address and the holder is unaffected; the account-wide lock stays as a backstop at 50, because without it rotating addresses would make guessing unbounded. **What remains:** 50 failures from 10 addresses still lock the holder out, and IPv6 makes 10 addresses cheap — so this is a 10× price rise, not a closure. Phase 2 listed four parts for L3 and this is one of them; the progressive delay (which makes the backstop *expensive* to reach rather than merely higher), an operator unlock and a notice to the holder are all still open. It also introduces the one piece of data this phase otherwise avoided: a stored (account, address) pair, swept after a day. |
+| L3 | **Locking someone out of their own account is still possible, but dearer** | Low (was Medium) | §6. The 5-failure lock is per (account, address) pair, so an attacker locks out their own address and the holder is unaffected, and it is **progressive** — the count survives the lock, so repeat offenders double their way to a 24 h cap instead of getting five fresh attempts every fifteen minutes for ever. The account-wide lock stays as a backstop at 50, because without it rotating addresses would make guessing unbounded. **What remains:** 50 failures from 10 addresses still lock the holder out, and IPv6 makes 10 addresses cheap, so this is a price rise and not a closure — the delay does not help there, since each new address starts its escalation at zero. Two of L3's four parts are done; an operator unlock and a notice to the holder are open, and neither closes the rotating case either. That one needs something not built here: a reputation or proof-of-work input to sign-in, or a CAPTCHA with the frontend (D2). It also introduces the one piece of data this phase otherwise avoided: a stored (account, address) pair, swept after a day. |
 | ~~L4~~ | ~~Signing out ends the refresh token only; the access token keeps working for up to 15 minutes~~ | **FIXED** | §4. The `jti` deny-list Phase 2 prescribed, scoped to the one token presented with the logout so that one device signing out does not sign out the others, and failing **closed** because a revocation check that answers "not revoked" when it does not know is not one. **What remains:** the server can only refuse a token it has been shown, so a client that posts the refresh token alone still leaves its access token alive — the desktop client was changed to send the bearer, and a third-party client would have to do the same; and in file mode the list is per instance, so behind two such servers a logout reaches one of them. Both are visible in the tests rather than papered over. |
 
 ## 12. What was deliberately not done

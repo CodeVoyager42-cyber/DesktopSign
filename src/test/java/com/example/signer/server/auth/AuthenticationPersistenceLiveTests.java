@@ -109,9 +109,19 @@ class AuthenticationPersistenceLiveTests {
         return failures.findByUsernameAndClientAddress(name, address).orElseThrow();
     }
 
-    /** Fifteen minutes later, for the pair's lock. */
+    /** However long the pair's current delay is, later. */
     private void expirePairLock(String name, String address) {
-        failures.lockIfTooManyFailures(name, address, 0, Instant.now().minusSeconds(1));
+        failures.lockUntil(name, address, Instant.now().minusSeconds(1));
+    }
+
+    /**
+     * Steps over the progressive delay without waiting it out, for the tests
+     * that are about the count rather than the delay. Expiring the lock is
+     * exactly what an attacker returning later would get — and deliberately
+     * does not reset the count, so the escalation still applies.
+     */
+    private void asIfTheyWaited(String name, String address) {
+        expirePairLock(name, address);
     }
 
     /* --------------------------- lockout ------------------------------ */
@@ -131,20 +141,25 @@ class AuthenticationPersistenceLiveTests {
         String name = newAccount();
         for (int i = 0; i < 4; i++) {
             assertThat(accounts.matches(name, "wrong-" + i, ATTACKER)).isFalse();
+            // The third and fourth failures each set a short delay; this test
+            // is about the fifth being a lock, so it steps over them.
+            asIfTheyWaited(name, ATTACKER);
         }
         assertThat(pair(name, ATTACKER).getFailedCount()).isEqualTo(4);
-        assertThat(pair(name, ATTACKER).getLockedUntil()).isNull();
 
         assertThat(accounts.matches(name, "wrong-5", ATTACKER)).isFalse();
         var locked = pair(name, ATTACKER);
         assertThat(locked.getLockedUntil()).isAfter(Instant.now().plusSeconds(14 * 60));
-        assertThat(locked.getFailedCount()).isZero();
+        assertThat(locked.getFailedCount())
+                .as("the count survives the lock, so the next one is longer").isEqualTo(5);
 
         // Locked for that address: the right password is refused too, and the
         // refusal is not counted — against the pair or the account.
         assertThat(accounts.matches(name, PASSWORD, ATTACKER)).isFalse();
         assertThat(accounts.matches(name + "@example.test", PASSWORD, ATTACKER)).isFalse();
-        assertThat(pair(name, ATTACKER).getFailedCount()).isZero();
+        assertThat(pair(name, ATTACKER).getFailedCount())
+                .as("a refusal is not a failure, so the lock cannot extend itself")
+                .isEqualTo(5);
         assertThat(reload(name).getFailedLoginCount())
                 .as("five failures, and the two refusals after them were not counted")
                 .isEqualTo(5);
@@ -157,11 +172,43 @@ class AuthenticationPersistenceLiveTests {
     }
 
     @Test
+    void comingBackAfterALockCostsTwiceAsLongTheNextTime() {
+        // The progressive delay, and the hole it closes: a lock used to reset
+        // the count, so an attacker who waited it out got another five fast
+        // attempts, for ever — five guesses every fifteen minutes,
+        // indefinitely. The count now survives, so the sixth failure is
+        // thirty minutes and the seventh an hour.
+        String name = newAccount();
+        for (int i = 0; i < 5; i++) {
+            accounts.matches(name, "wrong-" + i, ATTACKER);
+            asIfTheyWaited(name, ATTACKER);
+        }
+        assertThat(pair(name, ATTACKER).getFailedCount()).isEqualTo(5);
+
+        accounts.matches(name, "wrong-6", ATTACKER);
+        assertThat(pair(name, ATTACKER).getLockedUntil())
+                .as("the sixth failure is worth half an hour, not another fifteen minutes")
+                .isAfter(Instant.now().plusSeconds(29 * 60));
+
+        asIfTheyWaited(name, ATTACKER);
+        accounts.matches(name, "wrong-7", ATTACKER);
+        assertThat(pair(name, ATTACKER).getLockedUntil())
+                .as("and the seventh an hour").isAfter(Instant.now().plusSeconds(59 * 60));
+        assertThat(pair(name, ATTACKER).getFailedCount()).isEqualTo(7);
+
+        // The holder is still unaffected by any of it.
+        assertThat(accounts.matches(name, PASSWORD, HOLDER)).isTrue();
+    }
+
+    @Test
     void theAddressLockEndsOnItsOwnAndASuccessForgetsThePair() {
         String name = newAccount();
         for (int i = 0; i < 5; i++) {
             accounts.matches(name, "wrong", ATTACKER);
+            asIfTheyWaited(name, ATTACKER);
         }
+        // Back under lock after the fifth, as the test above establishes.
+        accounts.matches(name, "wrong-again", ATTACKER);
         assertThat(accounts.matches(name, PASSWORD, ATTACKER)).isFalse();
 
         expirePairLock(name, ATTACKER);
@@ -181,6 +228,7 @@ class AuthenticationPersistenceLiveTests {
         for (int a = 0; a < 2; a++) {
             for (int i = 0; i < 5; i++) {
                 assertThat(accounts.matches(name, "wrong", "10.1.1." + a)).isFalse();
+                asIfTheyWaited(name, "10.1.1." + a);
             }
         }
 
@@ -193,18 +241,29 @@ class AuthenticationPersistenceLiveTests {
     }
 
     @Test
-    void aSuccessBeforeTheLimitClearsEarlierFailures() {
+    void twoMistypesCostNothingAndASuccessClearsThemAndTheEscalation() {
         String name = newAccount();
-        accounts.matches(name, "wrong-1");
-        accounts.matches(name, "wrong-2");
-        assertThat(accounts.matches(name, PASSWORD)).isTrue();
+        accounts.matches(name, "wrong-1", HOLDER);
+        accounts.matches(name, "wrong-2", HOLDER);
+        assertThat(reload(name).getFailedLoginCount()).isEqualTo(2);
+
+        // The holder's own case, and why the first two failures carry no
+        // delay: they get the password right on the third try, with nothing
+        // in the way.
+        assertThat(accounts.matches(name, PASSWORD, HOLDER)).isTrue();
         assertThat(reload(name).getFailedLoginCount()).isZero();
-        // So 4 more failures do not lock.
+        assertThat(failures.findByUsernameAndClientAddress(name, HOLDER))
+                .as("and the pair is forgotten, so the escalation starts over").isEmpty();
+
+        // Four more failures are therefore the first to fourth again, not
+        // the third to sixth: no lock.
         for (int i = 0; i < 4; i++) {
-            accounts.matches(name, "wrong");
+            accounts.matches(name, "wrong", HOLDER);
+            asIfTheyWaited(name, HOLDER);
         }
+        assertThat(pair(name, HOLDER).getFailedCount()).isEqualTo(4);
         assertThat(reload(name).getLockedUntil()).isNull();
-        assertThat(accounts.matches(name, PASSWORD)).isTrue();
+        assertThat(accounts.matches(name, PASSWORD, HOLDER)).isTrue();
     }
 
     @Test
