@@ -1,5 +1,6 @@
 package com.example.signer.server.web;
 
+import com.example.signer.server.auth.AuthController;
 import com.example.signer.server.auth.LogSafe;
 import com.example.signer.server.auth.UserAccountService;
 import com.example.signer.server.security.WebSecurityConfig;
@@ -110,8 +111,14 @@ public class WebAuthController {
     public ResponseEntity<?> login(@RequestBody(required = false) LoginRequest request,
                                    HttpServletRequest httpRequest,
                                    HttpServletResponse httpResponse) {
+        // The client address goes with the credentials (Phase 2 risk L3), and
+        // it is the same (account, address) pair the desktop API counts
+        // against: the two sign-in routes check the same passwords against the
+        // same accounts, so they must not be two independent budgets — the
+        // same reasoning that makes the rate-limit filter a shared singleton.
         if (request == null || request.username() == null || request.password() == null
-                || !accounts.matches(request.username(), request.password())) {
+                || !accounts.matches(request.username(), request.password(),
+                        AuthController.clientAddress(httpRequest))) {
             log.info("Website sign-in failed for identifier {}",
                     LogSafe.fingerprint(request == null ? null : request.username()));
             return ResponseEntity.status(401).body(BAD_CREDENTIALS);

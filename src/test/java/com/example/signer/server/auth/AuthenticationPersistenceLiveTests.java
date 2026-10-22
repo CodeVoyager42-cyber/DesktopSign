@@ -42,6 +42,11 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "signature.remote-server.database.username=${SIGNER_DB_USERNAME:postgres}",
                 "signature.remote-server.database.password=${SIGNER_DB_PASSWORD:}",
                 "signature.remote-server.login.max-failures=5",
+                // The account-wide backstop (risk L3), lowered from its
+                // default of 50 so that the test which has to reach it costs
+                // ten bcrypt checks instead of fifty. The per-address limit
+                // under test is the default 5.
+                "signature.remote-server.login.account-max-failures=10",
                 "signature.remote-server.login.lock-minutes=15"
         })
 @EnabledIf(value = "com.example.signer.server.auth.AuthenticationPersistenceLiveTests#freshDatabase",
@@ -63,6 +68,13 @@ class AuthenticationPersistenceLiveTests {
 
     @Autowired
     private UserRepository users;
+
+    @Autowired
+    private com.example.signer.server.db.repository.LoginFailureRepository failures;
+
+    /** The address doing the guessing, and the holder's own. */
+    private static final String ATTACKER = "203.0.113.7";
+    private static final String HOLDER = "198.51.100.4";
 
     /** Recreates the throwaway database; false (test skipped) when PostgreSQL is unreachable. */
     public static boolean freshDatabase() {
@@ -92,6 +104,16 @@ class AuthenticationPersistenceLiveTests {
         return users.findByUsername(name).orElseThrow();
     }
 
+    private com.example.signer.server.db.entity.LoginFailureEntity pair(String name,
+                                                                       String address) {
+        return failures.findByUsernameAndClientAddress(name, address).orElseThrow();
+    }
+
+    /** Fifteen minutes later, for the pair's lock. */
+    private void expirePairLock(String name, String address) {
+        failures.lockIfTooManyFailures(name, address, 0, Instant.now().minusSeconds(1));
+    }
+
     /* --------------------------- lockout ------------------------------ */
 
     @Test
@@ -101,38 +123,73 @@ class AuthenticationPersistenceLiveTests {
     }
 
     @Test
-    void fiveWrongPasswordsLockTheAccountEvenAgainstTheRightOne() {
+    void fiveWrongPasswordsLockThatAddressOutAndLeaveTheHolderAlone() {
+        // Risk L3, and the behaviour this test used to assert the other way
+        // round: the fifth failure locked the ACCOUNT, so five cheap requests
+        // locked the holder out of their own account. It now locks the
+        // address that sent them.
         String name = newAccount();
         for (int i = 0; i < 4; i++) {
-            assertThat(accounts.matches(name, "wrong-" + i)).isFalse();
+            assertThat(accounts.matches(name, "wrong-" + i, ATTACKER)).isFalse();
         }
-        assertThat(reload(name).getFailedLoginCount()).isEqualTo(4);
-        assertThat(reload(name).getLockedUntil()).isNull();
+        assertThat(pair(name, ATTACKER).getFailedCount()).isEqualTo(4);
+        assertThat(pair(name, ATTACKER).getLockedUntil()).isNull();
 
-        assertThat(accounts.matches(name, "wrong-5")).isFalse();
-        UserEntity locked = reload(name);
+        assertThat(accounts.matches(name, "wrong-5", ATTACKER)).isFalse();
+        var locked = pair(name, ATTACKER);
         assertThat(locked.getLockedUntil()).isAfter(Instant.now().plusSeconds(14 * 60));
-        assertThat(locked.getFailedLoginCount()).isZero();
+        assertThat(locked.getFailedCount()).isZero();
 
-        // Locked: the right password is refused too, and it is not counted.
-        assertThat(accounts.matches(name, PASSWORD)).isFalse();
-        assertThat(accounts.matches(name + "@example.test", PASSWORD)).isFalse();
+        // Locked for that address: the right password is refused too, and the
+        // refusal is not counted — against the pair or the account.
+        assertThat(accounts.matches(name, PASSWORD, ATTACKER)).isFalse();
+        assertThat(accounts.matches(name + "@example.test", PASSWORD, ATTACKER)).isFalse();
+        assertThat(pair(name, ATTACKER).getFailedCount()).isZero();
+        assertThat(reload(name).getFailedLoginCount())
+                .as("five failures, and the two refusals after them were not counted")
+                .isEqualTo(5);
+
+        // The point of the whole change: the account is NOT locked, so the
+        // holder signs in from their own address.
+        assertThat(reload(name).getLockedUntil()).isNull();
+        assertThat(accounts.matches(name, PASSWORD, HOLDER))
+                .as("the holder is unaffected by someone else's failures").isTrue();
+    }
+
+    @Test
+    void theAddressLockEndsOnItsOwnAndASuccessForgetsThePair() {
+        String name = newAccount();
+        for (int i = 0; i < 5; i++) {
+            accounts.matches(name, "wrong", ATTACKER);
+        }
+        assertThat(accounts.matches(name, PASSWORD, ATTACKER)).isFalse();
+
+        expirePairLock(name, ATTACKER);
+
+        assertThat(accounts.matches(name, PASSWORD, ATTACKER)).isTrue();
+        assertThat(failures.findByUsernameAndClientAddress(name, ATTACKER))
+                .as("a success forgets the pair rather than zeroing it").isEmpty();
         assertThat(reload(name).getFailedLoginCount()).isZero();
     }
 
     @Test
-    void theLockEndsOnItsOwnAndASuccessResetsTheCount() {
+    void enoughFailuresAcrossEnoughAddressesStillLockTheAccountItself() {
+        // The backstop. Without it the per-address lock would be a way to
+        // guess for ever by rotating addresses, which is cheap with IPv6.
+        // Ten here (see the properties above); fifty by default.
         String name = newAccount();
-        for (int i = 0; i < 5; i++) {
-            accounts.matches(name, "wrong");
+        for (int a = 0; a < 2; a++) {
+            for (int i = 0; i < 5; i++) {
+                assertThat(accounts.matches(name, "wrong", "10.1.1." + a)).isFalse();
+            }
         }
-        UserEntity locked = reload(name);
-        locked.setLockedUntil(Instant.now().minusSeconds(1));   // 15 minutes later
-        users.save(locked);
 
-        assertThat(accounts.matches(name, PASSWORD)).isTrue();
-        assertThat(reload(name).getLockedUntil()).isNull();
-        assertThat(reload(name).getFailedLoginCount()).isZero();
+        assertThat(reload(name).getLockedUntil())
+                .as("ten failures in total, whatever addresses they came from")
+                .isAfter(Instant.now().plusSeconds(14 * 60));
+        assertThat(accounts.matches(name, PASSWORD, "10.9.9.9"))
+                .as("and now even an address with no failures of its own is refused")
+                .isFalse();
     }
 
     @Test
@@ -151,11 +208,11 @@ class AuthenticationPersistenceLiveTests {
     }
 
     @Test
-    void parallelWrongPasswordsAreAllCounted() throws Exception {
+    void parallelWrongPasswordsAreAllCountedAtBothScopes() throws Exception {
         String name = newAccount();
         List<Callable<Boolean>> attempts = new ArrayList<>();
         for (int i = 0; i < 4; i++) {
-            attempts.add(() -> accounts.matches(name, "wrong"));
+            attempts.add(() -> accounts.matches(name, "wrong", ATTACKER));
         }
         ExecutorService pool = Executors.newFixedThreadPool(4);
         try {
@@ -166,6 +223,10 @@ class AuthenticationPersistenceLiveTests {
             pool.shutdownNow();
         }
         assertThat(reload(name).getFailedLoginCount()).isEqualTo(4);
+        // Four simultaneous first-failures for one pair: the upsert has to
+        // insert once and increment three times, not race four inserts into
+        // the UNIQUE constraint or lose an increment.
+        assertThat(pair(name, ATTACKER).getFailedCount()).isEqualTo(4);
     }
 
     /* ------------------------ refresh tokens -------------------------- */
