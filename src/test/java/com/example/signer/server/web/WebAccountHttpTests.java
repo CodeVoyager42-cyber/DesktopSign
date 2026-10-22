@@ -510,8 +510,10 @@ class WebAccountHttpTests {
 
         assertThat(csrf.headers().firstValue("Referrer-Policy")).contains("no-referrer");
         assertThat(csrf.headers().firstValue("Content-Security-Policy"))
-                .contains("default-src 'none'; style-src 'unsafe-inline';"
-                        + " form-action 'none'; base-uri 'none'; frame-ancestors 'none'");
+                .contains("default-src 'none'; script-src 'self';"
+                        + " style-src 'self' 'unsafe-inline'; img-src 'self';"
+                        + " font-src 'self'; connect-src 'self'; form-action 'self';"
+                        + " base-uri 'none'; frame-ancestors 'none'");
         assertThat(csrf.headers().firstValue("X-Content-Type-Options")).contains("nosniff");
         assertThat(csrf.headers().firstValue("X-Frame-Options")).contains("DENY");
     }

@@ -579,6 +579,43 @@ very path, on a JSON route, and on an unauthenticated 401 (which answers from
 bypassed the header writer). The rendered page is covered separately, without
 HTTP, by `SignPageRendererTests`.
 
+## 7b. Serving the website — same origin, decided
+
+The frontend is served by **this application, from its own origin**. That is a
+security decision before it is a deployment one, and the reason is the cookie:
+it is named with the `__Host-` prefix and sent `Secure` with `SameSite=Lax`
+(Phase C), and that combination only works when the pages using it come from
+the same host. A frontend on a second origin — a separate dev server, a CDN,
+another hostname — would have forced `SameSite=None`, dropped the `__Host-`
+prefix, and required CORS with credentials: three weakenings of a posture
+that is already built and tested, in exchange for nothing the deployment
+needs.
+
+So **there is no CORS configuration in this application**, and that is the
+decision rather than an omission. A test sends an `Origin` header and asserts
+no `Access-Control-*` header comes back, which is where that change would
+have to announce itself.
+
+| | |
+|---|---|
+| Static files | `src/main/resources/static`, served by Spring Boot's own resource handling. Built assets belong in `static/assets/`. |
+| **Routes are listed, not wildcarded** | `/`, `/index.html`, `/favicon.ico`, `/assets/**` and the two e-mail pages are named individually in `SecurityConfig.PUBLIC`. Both chains end in `denyAll()`, so a path that answers at all is one somebody listed — and `FrontendServingHttpTests` is the record of which. |
+| **No catch-all SPA fallback** | `FrontendRoutingConfiguration` forwards `/verify-email` and `/reset-password` to the entry point by name. A `/**` forward is the usual shortcut and a trap: it answers every mistyped API path with HTML and a 200, which a client cannot tell from success. A new page costs a line here, and 404s stay honest. |
+| The two e-mail links finally lead somewhere | They have always carried these URLs and nothing served them (§9 said so). There is a placeholder page now; what it says is that the link is valid and the page to use it does not exist yet. |
+| **The token stays in the address bar** | The page does not echo it into its own HTML — that would put it in the DOM for any injected script and into anything that caches the document. `Referrer-Policy: no-referrer` (§7a) stops it leaving in a `Referer`, which is what makes a token in a query string tolerable at all. |
+
+**The policy widened for this, deliberately and minimally** (§7a): every
+relaxation from `default-src 'none'` is `'self'`, so the website's own scripts
+and styles load and **nothing external can** — no CDN, no font service, no
+analytics. There is no `'unsafe-inline'` for script and there must never be
+one: an injected `<script>` tag, the ordinary shape of cross-site scripting,
+still does not run.
+
+**What this does not settle.** D9 — the `__Host-` prefix and `Secure` have
+still never been exercised by a real browser, and cannot be over plain HTTP on
+localhost, which is why the `dev` profile still overrides `secure-cookie` to
+false. Serving the pages is the prerequisite for testing that, not the test.
+
 ## 8. Database — V10 to V13
 
 `V10__account_tokens.sql` creates **two new tables and nothing else**. No
@@ -788,8 +825,11 @@ while running several instances would believe it had limits it does not have.
 
 The links in the e-mails are built from `InvitationLinkResolver.baseUrl()`,
 the same base the invitation links already use, as
-`<base>/verify-email?token=…` and `<base>/reset-password?token=…`. **Those two
-pages do not exist yet** (D2).
+`<base>/verify-email?token=…` and `<base>/reset-password?token=…`. Both paths
+are now **served** by this application (§7b) — they answer with the website's
+entry point instead of leading nowhere. What they answer with is still a
+placeholder: the page that would ask for a new password is D2's work, and the
+endpoint behind it has been there and tested since this phase began.
 
 ## 10. Test results
 
@@ -797,14 +837,14 @@ Full suite on **JDK 21.0.12.1 LTS** (the version the build targets) with a real
 PostgreSQL 16.15.
 
 ```
-Tests run: 696, Failures: 0, Errors: 0, Skipped: 8
-BUILD SUCCESS — 6 min 0 s
+Tests run: 706, Failures: 0, Errors: 0, Skipped: 8
+BUILD SUCCESS — 6 min 5 s
 ```
 
 | | After Phase C | After Phase D1 |
 |---|---|---|
-| Found | 532 | **696** (+164) |
-| Passed | 524 | **688** |
+| Found | 532 | **706** (+174) |
+| Passed | 524 | **698** |
 | Failed | 0 | **0** |
 | Errors | 0 | **0** |
 | Skipped | 8 | **8** (unchanged) |
@@ -831,6 +871,7 @@ New in this phase:
 | `DbUserAccountsTests` | +4 | the rule itself without a database: a token from before the change rejected and one from after it allowed, **a token from the change's own second allowed** (the documented trade-off, pinned down so it cannot drift by accident), a null column invalidating nothing, and an unknown account or absent `iat` answering false |
 | `LoginLockoutPerAddressLiveTests` | 5 | Phase 2 risk **L3** from the request down, which is the part neither the mocked nor the service-level tests can show: that the desktop API locks **the address the request came from** and not the account, so the holder still signs in; that the website and the API count against **one** pair rather than five attempts each; that a forwarded header **cannot choose the lockout key** (five different `X-Forwarded-For` values, one real address, one row); that the sweep forgets an idle pair without touching the account; and that deleting an account takes its failure rows with it |
 | `LoginFailureMigrationLiveTests` | 5 | V13 on a fresh database, the exact seven columns (**nothing for the password, the typed identifier or a user agent**) with a nullable `locked_until` and the 64-character address bound, the UNIQUE pair that forces the upsert (and that a second address for the same account is a second budget), the cascade from `users` together with the **absence** of an index on the address alone, and that V13 leaves an existing **V12** database — including an account lock that was in force — intact |
+| `FrontendServingHttpTests` | 10 | the same-origin serving of §7b, and in equal measure what it did **not** open: the entry point at `/` and `/index.html`, the two e-mail pages answering with it, the reset page **not echoing its token** into the HTML, `no-referrer` and the policy on those pages, the entry point needing nothing the policy forbids — then an unlisted path still refused, **a valid access token not making one readable either** (`denyAll()` denies whoever asks, so the 401 an anonymous caller gets is not an invitation to sign in and try again), the API still answering JSON 401 rather than the HTML page a catch-all forward would have returned, a missing asset being a 404 and not HTML, and **no `Access-Control-*` header** coming back for a foreign `Origin` |
 | `SecurityHeadersHttpTests` | 5 | the headers of §7a against a real server: the invitation path sends `no-referrer` and the policy (risk L9), so does a JSON route, and so does an unauthenticated **401** — which answers from `JsonSecurityErrors` rather than a controller, so it is worth proving it has not bypassed the header writer; that the policy permits **no script and no eval**; and that Spring Security's own defaults (`nosniff`, `DENY`, `no-store`) are still in force |
 | `SignPageRendererTests` | +1 | that neither page variant carries script, an event handler, an image or an external stylesheet — which is what lets the policy be as strict as it is, and what fails if someone adds one |
 | `WebAccountHttpTests` | +1 | the **website** chain sending the same two headers, because it is a second `headers()` call and two chains quietly disagreeing about a security header is the failure that would otherwise go unnoticed |
@@ -911,8 +952,11 @@ before and after instead of counting history rows.
 
 ## 12. What was deliberately not done
 
-- **No frontend** — D2. The two pages the e-mails link to do not exist yet,
-  so both links currently lead nowhere.
+- **No frontend** — D2. The application now *serves* one from its own origin
+  (§7b), the two e-mail links resolve, and the policy and routes are in place
+  — but what they resolve to is a placeholder. No sign-up form, no sign-in
+  form, no reset form: every endpoint behind them exists and is tested over
+  HTTP, and nothing yet asks a person for anything.
 - No change-of-address flow: an account's e-mail cannot be changed at all.
   The verification token already carries the address it was sent to, so the
   flow has somewhere to build from.

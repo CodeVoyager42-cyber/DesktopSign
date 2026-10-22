@@ -22,35 +22,37 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
  *
  * <h2>Content-Security-Policy — risk C7, carried into D1 as D10</h2>
  *
- * <p>{@code default-src 'none'} and no relaxation for script, which is the
- * part that matters: the server-rendered pages contain no script at all, so
- * <b>none is permitted</b>, and injected script would not run even if some
- * escaping were wrong.
+ * <p>{@code default-src 'none'} is the base, and every relaxation from it is
+ * {@code 'self'} — which is exactly the right scope now that the website is
+ * served from this application's own origin (D2). <b>Nothing external can be
+ * loaded at all:</b> no CDN, no font service, no analytics, no image host.
+ * That is a decision the same-origin choice makes cheap to keep, and it is
+ * the directive to revisit if someone wants a hosted font.
  *
- * <p>{@code style-src 'unsafe-inline'} is the one concession, and it is
- * honest rather than ideal. {@code SignPageRenderer} puts its stylesheet in
- * an inline {@code <style>} block and uses two inline {@code style=}
- * attributes, and a nonce does not cover style attributes — only
- * {@code 'unsafe-inline'} does. What it permits is injected CSS, so the worst
- * case is the page being made to look wrong, not code running. If a script
- * ever belongs on one of these pages, this is the directive to revisit, with
- * a nonce.
+ * <p><b>There is no {@code 'unsafe-inline'} for script, and there must never
+ * be one.</b> {@code script-src 'self'} permits files this server serves and
+ * nothing else, so an injected {@code <script>} tag — the ordinary shape of
+ * cross-site scripting — does not run even if some escaping is wrong
+ * somewhere. The server-rendered invitation pages contain no script of their
+ * own at all, and {@code SignPageRendererTests} holds them to that.
  *
- * <p>{@code form-action 'none'} and {@code base-uri 'none'} because these
- * pages have neither a form nor a {@code <base>}; {@code frame-ancestors
- * 'none'} so they cannot be framed, which also covers the browsers that
- * prefer it to {@code X-Frame-Options}.
+ * <p>{@code style-src} keeps {@code 'unsafe-inline'} beside {@code 'self'},
+ * and that is the one real concession here. {@code SignPageRenderer} puts its
+ * stylesheet in an inline {@code <style>} block and uses two inline
+ * {@code style=} attributes, and a nonce does not cover style attributes —
+ * only {@code 'unsafe-inline'} does. What it permits is injected CSS, so the
+ * worst case is a page made to look wrong rather than code running.
  *
- * <p>The same policy goes on the JSON APIs, where it is stricter still
- * because a JSON response has no styles to apply. One policy for both chains
- * is deliberate: two would drift, and the one that drifted would be the one
- * nobody was looking at.
+ * <p>{@code form-action 'self'} because a form may post back here and must
+ * not be redirected anywhere else; {@code base-uri 'none'} because no page
+ * has a {@code <base>} and injecting one would re-point every relative URL;
+ * {@code frame-ancestors 'none'} so nothing can be framed, which also covers
+ * the browsers that prefer it to {@code X-Frame-Options}.
  *
- * <p><b>D2 will have to widen this.</b> A real frontend needs at least
- * {@code script-src 'self'}, {@code style-src 'self'}, {@code img-src 'self'}
- * and {@code connect-src 'self'}. Starting strict and relaxing deliberately
- * is the right direction to approach that from; starting permissive and
- * hoping to tighten later is how a CSP ends up meaning nothing.
+ * <p>The same policy goes on the JSON APIs, where it is stricter than it
+ * needs to be because a JSON response has nothing to load. One policy for
+ * both chains is deliberate: two would drift, and the one that drifted would
+ * be the one nobody was looking at.
  *
  * <h2>What Spring Security already sends</h2>
  *
@@ -70,8 +72,9 @@ final class SecurityHeaders {
      * someone made on purpose.
      */
     static final String CONTENT_SECURITY_POLICY =
-            "default-src 'none'; style-src 'unsafe-inline'; form-action 'none';"
-                    + " base-uri 'none'; frame-ancestors 'none'";
+            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';"
+                    + " img-src 'self'; font-src 'self'; connect-src 'self';"
+                    + " form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 
     private SecurityHeaders() {
     }
