@@ -64,6 +64,9 @@ class NeverVerifiedAccountSweepLiveTests {
     private UserRepository users;
 
     @Autowired
+    private com.example.signer.server.db.repository.LoginFailureRepository loginFailures;
+
+    @Autowired
     private DbUserAccounts accounts;
 
     @Autowired
@@ -293,7 +296,8 @@ class NeverVerifiedAccountSweepLiveTests {
         String username = unverifiedSignUp();
         age(username, Duration.ofDays(400));
 
-        new DbUserAccounts(users, DbUserAccounts.DEFAULT_MAX_FAILURES,
+        new DbUserAccounts(users, loginFailures, DbUserAccounts.DEFAULT_MAX_FAILURES,
+                DbUserAccounts.DEFAULT_ACCOUNT_MAX_FAILURES,
                 DbUserAccounts.DEFAULT_LOCK.toMinutes(), Duration.ZERO)
                 .deleteNeverVerifiedAccounts();
 

@@ -40,7 +40,8 @@ class RefreshAccountStatusTests {
     @Test
     void aRemovedAccountCannotRefreshItsSession() {
         ResponseEntity<TokenPairResponse> login =
-                auth.login(new LoginRequest("charlie", "charlie-pass"));
+                auth.login(new LoginRequest("charlie", "charlie-pass"),
+                        new MockHttpServletRequest());
         assertThat(login.getStatusCode().value()).isEqualTo(200);
         String refresh = login.getBody().refreshToken();
 

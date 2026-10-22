@@ -17,6 +17,34 @@ public interface UserAccountService {
     boolean matches(String username, String password);
 
     /**
+     * Whether the credentials are valid, told <b>which client address</b>
+     * they arrived from (security Phase 2 risk L3).
+     *
+     * <p>The address is part of the decision, not bookkeeping. Lockout used
+     * to live on the account alone, so five wrong passwords from anywhere
+     * locked the account for everyone — the holder included — and usernames
+     * are predictable enough that keeping someone locked out cost five
+     * requests every fifteen minutes. The count that locks is now per
+     * (account, address) pair, with the account-wide one kept as a backstop
+     * at a much higher threshold, so an attacker locks out their own address
+     * and the holder arriving from theirs is unaffected.
+     *
+     * <p>Callers pass what the servlet container reports as the remote
+     * address — the same value the per-address rate limit counts, and never a
+     * forwarded header, which any client can send. {@code null} means no
+     * address is known (a caller that is not a request), and is treated as
+     * one shared pair rather than as no pair at all: an unidentified caller
+     * must not get the looser of the two limits.
+     *
+     * <p>The default ignores it and answers {@link #matches(String, String)},
+     * which is right for file-mode accounts — they have no lockout at all
+     * (risk L8), so there is nothing for an address to scope.
+     */
+    default boolean matches(String username, String password, String clientAddress) {
+        return matches(username, password);
+    }
+
+    /**
      * The canonical ACCOUNT id behind a login identifier. A user may sign in
      * with an email or a username, but the authenticated identity — the JWT
      * subject and every workflow lookup — is the account id, never the typed

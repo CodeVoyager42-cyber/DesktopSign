@@ -32,6 +32,7 @@ import com.example.signer.workflow.WorkflowSigningService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -327,7 +328,8 @@ class PostgresConcurrencyLiveTests {
                 BCrypt.hashpw("password-123", BCrypt.gensalt(4)), "To Disable", AccountStatus.ACTIVE));
 
         ResponseEntity<TokenPairResponse> login =
-                auth.login(new LoginRequest(username, "password-123"));
+                auth.login(new LoginRequest(username, "password-123"),
+                        new MockHttpServletRequest());
         assertThat(login.getStatusCode().value()).isEqualTo(200);
         String refresh = login.getBody().refreshToken();
 
@@ -337,7 +339,8 @@ class PostgresConcurrencyLiveTests {
 
         assertThat(auth.refresh(new AuthController.RefreshRequest(refresh))
                 .getStatusCode().value()).isEqualTo(401);
-        assertThat(auth.login(new LoginRequest(username, "password-123"))
+        assertThat(auth.login(new LoginRequest(username, "password-123"),
+                new MockHttpServletRequest())
                 .getStatusCode().value()).isEqualTo(401);
     }
 
