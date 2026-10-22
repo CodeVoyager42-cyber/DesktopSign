@@ -304,6 +304,48 @@ public class DbUserAccounts implements UserAccountService {
     }
 
     /**
+     * Security Phase 2 risk L3, the operator unlock: clears the account-wide
+     * lock and every address's lock and count for this account.
+     *
+     * <p>Logged at WARN whenever it clears something, with the username and
+     * the counts but never an address. An administrative action that removes
+     * a security control should be visible in the log it leaves behind — this
+     * table is the only record of it, because {@code audit_events} is
+     * workflow-scoped and has nowhere to put an account-level action.
+     *
+     * <p>Idempotent, and safe on an account that is not locked: it reports
+     * that it cleared nothing. An unknown account is reported as unknown
+     * rather than as a successful no-op, so a mistyped name is obvious.
+     */
+    @Override
+    @Transactional
+    public UnlockResult unlock(String username) {
+        if (username == null || username.isBlank()) {
+            return UnlockResult.nothing(false);
+        }
+        String id = username.trim();
+        UserEntity user = users.findByUsername(id).orElse(null);
+        if (user == null) {
+            // Still not a reason to touch login_failures: the rows reference
+            // users, so there cannot be any for an account that is not there.
+            return UnlockResult.nothing(false);
+        }
+        Instant lockedUntilBefore = user.getLockedUntil();
+        boolean accountWasHeld = lockedUntilBefore != null || user.getFailedLoginCount() != 0;
+        user.clearLockout();
+        int forgotten = loginFailures.forgetAll(id);
+        UnlockResult result = new UnlockResult(true, accountWasHeld, lockedUntilBefore,
+                forgotten);
+        if (result.clearedAnything()) {
+            log.warn("Unlocked account '{}': account lock {}, {} address lock(s) forgotten",
+                    id, accountWasHeld
+                            ? "cleared (would have held until " + lockedUntilBefore + ")"
+                            : "was not set", forgotten);
+        }
+        return result;
+    }
+
+    /**
      * Hourly: forgets pair rows idle for more than {@link #FAILURE_RETENTION}.
      * A pair is otherwise cleared only by a successful sign-in from that
      * address, so an attacker who tries once and never returns would keep a
