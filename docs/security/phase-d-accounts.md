@@ -601,7 +601,13 @@ have to announce itself.
 | Static files | `src/main/resources/static`, served by Spring Boot's own resource handling. Built assets belong in `static/assets/`. |
 | **Routes are listed, not wildcarded** | `/`, `/index.html`, `/favicon.ico`, `/assets/**` and the two e-mail pages are named individually in `SecurityConfig.PUBLIC`. Both chains end in `denyAll()`, so a path that answers at all is one somebody listed — and `FrontendServingHttpTests` is the record of which. |
 | **No catch-all SPA fallback** | `FrontendRoutingConfiguration` forwards `/verify-email` and `/reset-password` to the entry point by name. A `/**` forward is the usual shortcut and a trap: it answers every mistyped API path with HTML and a 200, which a client cannot tell from success. A new page costs a line here, and 404s stay honest. |
-| The two e-mail links finally lead somewhere | They have always carried these URLs and nothing served them (§9 said so). There is a placeholder page now; what it says is that the link is valid and the page to use it does not exist yet. |
+| The two e-mail links finally lead somewhere | They have always carried these URLs and nothing served them (§9 said so). Both now open the page that uses them. |
+| **The website itself** | `static/index.html` plus `assets/app.js`, `assets/api.js` and `assets/app.css`: sign up, confirm an address, sign in, ask for a reset link, set a new password from one, change a password, resend a confirmation, sign out. That is the whole account API and nothing more — there are no workflow routes under `/web/api` to call yet (Phase E). |
+| **Plain ES modules, no build step** | No Node toolchain, no `node_modules`, nothing to install before the server can serve its own website. A module from `/assets` is what `script-src 'self'` permits, and the same reasoning that kept Redis out of the rate limits (§12) applies here: a second piece of required tooling for this much is a poor trade. A bundler can replace this later without the server noticing. |
+| **No inline script, and no inline handler** | Every listener is `addEventListener`; the document's only script is `<script type="module" src="/assets/app.js">`. That is what lets the policy keep `script-src 'self'` with no `'unsafe-inline'`, and a test asserts it rather than leaving it to a browser console. |
+| Nothing is kept in web storage | The session cookie is `HttpOnly` and `__Host-` prefixed, so the page can neither read nor set it — there is no credential for it to stash. The CSRF token is read fresh from its cookie for each request rather than cached, because the server rotates it at sign-in. Asserted. |
+| **Text through `textContent`, never `innerHTML`** | Everything shown can contain a server message or something a person typed. The policy stopping an injected `<script>` from running is not a reason to hand one to the parser. |
+| The silences are kept | Sign-up, resend and reset-request all answer 202 whether or not anything happened, because reporting the difference would say who has an account. The pages say *"if that address…"* accordingly, and one wrong-password message covers a wrong password, an unknown account and a locked one — the UI does not improvise a more helpful wording than the server was willing to give. |
 | **The token stays in the address bar** | The page does not echo it into its own HTML — that would put it in the DOM for any injected script and into anything that caches the document. `Referrer-Policy: no-referrer` (§7a) stops it leaving in a `Referer`, which is what makes a token in a query string tolerable at all. |
 
 **The policy widened for this, deliberately and minimally** (§7a): every
@@ -837,14 +843,14 @@ Full suite on **JDK 21.0.12.1 LTS** (the version the build targets) with a real
 PostgreSQL 16.15.
 
 ```
-Tests run: 706, Failures: 0, Errors: 0, Skipped: 8
-BUILD SUCCESS — 6 min 5 s
+Tests run: 709, Failures: 0, Errors: 0, Skipped: 8
+BUILD SUCCESS — 5 min 59 s
 ```
 
 | | After Phase C | After Phase D1 |
 |---|---|---|
-| Found | 532 | **706** (+174) |
-| Passed | 524 | **698** |
+| Found | 532 | **709** (+177) |
+| Passed | 524 | **701** |
 | Failed | 0 | **0** |
 | Errors | 0 | **0** |
 | Skipped | 8 | **8** (unchanged) |
@@ -871,7 +877,7 @@ New in this phase:
 | `DbUserAccountsTests` | +4 | the rule itself without a database: a token from before the change rejected and one from after it allowed, **a token from the change's own second allowed** (the documented trade-off, pinned down so it cannot drift by accident), a null column invalidating nothing, and an unknown account or absent `iat` answering false |
 | `LoginLockoutPerAddressLiveTests` | 5 | Phase 2 risk **L3** from the request down, which is the part neither the mocked nor the service-level tests can show: that the desktop API locks **the address the request came from** and not the account, so the holder still signs in; that the website and the API count against **one** pair rather than five attempts each; that a forwarded header **cannot choose the lockout key** (five different `X-Forwarded-For` values, one real address, one row); that the sweep forgets an idle pair without touching the account; and that deleting an account takes its failure rows with it |
 | `LoginFailureMigrationLiveTests` | 5 | V13 on a fresh database, the exact seven columns (**nothing for the password, the typed identifier or a user agent**) with a nullable `locked_until` and the 64-character address bound, the UNIQUE pair that forces the upsert (and that a second address for the same account is a second budget), the cascade from `users` together with the **absence** of an index on the address alone, and that V13 leaves an existing **V12** database — including an account lock that was in force — intact |
-| `FrontendServingHttpTests` | 10 | the same-origin serving of §7b, and in equal measure what it did **not** open: the entry point at `/` and `/index.html`, the two e-mail pages answering with it, the reset page **not echoing its token** into the HTML, `no-referrer` and the policy on those pages, the entry point needing nothing the policy forbids — then an unlisted path still refused, **a valid access token not making one readable either** (`denyAll()` denies whoever asks, so the 401 an anonymous caller gets is not an invitation to sign in and try again), the API still answering JSON 401 rather than the HTML page a catch-all forward would have returned, a missing asset being a 404 and not HTML, and **no `Access-Control-*` header** coming back for a foreign `Origin` |
+| `FrontendServingHttpTests` | 13 | the same-origin serving of §7b, and in equal measure what it did **not** open: the entry point at `/` and `/index.html`, the two e-mail pages and the website's own three answering with it, the reset page **not echoing its token** into the HTML, `no-referrer` and the policy on those pages, the entry point loading its code as **files and not inline** (an inline block would be blocked in a browser and nowhere else), the script and stylesheet served with types a browser will accept (a module served as `text/plain` is refused outright), the script talking to **this origin only** and keeping nothing in web storage — then an unlisted path still refused, **a valid access token not making one readable either** (`denyAll()` denies whoever asks, so the 401 an anonymous caller gets is not an invitation to sign in and try again), the API still answering JSON 401 rather than the HTML page a catch-all forward would have returned, a missing asset being a 404 and not HTML, and **no `Access-Control-*` header** coming back for a foreign `Origin` |
 | `SecurityHeadersHttpTests` | 5 | the headers of §7a against a real server: the invitation path sends `no-referrer` and the policy (risk L9), so does a JSON route, and so does an unauthenticated **401** — which answers from `JsonSecurityErrors` rather than a controller, so it is worth proving it has not bypassed the header writer; that the policy permits **no script and no eval**; and that Spring Security's own defaults (`nosniff`, `DENY`, `no-store`) are still in force |
 | `SignPageRendererTests` | +1 | that neither page variant carries script, an event handler, an image or an external stylesheet — which is what lets the policy be as strict as it is, and what fails if someone adds one |
 | `WebAccountHttpTests` | +1 | the **website** chain sending the same two headers, because it is a second `headers()` call and two chains quietly disagreeing about a security header is the failure that would otherwise go unnoticed |
@@ -952,11 +958,15 @@ before and after instead of counting history rows.
 
 ## 12. What was deliberately not done
 
-- **No frontend** — D2. The application now *serves* one from its own origin
-  (§7b), the two e-mail links resolve, and the policy and routes are in place
-  — but what they resolve to is a placeholder. No sign-up form, no sign-in
-  form, no reset form: every endpoint behind them exists and is tested over
-  HTTP, and nothing yet asks a person for anything.
+- **The account website exists** — D2, in part. Sign-up, confirmation,
+  sign-in, reset request, reset confirmation, password change and sign-out all
+  have pages now (§7b), served same-origin with no build step. **What is still
+  missing is everything else:** no CAPTCHA on sign-up (the last of D1), no
+  workflow pages at all because there are no workflow routes under `/web/api`
+  to call (Phase E), and **nobody has opened any of this in a real browser** —
+  which is D9, and the reason the `dev` profile still overrides
+  `secure-cookie` to false. The tests here assert what the server sends, not
+  what a browser does with it.
 - No change-of-address flow: an account's e-mail cannot be changed at all.
   The verification token already carries the address it was sent to, so the
   flow has somewhere to build from.

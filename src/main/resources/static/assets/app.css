@@ -1,0 +1,131 @@
+/* The website's only stylesheet. Served from this origin, which is what
+   style-src 'self' in the Content-Security-Policy permits. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --ink: #1a1d21;
+  --muted: #5c636b;
+  --line: #dcdfe4;
+  --accent: #1f5fd0;
+  --bad: #a3242a;
+  --good: #1f6b3a;
+  --warn-bg: #fff6e5;
+  --warn-line: #e8c477;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181c;
+    --card: #1d2024;
+    --ink: #e6e8eb;
+    --muted: #9aa1a9;
+    --line: #2d3137;
+    --accent: #7aa7f0;
+    --bad: #f08a8f;
+    --good: #7fd6a0;
+    --warn-bg: #2a2317;
+    --warn-line: #5c4a24;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+header {
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+}
+
+#nav {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: .9rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.brand { font-weight: 600; letter-spacing: -.01em; }
+.who { color: var(--muted); font-size: .9rem; }
+
+main {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 2rem 1rem 4rem;
+}
+
+h1 { font-size: 1.4rem; margin: 0 0 .5rem; letter-spacing: -.02em; }
+h2 { font-size: 1.05rem; margin: 2rem 0 .5rem; }
+p { margin: 0 0 1rem; }
+
+.muted { color: var(--muted); }
+.good { color: var(--good); }
+
+.field { display: grid; gap: .35rem; margin: 0 0 1rem; }
+
+label { font-size: .9rem; color: var(--muted); }
+
+input {
+  font: inherit;
+  padding: .6rem .7rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: inherit;
+  width: 100%;
+}
+
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+button {
+  font: inherit;
+  font-weight: 500;
+  padding: .6rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) { filter: brightness(1.08); }
+button:disabled { opacity: .55; cursor: default; }
+
+button.quiet {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--line);
+  padding: .4rem .8rem;
+}
+
+.note { min-height: 1.6em; margin: 0 0 1rem; font-size: .92rem; color: var(--muted); }
+.note.bad { color: var(--bad); }
+.note.good { color: var(--good); }
+
+.warn {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
+  border-radius: 8px;
+  padding: 1rem 1rem .25rem;
+  margin: 0 0 1rem;
+}
+
+.warn p { margin-bottom: .75rem; }
+.warn button { margin-bottom: 1rem; }
+
+.links { font-size: .92rem; display: flex; align-items: center; gap: .4rem; }
+.links a, a { color: var(--accent); }
