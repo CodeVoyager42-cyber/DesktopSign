@@ -114,6 +114,9 @@ public class SecurityConfig {
             LoginRateLimitFilter loginRateLimitFilter)
             throws Exception {
         http
+            // Risk L9 (and C7/D10): no Referer carrying a one-time token out
+            // of an invitation page, and a policy that permits no script.
+            .headers(SecurityHeaders::apply)
             .csrf(AbstractHttpConfigurer::disable)
             .httpBasic(AbstractHttpConfigurer::disable)
             .formLogin(AbstractHttpConfigurer::disable)

@@ -500,6 +500,23 @@ class WebAccountHttpTests {
     }
 
     @Test
+    void theWebsiteChainSendsTheSameSecurityHeadersAsTheApiOne() throws Exception {
+        // Risks L9 and C7/D10. The website is a SECOND filter chain with its
+        // own headers() call, so nothing the API chain's tests prove covers
+        // it — and two chains quietly disagreeing about a security header is
+        // exactly the failure this asserts against. The policy is restated
+        // here rather than imported: this is its specification.
+        HttpResponse<String> csrf = get("/web/api/csrf", null);
+
+        assertThat(csrf.headers().firstValue("Referrer-Policy")).contains("no-referrer");
+        assertThat(csrf.headers().firstValue("Content-Security-Policy"))
+                .contains("default-src 'none'; style-src 'unsafe-inline';"
+                        + " form-action 'none'; base-uri 'none'; frame-ancestors 'none'");
+        assertThat(csrf.headers().firstValue("X-Content-Type-Options")).contains("nosniff");
+        assertThat(csrf.headers().firstValue("X-Frame-Options")).contains("DENY");
+    }
+
+    @Test
     void aSuccessfulResetAlsoUnlocksAnAccountThatWasLockedOut() throws Exception {
         // Phase 2 risk L3, the self-service half of the unlock. Since the
         // lock became progressive an address can be refused for up to a day,
