@@ -149,7 +149,11 @@ class RateLimitMigrationLiveTests {
                 + " created_at, expires_at) VALUES ('" + "a".repeat(64) + "', 'ada',"
                 + " now(), now() + INTERVAL '30 minutes')");
 
-        flyway(null).migrate();
+        // Target V11, not "latest": the count below is a claim about this
+        // migration's own step, and letting later migrations in would make it
+        // a claim about how many exist — which is what broke it when V12
+        // arrived.
+        flyway("11").migrate();
 
         assertThat(one("SELECT count(*) FROM users WHERE username = 'ada'")).isEqualTo("1");
         assertThat(one("SELECT count(*) FROM password_reset_tokens")).isEqualTo("1");
