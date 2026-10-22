@@ -181,16 +181,25 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
             accessToken = null;
         }
 
-        /** Revokes the server-side refresh session and wipes local secrets. */
+        /**
+         * Revokes the server-side refresh session and wipes local secrets.
+         *
+         * <p>The access token is sent along with the logout, not merely
+         * dropped: the server cannot delete a signed JWT, so it has to be
+         * told which one to refuse for the rest of its life (Phase 2 risk
+         * L4). Both are read out before the fields are cleared, because
+         * wiping them first is what the local half of signing out means.
+         */
         @Override
         public void close() {
             closed = true;
             String token = refreshToken;
+            String access = accessToken;
             refreshToken = null;
             accessToken = null;
             if (token != null) {
                 try {
-                    new WorkflowApiClient(serverBaseUrl, null).authLogout(token);
+                    new WorkflowApiClient(serverBaseUrl, null).authLogout(token, access);
                 } catch (RuntimeException ignored) {
                     // best-effort: local secrets are wiped regardless
                 }
@@ -894,17 +903,24 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
         }
     }
 
-    private void authLogout(String refreshToken) {
+    /**
+     * @param accessToken the access token to be denied server-side, or
+     *        {@code null} when there is none to send — a session whose
+     *        refresh was already refused has nothing left worth denying
+     */
+    private void authLogout(String refreshToken, String accessToken) {
         try {
             String json = mapper.writeValueAsString(new RefreshRequest(refreshToken));
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl + "api/auth/logout"))
                     .timeout(REQUEST_TIMEOUT)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofByteArray(
-                            json.getBytes(StandardCharsets.UTF_8)))
-                    .build();
-            http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+                            json.getBytes(StandardCharsets.UTF_8)));
+            if (accessToken != null && !accessToken.isBlank()) {
+                builder.header("Authorization", "Bearer " + accessToken);
+            }
+            http.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
         } catch (Exception e) {
             log.debug("Logout request failed (local secrets are wiped anyway): {}",
                     e.toString());
