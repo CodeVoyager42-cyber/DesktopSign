@@ -390,8 +390,24 @@ e-mail local part, so keeping a known person locked out of their own account
 cost five requests every fifteen minutes — comfortably under the per-address
 rate limit of twenty a minute. Phase 2 recorded it as **L3** and listed what
 it needed: lock per account *and* address, a progressive delay, an operator
-unlock and a notice to the holder. **Three of those four are done**; telling
-the holder it is happening is still open.
+unlock and a notice to the holder. **All four are now done**, which does not
+mean the risk is closed — see the end of this section and §11.
+
+#### Telling the holder — the notice
+
+When the **account-wide** lock fires, the account's address gets a message:
+your account is locked, it unlocks by itself at this time, if that was your
+own typing you can reset your password instead, and if it was not you then
+someone is guessing — they have not got in, and this message would say your
+password had changed if they had.
+
+| | |
+|---|---|
+| **Only the account-wide lock sends it, never a per-address one** | This is the whole design, and the rest is detail. A pair lock is what an attacker trips — on purpose, cheaply, from every address they have — so notifying on it would have turned the notice into a way to **mail-bomb the holder**, which is a worse denial of service than the lockout L3 is about. The account-wide lock costs 50 failures to reach and resets its count when it fires, so it is already dear to trigger even once. |
+| **Capped anyway** | One per account per 6 hours, through the same `RateLimitStore` as every other limit (§6), in its own bucket so it cannot spend or be spent by the sign-in budget. This is the **opposite** choice from the password-change notice (risk D8), which is deliberately *not* capped — that one needs a successful password change, so only the holder can cause it, and suppressing it would hide the one message that matters most. This one a stranger can cause, so it must be capped. |
+| Verified addresses only | An unverified address has not been shown to belong to the holder, and the sign-up confirmation is the only thing that should ever reach it. |
+| **No link, and no address** | No link for the same reason as the D8 notice: a message saying something is wrong with your account is precisely what a phishing mail imitates. And it does not say where the attempts came from — the server knows, but it is usually a proxy or a shared NAT address, it may belong to an innocent third party, and there is nothing a recipient can do with it. |
+| Best-effort, and last | The lock is already in place when it is sent, so a mail server that throws must not turn a refused sign-in into a server error. A failure is logged as a class name. |
 
 #### Getting back in — the unlock
 
@@ -474,13 +490,14 @@ least 10 addresses instead of 5 from one. With IPv6 that is not expensive,
 and the progressive delay does not change it — a rotating attacker meets a
 fresh escalation on every new address. What the delay does buy is the thing
 that was genuinely unbounded: guessing from one address, indefinitely, five
-attempts at a time. The two parts of L3 still open are an operator unlock
-and telling the holder it is happening. The unlock above does not reduce the
-exposure either — it shortens how long a successful attack hurts, which is
-worth having but is recovery, not prevention. An honest reading is that the
-remaining exposure needs something this phase has not built: a reputation or
-proof-of-work input to the sign-in path, or a CAPTCHA, which belongs with the
-frontend (D2).
+attempts at a time. All four of L3's parts are now
+built, and the exposure is still there: **finishing a list is not closing a
+risk.** The unlock shortens how long a successful attack hurts and the notice
+tells the victim it is happening — both worth having, both recovery rather
+than prevention. What would actually stop it is something this phase has not
+built: a reputation or proof-of-work input to the sign-in path, or a CAPTCHA,
+which belongs with the frontend (D2). L3 stays open at Low for that reason,
+with its four parts marked done.
 
 **And it stores an address beside an account**, which nothing here did
 before: `rate_limit_hits` holds addresses but is not account-linked, and the
@@ -737,14 +754,14 @@ Full suite on **JDK 21.0.12.1 LTS** (the version the build targets) with a real
 PostgreSQL 16.15.
 
 ```
-Tests run: 680, Failures: 0, Errors: 0, Skipped: 8
-BUILD SUCCESS — 6 min 21 s
+Tests run: 689, Failures: 0, Errors: 0, Skipped: 8
+BUILD SUCCESS — 6 min 52 s
 ```
 
 | | After Phase C | After Phase D1 |
 |---|---|---|
-| Found | 532 | **680** (+148) |
-| Passed | 524 | **672** |
+| Found | 532 | **689** (+157) |
+| Passed | 524 | **681** |
 | Failed | 0 | **0** |
 | Errors | 0 | **0** |
 | Skipped | 8 | **8** (unchanged) |
@@ -771,6 +788,7 @@ New in this phase:
 | `DbUserAccountsTests` | +4 | the rule itself without a database: a token from before the change rejected and one from after it allowed, **a token from the change's own second allowed** (the documented trade-off, pinned down so it cannot drift by accident), a null column invalidating nothing, and an unknown account or absent `iat` answering false |
 | `LoginLockoutPerAddressLiveTests` | 5 | Phase 2 risk **L3** from the request down, which is the part neither the mocked nor the service-level tests can show: that the desktop API locks **the address the request came from** and not the account, so the holder still signs in; that the website and the API count against **one** pair rather than five attempts each; that a forwarded header **cannot choose the lockout key** (five different `X-Forwarded-For` values, one real address, one row); that the sweep forgets an idle pair without touching the account; and that deleting an account takes its failure rows with it |
 | `LoginFailureMigrationLiveTests` | 5 | V13 on a fresh database, the exact seven columns (**nothing for the password, the typed identifier or a user agent**) with a nullable `locked_until` and the 64-character address bound, the UNIQUE pair that forces the upsert (and that a second address for the same account is a second budget), the cascade from `users` together with the **absence** of an index on the address alone, and that V13 leaves an existing **V12** database — including an account lock that was in force — intact |
+| `AccountLockNoticeTests` | 9 | the notice (§6), with mocks rather than a database because what is being tested is which events send a message: the account-wide lock tells the holder, **a per-address lock tells nobody** however many times it fires (the test that matters — otherwise the notice is a mail-bombing tool), a second account lock inside the window is not a second message, an unverified address is not written to, a mailer that throws leaves a refused sign-in refused rather than a 500, a server with no mailer configured sends nothing, the body carries **no link** and names **no address** while saying when the lock lifts and that the password itself was not given up, and the notice cap spends no other limit's budget |
 | `AccountUnlockLiveTests` | 8 | the operator unlock (§6): both halves of a lockout cleared at once and the account usable from everywhere again, that it **grants nothing** — the wrong password is still wrong afterwards — that an account which is not locked clears nothing and is not an error, that it is idempotent, that an unknown name (and the easy mistake of passing the e-mail address) is reported as unknown rather than as a successful no-op, that a blank name unlocks nothing, that only the named account is unlocked while the same address stays locked out of another, and that a server **without** the option does not carry the runner bean at all |
 | `AccountUnlockRunnerLiveTests` | 3 | the command-line option an operator actually types. The locked-out account is seeded before the context starts, because the runner does its work as the context comes up: the lock and the address lock are gone by the time the tests look, the password is untouched and `password_changed_at` still null (so an unlock invalidates no token), and the bean is present precisely because the option is set |
 | `WebAccountHttpTests` | +2 | the self-service half: a reset **unlocks** an account that was locked out both ways, so the holder is back in without waiting out a 24-hour address lock — and, the distinction that keeps that from being a hole, that merely *requesting* a reset (no token, no secret) clears nothing |
@@ -842,7 +860,7 @@ before and after instead of counting history rows.
 | ~~C6~~ | ~~The per-address limiter is in memory, per instance~~ | **FIXED** | §6, with D3 — the address filter moved onto the same store, so the two were one fix. It is the hottest path of the four, and the one where the shared count matters least on its own (the account lockout already spans instances) and most in combination: an attacker alternating instances no longer gets a fresh per-address budget on each. |
 | ~~C8~~ | ~~Website sessions and desktop refresh tokens are independent on a password change~~ | **FIXED** | §4. |
 | ~~C9~~ | ~~The CSRF bootstrap creates a session for an anonymous visitor~~ | **FIXED** | §7: 5-minute idle timeout before sign-in, promoted at sign-in, plus its own rate-limit bucket. |
-| L3 | **Locking someone out of their own account is still possible, but dearer** | Low (was Medium) | §6. The 5-failure lock is per (account, address) pair, so an attacker locks out their own address and the holder is unaffected, and it is **progressive** — the count survives the lock, so repeat offenders double their way to a 24 h cap instead of getting five fresh attempts every fifteen minutes for ever. The account-wide lock stays as a backstop at 50, because without it rotating addresses would make guessing unbounded. And when it does happen there are two ways back without waiting: a successful password reset unlocks the account by itself, and an operator can clear one with `--signer.unlock-account`. **What remains:** 50 failures from 10 addresses still lock the holder out, and IPv6 makes 10 addresses cheap, so this is a price rise and not a closure — neither the delay nor the unlock helps there, the first because each new address starts its escalation at zero, the second because it is recovery and not prevention. Three of L3's four parts are done; telling the holder it is happening is open, and does not close the rotating case either. That one needs something not built here: a reputation or proof-of-work input to sign-in, or a CAPTCHA with the frontend (D2). It also introduces the one piece of data this phase otherwise avoided: a stored (account, address) pair, swept after a day. |
+| L3 | **Locking someone out of their own account is still possible, but dearer** | Low (was Medium) | §6. The 5-failure lock is per (account, address) pair, so an attacker locks out their own address and the holder is unaffected, and it is **progressive** — the count survives the lock, so repeat offenders double their way to a 24 h cap instead of getting five fresh attempts every fifteen minutes for ever. The account-wide lock stays as a backstop at 50, because without it rotating addresses would make guessing unbounded. And when it does happen there are two ways back without waiting — a successful password reset unlocks the account by itself, and an operator can clear one with `--signer.unlock-account` — while the holder is told it happened, once per 6 hours and only for the account-wide lock, because a notice on the per-address lock would have been a way to mail-bomb them. **What remains:** 50 failures from 10 addresses still lock the holder out, and IPv6 makes 10 addresses cheap, so this is a price rise and not a closure. All four parts Phase 2 listed for L3 are now built, which is not the same as closing it: the delay does not help against a rotating attacker (each address starts its escalation at zero), and the unlock and the notice are recovery rather than prevention. What would stop it is a reputation or proof-of-work input to sign-in, or a CAPTCHA with the frontend (D2) — none of which was on the list. That one needs something not built here: a reputation or proof-of-work input to sign-in, or a CAPTCHA with the frontend (D2). It also introduces the one piece of data this phase otherwise avoided: a stored (account, address) pair, swept after a day. |
 | ~~L4~~ | ~~Signing out ends the refresh token only; the access token keeps working for up to 15 minutes~~ | **FIXED** | §4. The `jti` deny-list Phase 2 prescribed, scoped to the one token presented with the logout so that one device signing out does not sign out the others, and failing **closed** because a revocation check that answers "not revoked" when it does not know is not one. **What remains:** the server can only refuse a token it has been shown, so a client that posts the refresh token alone still leaves its access token alive — the desktop client was changed to send the bearer, and a third-party client would have to do the same; and in file mode the list is per instance, so behind two such servers a logout reaches one of them. Both are visible in the tests rather than papered over. |
 
 ## 12. What was deliberately not done

@@ -115,6 +115,15 @@ public class ConsoleEmailService implements EmailService {
      * mode is refused outside the {@code dev} profile, so this mailbox never
      * exists on a production server.
      */
+    @Override
+    public void sendAccountLocked(String recipientEmail, Instant lockedUntil) {
+        String body = AccountEmailTemplate.lockedOutText(lockedUntil, appName);
+        latestAccountNotices.put(recipientEmail, body);
+        // No secret in this one either.
+        log.info("EMAIL (console mode) to {} — account-lock notice", recipientEmail);
+        print(recipientEmail, AccountEmailTemplate.lockedOutSubject(appName), body);
+    }
+
     public String latestAccountLink(String email) {
         return latestAccountLinks.get(email);
     }
