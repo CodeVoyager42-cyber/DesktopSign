@@ -134,6 +134,50 @@ public interface UserAccountService {
     }
 
     /**
+     * Clears every lockout on an account — the account-wide one and each
+     * address's (security Phase 2 risk L3, the operator unlock).
+     *
+     * <p>The lock is now progressive, so a determined attacker can leave an
+     * address refused for up to a day and the account itself refused for its
+     * lock window. That is the point, but it means there has to be a way back
+     * that does not involve waiting: support unlocks an account with the
+     * {@code --signer.unlock-account} option, and a successful password reset
+     * unlocks it by itself, because the e-mailed token proves the holder's
+     * identity more strongly than a sign-in attempt does.
+     *
+     * <p>Unlocking is not authentication and grants nothing: it only removes
+     * refusals, so the next attempt still has to present the right password.
+     *
+     * <p>File-mode accounts have no lockout at all (risk L8), so the default
+     * reports that there was nothing to do.
+     */
+    default UnlockResult unlock(String username) {
+        return UnlockResult.nothing(username != null);
+    }
+
+    /**
+     * What an unlock found and cleared. {@code accountKnown} is reported
+     * separately so that an operator who mistypes a username is told so,
+     * rather than being shown a successful-looking no-op.
+     *
+     * @param lockedUntilBefore when the account-wide lock would have expired
+     *                          on its own, for the operator's record; null
+     *                          when it was not locked
+     */
+    record UnlockResult(boolean accountKnown, boolean accountLockCleared,
+                        Instant lockedUntilBefore, int addressLocksForgotten) {
+
+        static UnlockResult nothing(boolean accountKnown) {
+            return new UnlockResult(accountKnown, false, null, 0);
+        }
+
+        /** Whether anything was actually refusing this account. */
+        public boolean clearedAnything() {
+            return accountLockCleared || addressLocksForgotten > 0;
+        }
+    }
+
+    /**
      * The non-secret profile of an account, for the website's {@code /me}
      * (security Phase C). Implementations must never put a password, a hash,
      * a token or any workflow data in it.

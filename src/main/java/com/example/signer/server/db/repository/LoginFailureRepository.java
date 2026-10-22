@@ -76,6 +76,27 @@ public interface LoginFailureRepository extends JpaRepository<LoginFailureEntity
             + " and f.clientAddress = :address")
     int forget(@Param("username") String username, @Param("address") String clientAddress);
 
+    /**
+     * Forgets every address's failures against this account: the per-address
+     * half of an unlock (security Phase 2 risk L3, the operator unlock), and
+     * of a successful password reset.
+     *
+     * <p>{@code flushAutomatically} matters here and is not boilerplate. Both
+     * callers have just cleared the account-wide lock on the managed
+     * {@code users} row, and the reset path has also set the new password
+     * hash; a bulk query that ran before those were flushed, and cleared the
+     * context after, would discard them. There is deliberately no
+     * {@code clearAutomatically}: neither caller holds a
+     * {@link LoginFailureEntity}, so there is nothing stale to drop, and
+     * clearing the context is the hazard this annotation exists to avoid.
+     *
+     * @return how many address locks and counts were forgotten
+     */
+    @Transactional
+    @Modifying(flushAutomatically = true)
+    @Query("delete from LoginFailureEntity f where f.username = :username")
+    int forgetAll(@Param("username") String username);
+
     @Transactional
     @Modifying(clearAutomatically = true)
     @Query("delete from LoginFailureEntity f where f.lastFailureAt < :cutoff")

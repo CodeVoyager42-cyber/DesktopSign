@@ -10,6 +10,7 @@ import com.example.signer.server.db.entity.EmailVerificationTokenEntity;
 import com.example.signer.server.db.entity.PasswordResetTokenEntity;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.EmailVerificationTokenRepository;
+import com.example.signer.server.db.repository.LoginFailureRepository;
 import com.example.signer.server.db.repository.PasswordResetTokenRepository;
 import com.example.signer.server.db.repository.UserRepository;
 import com.example.signer.server.invites.EmailService;
@@ -86,6 +87,7 @@ public class WebAccountService {
     private static final Logger log = LoggerFactory.getLogger(WebAccountService.class);
 
     private final UserRepository users;
+    private final LoginFailureRepository loginFailures;
     private final EmailVerificationTokenRepository verifications;
     private final PasswordResetTokenRepository resets;
     private final EmailService email;
@@ -99,6 +101,7 @@ public class WebAccountService {
 
     @org.springframework.beans.factory.annotation.Autowired
     public WebAccountService(UserRepository users,
+                             LoginFailureRepository loginFailures,
                              EmailVerificationTokenRepository verifications,
                              PasswordResetTokenRepository resets,
                              EmailService email,
@@ -107,11 +110,12 @@ public class WebAccountService {
                              WebSessionRegistry webSessions,
                              @Value("${signature.remote-server.web.mail-limit:3}") int mailLimit,
                              RateLimitStore rateLimits) {
-        this(users, verifications, resets, email, links, refreshTokens, webSessions,
-                Clock.systemUTC(), mailLimit, rateLimits);
+        this(users, loginFailures, verifications, resets, email, links, refreshTokens,
+                webSessions, Clock.systemUTC(), mailLimit, rateLimits);
     }
 
     WebAccountService(UserRepository users,
+                      LoginFailureRepository loginFailures,
                       EmailVerificationTokenRepository verifications,
                       PasswordResetTokenRepository resets,
                       EmailService email,
@@ -120,11 +124,12 @@ public class WebAccountService {
                       WebSessionRegistry webSessions,
                       Clock clock,
                       int mailLimit) {
-        this(users, verifications, resets, email, links, refreshTokens, webSessions,
-                clock, mailLimit, new InMemoryRateLimitStore(clock));
+        this(users, loginFailures, verifications, resets, email, links, refreshTokens,
+                webSessions, clock, mailLimit, new InMemoryRateLimitStore(clock));
     }
 
     WebAccountService(UserRepository users,
+                      LoginFailureRepository loginFailures,
                       EmailVerificationTokenRepository verifications,
                       PasswordResetTokenRepository resets,
                       EmailService email,
@@ -135,6 +140,7 @@ public class WebAccountService {
                       int mailLimit,
                       RateLimitStore rateLimits) {
         this.users = users;
+        this.loginFailures = loginFailures;
         this.verifications = verifications;
         this.resets = resets;
         this.email = email;
@@ -430,6 +436,21 @@ public class WebAccountService {
         user.changePasswordHash(PasswordHashing.hash(newPassword), now);
         // Any outstanding reset link is now meaningless.
         this.resets.consumeAllForUser(user.getUsername(), now);
+        // And the lockout goes with it (security Phase 2 risk L3). Both paths
+        // here have proved the holder's identity more strongly than a sign-in
+        // attempt does — an e-mailed one-time token, or the current password —
+        // so leaving them refused would be absurd: since the lock became
+        // progressive it can hold an address for up to a day, and the whole
+        // point of a reset is to get back in now. Note that only CONFIRMING a
+        // reset reaches here; merely requesting one, which needs no token and
+        // no secret, clears nothing.
+        user.clearLockout();
+        int forgotten = this.loginFailures.forgetAll(user.getUsername());
+        if (forgotten > 0) {
+            // A count, never an address.
+            log.info("Password change for '{}' also forgot {} address lock(s)",
+                    user.getUsername(), forgotten);
+        }
     }
 
     private void issueVerification(UserEntity account, String address) {
