@@ -120,10 +120,10 @@ logs how many sessions it revoked, not which.
 
 ## 4. Revocation — Phase C risk C8, resolved
 
-| Event | Website sessions | Desktop refresh tokens |
-|---|---|---|
-| Password **reset** (link) | **all** revoked | **all** revoked |
-| Password **change** (signed in) | all **except the caller's own** | **all** revoked |
+| Event | Website sessions | Desktop refresh tokens | Bearer tokens already issued |
+|---|---|---|---|
+| Password **reset** (link) | **all** revoked | **all** revoked | **all** refused (D7) |
+| Password **change** (signed in) | all **except the caller's own** | **all** revoked | **all** refused (D7) |
 
 Sessions are **deleted** from `spring_session`, not flagged, so the cookies
 that referenced them are dead on every server instance immediately. The
@@ -133,6 +133,48 @@ A reset ends every session because whoever asked for it may not be the person
 who had the old password. A change keeps the browser doing the change signed
 in, because signing someone out of the tab they are typing in is pointless
 friction — but every *other* session goes.
+
+### And the bearer tokens, which cannot be deleted — risk D7
+
+A session is a row and a refresh token is a row, so revoking them is a
+delete. An access token is a **signed JWT**: nothing is stored for it, so
+there is nothing to delete, and it kept working for the rest of its life.
+
+`UserAccountService.passwordChangedSince(username, iat)` closes that, and it
+costs nothing extra: `AuthenticatedRequestFilter` already loads the account on
+every request to see whether it can still sign in at all, and
+`password_changed_at` has been written by `UserEntity.changePasswordHash`
+since this phase began — both password paths go through it. **No migration,
+and no new per-request work.**
+
+| | |
+|---|---|
+| **Both token types** | the account access token (15 min) *and* the desktop task session from a launch code (**30 min**). The risk named only the first; stopping there would have left a window twice as long as the one being closed. |
+| Not guest sessions | a guest has no account and no password. Its own invitation state already governs it. |
+| **Not a rehash** | `DbUserAccounts.rehash` upgrades a bcrypt cost on sign-in and deliberately uses `setPasswordHash`, which does *not* stamp the column. Stamping it there would sign an account out of its other sessions every time it signed in. |
+| Nothing retroactive | an account that has never changed its password has a null column and answers `false`, so deploying this signs nobody out. |
+| **Not logout** | Phase 2 risk **L4** is the sibling gap and stays open: signing out ends the refresh token, and the access token keeps working for up to its 15 minutes. This fix cannot close it, because a logout is not a password change and must not pretend to be one — stamping `password_changed_at` on logout would end every *other* device's tokens too, which is not what signing out of one means. Closing L4 needs what Phase 2 said it needs: a short-lived `jti` deny-list. |
+
+**The one trade-off, and it is a real one.** A JWT's `iat` is whole seconds
+while `password_changed_at` is microseconds, so a token issued *300 ms before*
+a change and one issued *300 ms after* it can carry the same `iat`. They
+cannot be told apart, and something has to give:
+
+- compare strictly, and a sign-in in the same second as the change is refused
+  its brand new token — breaking "reset, then sign in again", the very path
+  this exists to serve, with no clean recovery, because the change has
+  revoked the refresh tokens too;
+- compare at the token's own resolution, and a token issued inside the
+  change's own second survives its full life.
+
+The second is chosen: it turns a 15-to-30-minute window into a sub-second
+one, where the first would break the common flow outright. The window that
+remains needs the attacker's token to have been issued in the same second as
+the victim's change, which they cannot arrange.
+
+This is also what the first version of the HTTP tests got wrong — written
+without aligning to a second boundary, they passed or failed on where the
+boundary fell, which is how the trade-off was noticed at all.
 
 ### And the holder is told — risk D8
 
@@ -455,14 +497,14 @@ Full suite on **JDK 21.0.12.1 LTS** (the version the build targets) with a real
 PostgreSQL 16.15.
 
 ```
-Tests run: 614, Failures: 0, Errors: 0, Skipped: 8
-BUILD SUCCESS — 8 min 08 s
+Tests run: 622, Failures: 0, Errors: 0, Skipped: 8
+BUILD SUCCESS — 7 min 11 s
 ```
 
 | | After Phase C | After Phase D1 |
 |---|---|---|
-| Found | 532 | **614** (+82) |
-| Passed | 524 | **606** |
+| Found | 532 | **622** (+90) |
+| Passed | 524 | **614** |
 | Failed | 0 | **0** |
 | Errors | 0 | **0** |
 | Skipped | 8 | **8** (unchanged) |
@@ -485,6 +527,8 @@ New in this phase:
 | `IdentityRateLimiterTests` | 8 | the sliding window itself, against the in-memory store: counting, the `Retry-After` it reports and how it shrinks, the budget returning after the window, identities counted separately and case-insensitively, a blank identity allowed, a meaningless limit refused at construction, and — new — that two limiters sharing one store do not spend each other's budget, and that a nameless limiter or one with no store is refused |
 | `DbRateLimitStoreLiveTests` | 9 | not the window again, but everything the move to the database was *for*: the wiring really resolves to the shared store, a row per counted attempt and none for a refusal, `Retry-After` shrinking, the window sliding and the rows leaving with it, buckets counted separately, **another instance seeing the budget already spent**, **24 concurrent callers admitting exactly the cap and no more**, **a counted attempt surviving the rollback of the caller's transaction**, and the sweep deleting what is long dead while leaving a fresh row |
 | `DbRateLimitStoreFailOpenTests` | 3 | the fail-open decision, needing no PostgreSQL because the point is that there is none: an unreachable database allows the attempt rather than throwing into the filter chain (three times over, so a cached broken connection would show), the sweep survives it too, and a *misconfigured* limit is still refused loudly before any connection is tried |
+| `PasswordChangeEndsTokensHttpTests` | 4 | risk D7 over HTTP, on its own database because it changes seeded passwords: an access token that worked a moment earlier is refused 401 after the change, the account can sign in again **immediately** afterwards and its new token is not caught by the guard, a **task session** from a launch code is refused the same way (the 30-minute half of the risk), and one account's change leaves another's token alone. Each aligns to a second boundary first, and asserts that precondition rather than assuming it |
+| `DbUserAccountsTests` | +4 | the rule itself without a database: a token from before the change rejected and one from after it allowed, **a token from the change's own second allowed** (the documented trade-off, pinned down so it cannot drift by accident), a null column invalidating nothing, and an unknown account or absent `iat` answering false |
 | `RateLimitMigrationLiveTests` | 5 | V11 on a fresh database, the exact three columns (no column for anything secret) with `hit_at` not-null and `timestamptz`, both indexes and why each exists, that the `pg_advisory_xact_lock(hashtext(…)::bigint)` cast the store depends on resolves on this server, and that V11 leaves an existing **V10** database — accounts and tokens — intact |
 | `NeverVerifiedAccountSweepLiveTests` | 10 | one test **per guard** of the account sweep (§8): the abandoned sign-up deleted with its tokens cascading, and a verified account, an invitation identity, a disabled account, one ever signed in to, one inside the retention window, one holding a signer slot, one owning a workflow and one holding a claimed turn all surviving — the last three asserting the sweep **skips** them rather than failing — plus zero retention being a no-op |
 | `AccountTokenMigrationLiveTests` | 5 | V10 on a fresh database, the exact columns (no token column) and the unique hash, the expiry CHECK, cascade from `users`, and that V10 leaves an existing **V9** database — rows and session rows — intact |
@@ -529,7 +573,7 @@ longer rely on getting a fresh application context. It is the same move
 | ~~D4~~ | ~~Only workflow creation is gated on a verified address~~ | **FIXED** | §5. `SigningActionPolicy` + `AuthenticatedRequestFilter` now gate claim, the document download, signatures, certificate binding and launch-code issuing for account tokens, and Phase B's three existing `email_verified_at` reads were routed through `maySign` so there is one rule in one place. Guests are deliberately exempt. **What the original wording got wrong:** the launch-code path was never ungated — `issue`, `exchange` and `taskSessionState` each already read `email_verified_at` directly. The gap was the account-token signing routes, and the duplication that hid it. The document download was gated in a follow-up: it had first been left readable as "looking around", which was the wrong call — it is step one of signing. |
 | ~~D5~~ | ~~Nothing deletes expired tokens~~ | **FIXED** | §8. `WebAccountService.deleteExpiredTokens` sweeps both tables hourly, deleting rows that expired over a day ago, through the `deleteExpiredBefore` queries that had been written and never called. |
 | ~~D6~~ | ~~The sliding window is implemented twice~~ | **FIXED** | §6. Folded into `RateLimitStore` while D3 was being fixed, which is the change that made it safe to do: both callers had to move onto one store anyway, so sharing the algorithm stopped being a behaviour change and became the point. `LoginRateLimitFilter` and `IdentityRateLimiter` are now thin callers, and their existing tests passed unchanged — which is the evidence that the behaviour of the tested one was preserved. |
-| D7 | **A reset does not end desktop *access* tokens, only refresh tokens** | Low | An access JWT already issued stays valid for up to its 15-minute life after a reset. Accepted: the same window Phase 2 accepted for a disabled account on the bearer chain. |
+| ~~D7~~ | ~~A reset does not end desktop *access* tokens, only refresh tokens~~ | **FIXED** | §4. `passwordChangedSince` refuses any bearer token issued before the change, covering the task session (30 min) as well as the access token (15 min). No migration and no new per-request read — the column and the account lookup were both already there. **What the original wording got wrong:** it justified the gap as "the same window Phase 2 accepted for a disabled account", but that window had already been closed in Phase 2 itself — `AuthenticatedRequestFilter` has re-checked the account on every bearer request since the commit that introduced it (`f03fff1`), which is exactly why this fix was nearly free. **What remains:** a sub-second window, reasoned about in §4 — `iat` is whole seconds, so a token issued inside the change's own second cannot be told from one issued just after it, and is allowed to stand rather than break every fresh sign-in. |
 | ~~D8~~ | ~~No notification when a password changes~~ | **FIXED** | §4. Both paths e-mail the holder, with no link in the message, best-effort so a mail failure cannot undo the change. **What remains:** nothing is sent when an address itself changes, because an account's address still cannot change at all (§12); and the notice says *when*, not *from where* — there is no stored client address to tell them, and inventing one would mean logging what visitors' addresses are. |
 | D9 | **`__Host-`/`Secure` on localhost still unverified in real browsers** | Low (dev only) | Phase C risk **C1**, unchanged: this phase still has no frontend and no browser. D2 must resolve it and delete the dev cookie override. |
 | D10 | **No CSP, and still no pages to apply one to** | — | Phase C risk C7, unchanged. D2. |
