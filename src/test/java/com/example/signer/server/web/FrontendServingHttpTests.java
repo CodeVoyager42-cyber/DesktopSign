@@ -108,13 +108,69 @@ class FrontendServingHttpTests {
     }
 
     @Test
-    void theEntryPointItselfNeedsNothingThePolicyForbids() throws Exception {
-        // The placeholder — and whatever replaces it — has to live inside the
-        // policy. Nothing external, and no inline script however convenient.
+    void theEntryPointLoadsItsCodeAsFilesAndNotInline() throws Exception {
+        // The policy is script-src 'self' with no 'unsafe-inline', so every
+        // script on the page has to be a file this server serves. An inline
+        // <script> block would be silently blocked in a browser and nowhere
+        // else, which is exactly the failure a test should catch instead.
         String html = get("/").body();
 
-        assertThat(html).doesNotContain("<script");
-        assertThat(html).doesNotContain("http://").doesNotContain("https://");
+        assertThat(html).contains("<script type=\"module\" src=\"/assets/app.js\"></script>");
+        assertThat(html)
+                .as("no inline script: every script tag is closed immediately after its src")
+                .doesNotContainPattern("(?s)<script(?![^>]*\\bsrc=)[^>]*>\\s*\\S");
+        assertThat(html)
+                .as("and nothing is loaded from another origin")
+                .doesNotContain("http://").doesNotContain("https://");
+        assertThat(html)
+                .as("no inline event handlers either, for the same reason")
+                .doesNotContain("onclick=").doesNotContain("onload=");
+    }
+
+    @Test
+    void theWebsiteOwnPagesAnswerWithTheEntryPointToo() throws Exception {
+        // Each of these is one line in FrontendRoutingConfiguration.PAGES,
+        // which SecurityConfig.PUBLIC reads as well — so a page cannot be
+        // routable but refused, nor permitted and never routed.
+        for (String path : new String[] {"/sign-in", "/sign-up", "/forgot-password"}) {
+            HttpResponse<String> page = get(path);
+
+            assertThat(page.statusCode()).as(path).isEqualTo(200);
+            assertThat(page.body()).as(path).contains("/assets/app.js");
+        }
+    }
+
+    @Test
+    void theScriptAndStylesheetAreServedWithTypesABrowserWillAccept()
+            throws Exception {
+        // A module served as text/plain is refused by the browser outright,
+        // and a stylesheet served as the wrong type is ignored. Both failures
+        // appear only in a browser console, so they are worth pinning here.
+        assertThat(get("/assets/app.js").headers().firstValue("Content-Type"))
+                .hasValueSatisfying(type -> assertThat(type).contains("javascript"));
+        assertThat(get("/assets/app.css").headers().firstValue("Content-Type"))
+                .hasValueSatisfying(type -> assertThat(type).contains("text/css"));
+    }
+
+    @Test
+    void theScriptTalksOnlyToThisOriginAndStoresNoCredentials() throws Exception {
+        // The session cookie is HttpOnly and __Host- prefixed, so there is
+        // nothing for the page to keep. If this ever starts stashing tokens
+        // in localStorage, or calling another host, the policy and the
+        // same-origin decision have both been worked around.
+        String script = get("/assets/app.js").body() + get("/assets/api.js").body();
+
+        // Usage, not the words: the modules discuss web storage in a comment
+        // explaining why they do not use it, and a test that cannot tell the
+        // difference would push that explanation out of the code.
+        assertThat(script)
+                .doesNotContainPattern("(local|session)Storage\\s*[.\\[]")
+                .doesNotContain("document.cookie =")
+                .doesNotContain("http://")
+                .doesNotContain("https://");
+        assertThat(script)
+                .as("and it sends the session cookie deliberately, not by accident")
+                .contains("credentials: \"same-origin\"");
     }
 
     /* -------------------------- what it did not open -------------------- */
