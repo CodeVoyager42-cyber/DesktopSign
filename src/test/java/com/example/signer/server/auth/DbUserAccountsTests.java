@@ -156,6 +156,64 @@ class DbUserAccountsTests {
     }
 
     @Test
+    void aTokenIssuedBeforeThePasswordChangedIsRejected() {
+        // Risk D7. The account is unchanged in every other way: this is the
+        // only thing that refuses the token.
+        UserEntity user = account("ada", HASH, AccountStatus.ACTIVE);
+        Instant changedAt = Instant.parse("2026-10-22T12:00:00Z");
+        user.changePasswordHash(HASH, changedAt);
+
+        assertThat(accounts.passwordChangedSince("ada", changedAt.minusSeconds(1)))
+                .as("issued a second before the change").isTrue();
+        assertThat(accounts.passwordChangedSince("ada", changedAt.plusSeconds(1)))
+                .as("issued a second after it").isFalse();
+    }
+
+    @Test
+    void aTokenIssuedInTheSameSecondAsTheChangeStands() {
+        // iat is whole seconds, password_changed_at is microseconds, so a
+        // sign-in in the same second as the change would otherwise be
+        // refused its brand new token — and "reset, then sign in again" is
+        // the path this feature exists to serve. The cost is a sub-second
+        // window; the alternative breaks the common case.
+        UserEntity user = account("grace", HASH, AccountStatus.ACTIVE);
+        Instant changedAt = Instant.parse("2026-10-22T12:00:00.500Z");
+        user.changePasswordHash(HASH, changedAt);
+
+        assertThat(accounts.passwordChangedSince("grace",
+                Instant.parse("2026-10-22T12:00:00Z")))
+                .as("the token's own second, truncated as the JWT carries it").isFalse();
+        assertThat(accounts.passwordChangedSince("grace",
+                Instant.parse("2026-10-22T11:59:59Z")))
+                .as("the second before is still caught").isTrue();
+    }
+
+    @Test
+    void anAccountThatNeverChangedItsPasswordInvalidatesNothing() {
+        // Every account that existed before this phase has a null column, so
+        // deploying the check must not sign anyone out.
+        account("hopper", HASH, AccountStatus.ACTIVE);
+
+        assertThat(accounts.passwordChangedSince("hopper", Instant.now())).isFalse();
+        assertThat(accounts.passwordChangedSince("hopper",
+                Instant.parse("2000-01-01T00:00:00Z"))).isFalse();
+    }
+
+    @Test
+    void anUnknownAccountOrAMissingIssuedAtAnswersFalse() {
+        // The caller has already refused an unknown account by this point,
+        // and this question is not the place to invent a second answer to
+        // it. A token with no iat never reaches here: JwtService's lifetime
+        // validator requires one.
+        UserEntity user = account("ada", HASH, AccountStatus.ACTIVE);
+        user.changePasswordHash(HASH, Instant.parse("2026-10-22T12:00:00Z"));
+
+        assertThat(accounts.passwordChangedSince("nobody", Instant.now())).isFalse();
+        assertThat(accounts.passwordChangedSince(null, Instant.now())).isFalse();
+        assertThat(accounts.passwordChangedSince("ada", null)).isFalse();
+    }
+
+    @Test
     void invalidPolicyValuesAreRefusedAtStartup() {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> new DbUserAccounts(repo, 0, 15))
                 .isInstanceOf(IllegalStateException.class);

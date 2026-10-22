@@ -32,9 +32,10 @@ import java.io.IOException;
  * <ul>
  *   <li><b>Account token</b>: the account must still be able to sign in.
  *       A disabled or removed account is refused at once (401) instead of
- *       working until its access token expires. For the requests in
- *       {@link SigningActionPolicy} it must also have a verified e-mail
- *       address (403 otherwise) — Phase D1 risk D4.</li>
+ *       working until its access token expires, and so is a token issued
+ *       before the account's password changed — Phase D1 risk D7. For the
+ *       requests in {@link SigningActionPolicy} it must also have a verified
+ *       e-mail address (403 otherwise) — Phase D1 risk D4.</li>
  *   <li><b>Guest token</b>: only the requests in {@link GuestAccessPolicy},
  *       on its own workflow, while its invitation is still active (403
  *       otherwise).</li>
@@ -108,6 +109,12 @@ public final class AuthenticatedRequestFilter extends OncePerRequestFilter {
             RemoteWorkflowService.TaskSlotState state = service == null
                     || !accounts.knowsUser(task.principal())
                     || !accounts.isRegistered(task.principal())
+                    // Phase D1 risk D7, and the longer half of it: a task
+                    // session lives 30 minutes, twice an access token, so
+                    // leaving it out would have left a bigger window than
+                    // the one being closed.
+                    || accounts.passwordChangedSince(task.principal(),
+                            taskSession.getToken().getIssuedAt())
                     ? RemoteWorkflowService.TaskSlotState.INVALID
                     : service.taskSessionState(task);
             if (state == RemoteWorkflowService.TaskSlotState.INVALID) {
@@ -132,6 +139,17 @@ public final class AuthenticatedRequestFilter extends OncePerRequestFilter {
             String userId = user.getName();
             if (!accounts.knowsUser(userId) || !accounts.isRegistered(userId)) {
                 log.info("Access token refused: account '{}' can no longer sign in", userId);
+                SecurityContextHolder.clearContext();
+                JsonSecurityErrors.unauthorized(response);
+                return;
+            }
+            // Phase D1 risk D7: a reset or a change revokes the sessions and
+            // the refresh tokens, but an access token is a signed JWT —
+            // nothing is stored for it, so nothing could be deleted. This is
+            // where it ends instead.
+            if (accounts.passwordChangedSince(userId, user.getToken().getIssuedAt())) {
+                log.info("Access token refused: issued before the password of account"
+                        + " '{}' changed", userId);
                 SecurityContextHolder.clearContext();
                 JsonSecurityErrors.unauthorized(response);
                 return;
