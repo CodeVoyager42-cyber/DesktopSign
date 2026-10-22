@@ -50,12 +50,32 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     /** Setting a new password — the link in the reset e-mail. */
     public static final String RESET_PASSWORD_PAGE = "/reset-password";
 
+    /** Signing in. */
+    public static final String SIGN_IN_PAGE = "/sign-in";
+
+    /** Creating an account. */
+    public static final String SIGN_UP_PAGE = "/sign-up";
+
+    /** Asking for a password-reset link. */
+    public static final String FORGOT_PASSWORD_PAGE = "/forgot-password";
+
+    /**
+     * Every path forwarded to the website. {@code SecurityConfig.PUBLIC}
+     * reads this array, so adding a page is one line here and nothing else —
+     * which also means the two lists cannot disagree about what is reachable.
+     */
+    public static final String[] PAGES = {
+        VERIFY_EMAIL_PAGE, RESET_PASSWORD_PAGE,
+        SIGN_IN_PAGE, SIGN_UP_PAGE, FORGOT_PASSWORD_PAGE,
+    };
+
     /** The one document the website is served from. */
     static final String ENTRY_POINT = "forward:/index.html";
 
     @Override
     public void addViewControllers(ViewControllerRegistry registry) {
-        registry.addViewController(VERIFY_EMAIL_PAGE).setViewName(ENTRY_POINT);
-        registry.addViewController(RESET_PASSWORD_PAGE).setViewName(ENTRY_POINT);
+        for (String page : PAGES) {
+            registry.addViewController(page).setViewName(ENTRY_POINT);
+        }
     }
 }

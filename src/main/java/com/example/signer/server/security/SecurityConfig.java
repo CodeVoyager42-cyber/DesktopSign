@@ -86,8 +86,7 @@ public class SecurityConfig {
             get("/index.html"),
             get("/favicon.ico"),
             get("/assets/**"),
-            get(FrontendRoutingConfiguration.VERIFY_EMAIL_PAGE),
-            get(FrontendRoutingConfiguration.RESET_PASSWORD_PAGE),
+            websitePages(),
             // Spring's error dispatch, so a failure reports its real status.
             path("/error"));
 
@@ -165,6 +164,19 @@ public class SecurityConfig {
         DefaultBearerTokenResolver standard = new DefaultBearerTokenResolver();
         return (HttpServletRequest request) ->
                 PUBLIC.matches(request) ? null : standard.resolve(request);
+    }
+
+    /**
+     * The website's own pages, read from the one list that also drives the
+     * forwards ({@code FrontendRoutingConfiguration.PAGES}). Taking both from
+     * one array is what stops a page being routable but refused, or — worse —
+     * permitted here and never routed.
+     */
+    private static RequestMatcher websitePages() {
+        return new OrRequestMatcher(java.util.Arrays
+                .stream(FrontendRoutingConfiguration.PAGES)
+                .map(SecurityConfig::get)
+                .toList());
     }
 
     private static RequestMatcher path(String pattern) {
