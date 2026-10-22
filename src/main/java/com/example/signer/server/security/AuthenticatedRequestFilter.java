@@ -1,6 +1,7 @@
 package com.example.signer.server.security;
 
 import com.example.signer.server.api.ApiErrorType;
+import com.example.signer.server.auth.AccessTokenDenyList;
 import com.example.signer.server.auth.GuestAccessPolicy;
 import com.example.signer.server.auth.SigningActionPolicy;
 import com.example.signer.server.auth.TaskAccessPolicy;
@@ -30,8 +31,9 @@ import java.io.IOException;
  * the URL rules and controllers:
  *
  * <ul>
- *   <li><b>Account token</b>: the account must still be able to sign in.
- *       A disabled or removed account is refused at once (401) instead of
+ *   <li><b>Account token</b>: the token must not have been signed out of
+ *       (401 — Phase 2 risk L4), and the account must still be able to sign
+ *       in. A disabled or removed account is refused at once (401) instead of
  *       working until its access token expires, and so is a token issued
  *       before the account's password changed — Phase D1 risk D7. For the
  *       requests in {@link SigningActionPolicy} it must also have a verified
@@ -55,13 +57,16 @@ public final class AuthenticatedRequestFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(AuthenticatedRequestFilter.class);
 
     private final UserAccountService accounts;
+    private final AccessTokenDenyList deniedTokens;
     private final ObjectProvider<InvitationService> invitations;
     private final ObjectProvider<LaunchCodeService> launches;
 
     public AuthenticatedRequestFilter(UserAccountService accounts,
+                                      AccessTokenDenyList deniedTokens,
                                       ObjectProvider<InvitationService> invitations,
                                       ObjectProvider<LaunchCodeService> launches) {
         this.accounts = accounts;
+        this.deniedTokens = deniedTokens;
         this.invitations = invitations;
         this.launches = launches;
     }
@@ -137,6 +142,25 @@ public final class AuthenticatedRequestFilter extends OncePerRequestFilter {
             request.setAttribute(USER_ATTR, task.principal());
         } else if (auth instanceof JwtAuthenticationToken user) {
             String userId = user.getName();
+            // Phase 2 risk L4, and first, before the account is even looked
+            // up: a token that has been signed out of is finished, whatever
+            // the account behind it is doing.
+            String tokenId = user.getToken().getId();
+            if (tokenId == null || tokenId.isBlank()) {
+                // Every token this server issues carries a jti. One without
+                // it could never be denied, so a deny-list that accepted it
+                // would be one field away from being bypassable.
+                log.info("Access token refused: no jti, so it could never be signed out of");
+                SecurityContextHolder.clearContext();
+                JsonSecurityErrors.unauthorized(response);
+                return;
+            }
+            if (deniedTokens.isDenied(tokenId)) {
+                log.info("Access token refused: signed out of");
+                SecurityContextHolder.clearContext();
+                JsonSecurityErrors.unauthorized(response);
+                return;
+            }
             if (!accounts.knowsUser(userId) || !accounts.isRegistered(userId)) {
                 log.info("Access token refused: account '{}' can no longer sign in", userId);
                 SecurityContextHolder.clearContext();

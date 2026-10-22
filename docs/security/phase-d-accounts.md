@@ -124,6 +124,11 @@ logs how many sessions it revoked, not which.
 |---|---|---|---|
 | Password **reset** (link) | **all** revoked | **all** revoked | **all** refused (D7) |
 | Password **change** (signed in) | all **except the caller's own** | **all** revoked | **all** refused (D7) |
+| **Sign out** (one device) | that browser's session | the presented family | **that one token** (L4) |
+
+The last row is the one that has to be narrow: the other two end everything on
+purpose, and a sign-out that did the same would sign someone out of their
+laptop because they closed the app on their phone.
 
 Sessions are **deleted** from `spring_session`, not flagged, so the cookies
 that referenced them are dead on every server instance immediately. The
@@ -153,7 +158,7 @@ and no new per-request work.**
 | Not guest sessions | a guest has no account and no password. Its own invitation state already governs it. |
 | **Not a rehash** | `DbUserAccounts.rehash` upgrades a bcrypt cost on sign-in and deliberately uses `setPasswordHash`, which does *not* stamp the column. Stamping it there would sign an account out of its other sessions every time it signed in. |
 | Nothing retroactive | an account that has never changed its password has a null column and answers `false`, so deploying this signs nobody out. |
-| **Not logout** | Phase 2 risk **L4** is the sibling gap and stays open: signing out ends the refresh token, and the access token keeps working for up to its 15 minutes. This fix cannot close it, because a logout is not a password change and must not pretend to be one — stamping `password_changed_at` on logout would end every *other* device's tokens too, which is not what signing out of one means. Closing L4 needs what Phase 2 said it needs: a short-lived `jti` deny-list. |
+| **Not logout** | Signing out is the sibling gap (Phase 2 risk **L4**) and this fix cannot close it: a logout is not a password change and must not pretend to be one — stamping `password_changed_at` on logout would end every *other* device's tokens too, which is not what signing out of one means. It needed a deny-list of its own, below. |
 
 **The one trade-off, and it is a real one.** A JWT's `iat` is whole seconds
 while `password_changed_at` is microseconds, so a token issued *300 ms before*
@@ -175,6 +180,39 @@ the victim's change, which they cannot arrange.
 This is also what the first version of the HTTP tests got wrong — written
 without aligning to a second boundary, they passed or failed on where the
 boundary fell, which is how the trade-off was noticed at all.
+
+### And signing out of one device — Phase 2 risk L4, resolved
+
+A password change ends **every** token of the account, which is right for a
+password change and wrong for a sign-out: signing out of a phone must not sign
+out the laptop. So the mechanism above could not be reused, and L4 needed what
+Phase 2 said it needed — a short-lived `jti` deny-list, naming the one token
+being ended.
+
+`POST /api/auth/logout` now does two things. It revokes the refresh session,
+as it always did, and it denies the access token **presented with it** until
+that token's own `exp`. `AuthenticatedRequestFilter` checks the list before it
+looks the account up at all: a token that has been signed out of is finished,
+whatever the account behind it is doing.
+
+| | |
+|---|---|
+| **Only what it is shown** | The server cannot delete a signed JWT, so it can only refuse one it has been told about. The jti comes from the bearer header on the logout request — so the desktop client now sends its access token with the logout instead of merely dropping it (`WorkflowApiClient.Session.close`). A client that posts the refresh token alone still gets the old behaviour, and `LogoutDeniesAccessTokenHttpTests` asserts exactly that rather than hiding it. |
+| **A useless token still cannot block a logout** | `/api/auth/logout` is one of `SecurityConfig.PUBLIC` on purpose: a stale or malformed access token must never be the reason someone cannot sign out. The chain therefore does not resolve the bearer for it, and the controller reads the header **by hand** and validates it itself. Anything the decoder refuses leaves the logout a 204 with nothing denied — there is nothing a refused token could still do. |
+| No cross-check between the two tokens | and none is needed. Denying a token requires presenting it, and whoever holds a token can already use it; ending it is the one thing they can do with it that nobody needs protecting from. |
+| **The jti is stored as it is, not hashed** | the one place this differs from `refresh_tokens` and the V10 link tokens. Those hold hashes because the value *is* the credential — whoever reads the row could use it. A jti is an identifier inside a token signed with a secret the table does not contain, so a row grants nothing, and an id that can be read back is one an operator can match against a log line. |
+| No column for the account | a row says *this one token is dead*, not who signed out and when from where. The sweep needs only the expiry and the per-request check needs only the id. |
+| **It fails closed** | deliberately the opposite of the rate limits (§6), for a specific reason rather than taste: a revocation check that answers "not revoked" when it does not know is not a revocation check, and an attacker able to provoke database errors could re-enable every token that had been signed out of. It costs nothing here — the filter has already read the account from the same database, twice, before it asks this question — so a failure is left to propagate instead of being swallowed into a `false`. |
+| A token with no `jti` is refused outright | every token this server issues carries one. One without it could never be denied, so accepting it would leave the deny-list one missing field away from being bypassable — the same reasoning as Phase 2.1 requiring `exp` and `iat`. |
+| **Bounded by construction** | an entry lives until the token's own `exp` (≤ 15 min) and never longer, so the list is bounded by how many sign-outs happen inside one token lifetime — and every entry requires a validly signed, unexpired token to have been presented. There is deliberately **no cap**: evicting an entry un-revokes a token, so whoever wanted that could simply sign in repeatedly until the entry they cared about was pushed out. |
+
+Two implementations, chosen by `SIGNER_DB_ENABLED` exactly as the refresh
+store and the rate-limit store are: `denied_access_tokens` (V12) when there is
+a database, so a logout handled by one instance reaches the others, and a map
+on the heap when there is not. **Which is also the residual:** behind two
+file-mode servers, a logout reaches one of them and the token still works on
+the other until it expires. With a database it does not, and that is the
+deployment the production validator already pushes towards.
 
 ### And the holder is told — risk D8
 
@@ -373,7 +411,7 @@ in must not hold a session longer than one who did.
 Together with the `|csrf` bucket, a visitor who only loads the page costs a row
 for five minutes, and a flood is capped per address.
 
-## 8. Database — V10 and V11
+## 8. Database — V10, V11 and V12
 
 `V10__account_tokens.sql` creates **two new tables and nothing else**. No
 existing table, column, row or index is dropped, altered or rewritten.
@@ -408,6 +446,31 @@ rate_limit_hits(id, bucket, hit_at)
   and on `hit_at` alone for the sweep, which crosses every bucket.
 - No foreign key: a bucket is not always an account, and a count that
   disappeared when an account did would be a way to clear one's own limit.
+
+`V12__denied_access_tokens.sql` adds **one table and nothing else**, for the
+L4 fix in §4:
+
+```
+denied_access_tokens(id, token_id UNIQUE, denied_at, expires_at)
+```
+
+- One row per sign-out, deleted once the token it denies is long expired.
+- `token_id VARCHAR(64)` — the `jti`, **stored as it is and not hashed**,
+  which is the one place this differs from `refresh_tokens` and the V10 link
+  tokens. The reasoning is in §4; the length is
+  `AccessTokenDenyList.MAX_TOKEN_ID_LENGTH`, comfortably above the 36
+  characters of the UUIDs `JwtService` issues, and an id longer than it is
+  refused rather than truncated into one that could never match.
+- **No `username` column**: a row says one token is dead, not who ended it.
+  The migration test asserts the column list for that reason.
+- `UNIQUE (token_id)` so a second logout of the same token cannot add a second
+  row — the store inserts with `ON CONFLICT DO NOTHING`, which is why it is
+  idempotent without a read-then-write race.
+- `CHECK (expires_at > denied_at)` can never fire: the store returns early for
+  a token that has already expired, because the decoder refuses that token
+  without any help from this table.
+- No foreign key, for the same reason as `rate_limit_hits`: there is no
+  account column to point one at, and a sign-out is not account state.
 
 ### The account sweep — risk D11
 
@@ -467,6 +530,18 @@ housekeeping must never be the thing that refuses a request. Like the token
 sweep it cannot bring the server down with it — a failure is logged as a class
 name and the next run tries again.
 
+### The deny-list sweep
+
+`DbAccessTokenDenyList.deleteExpired` runs **hourly** (initial delay 35 min,
+the last of the six) and deletes rows whose token expired more than **an hour**
+ago. Nothing depends on it for safety in either direction: an expired token is
+refused by the decoder, so a row that outstays its welcome denies something
+already dead, and a row swept early would un-revoke a token — which is what
+the hour of grace is for. It is far longer than any clock difference between
+instances ought to be, and the row is worth nothing after the token's own
+`exp`, so there is no reason to cut it finer. Without the sweep the table would
+grow by one row per sign-out for the life of the deployment.
+
 ## 9. Configuration
 
 | Variable | Default | Meaning |
@@ -478,6 +553,11 @@ name and the next run tries again.
 | `SIGNER_WEB_SESSION_ANON_IDLE` | `PT5M` | Idle timeout before sign-in |
 | `SIGNER_LOGIN_RATE_LIMIT` | `20` | Per-address requests per window, per bucket |
 | `SIGNER_LOGIN_RATE_WINDOW_SECONDS` | `60` | That window |
+
+**No new variable in this phase at all**, and none for the deny-list either:
+how long an entry lives is the access token's own `exp`, which
+`SIGNER_SERVER_ACCESS_TOKEN_MINUTES` already sets, and where the list is kept
+is `SIGNER_DB_ENABLED`, as below.
 
 No new variable chooses where the limits are counted: `SIGNER_DB_ENABLED`
 already does. With a database they are counted in it and shared; without one
@@ -497,14 +577,14 @@ Full suite on **JDK 21.0.12.1 LTS** (the version the build targets) with a real
 PostgreSQL 16.15.
 
 ```
-Tests run: 622, Failures: 0, Errors: 0, Skipped: 8
-BUILD SUCCESS — 7 min 11 s
+Tests run: 647, Failures: 0, Errors: 0, Skipped: 8
+BUILD SUCCESS — 9 min 5 s
 ```
 
 | | After Phase C | After Phase D1 |
 |---|---|---|
-| Found | 532 | **622** (+90) |
-| Passed | 524 | **614** |
+| Found | 532 | **647** (+115) |
+| Passed | 524 | **639** |
 | Failed | 0 | **0** |
 | Errors | 0 | **0** |
 | Skipped | 8 | **8** (unchanged) |
@@ -529,6 +609,10 @@ New in this phase:
 | `DbRateLimitStoreFailOpenTests` | 3 | the fail-open decision, needing no PostgreSQL because the point is that there is none: an unreachable database allows the attempt rather than throwing into the filter chain (three times over, so a cached broken connection would show), the sweep survives it too, and a *misconfigured* limit is still refused loudly before any connection is tried |
 | `PasswordChangeEndsTokensHttpTests` | 4 | risk D7 over HTTP, on its own database because it changes seeded passwords: an access token that worked a moment earlier is refused 401 after the change, the account can sign in again **immediately** afterwards and its new token is not caught by the guard, a **task session** from a launch code is refused the same way (the 30-minute half of the risk), and one account's change leaves another's token alone. Each aligns to a second boundary first, and asserts that precondition rather than assuming it |
 | `DbUserAccountsTests` | +4 | the rule itself without a database: a token from before the change rejected and one from after it allowed, **a token from the change's own second allowed** (the documented trade-off, pinned down so it cannot drift by accident), a null column invalidating nothing, and an unknown account or absent `iat` answering false |
+| `LogoutDeniesAccessTokenHttpTests` | 5 | Phase 2 risk **L4** over HTTP, in file mode: an access token refused the moment its session is signed out of — on `/api/auth/me` and on a workflow route, so it is the filter and not one endpoint — while **the same account's other session is untouched** (the distinction that rules out reusing D7's mechanism); signing out twice still a 204 with the token still denied; a logout that presents **no** bearer revoking only the refresh session, which is the honest limit of the fix rather than a hidden one; and a garbage or signature-tampered bearer still not blocking the logout, because `/api/auth/logout` is public on purpose |
+| `AccessTokenDenyListTests` | 7 | the list itself, with no database and no server: one token denied and no other, denying twice being one entry, an already-expired token not recorded at all (the one row the table's CHECK would refuse), an entry dropped once the token it denies would have expired, an absent id or expiry writing nothing, an id too long refused rather than truncated — and that the length it accepts comfortably covers the UUIDs `JwtService` issues |
+| `DbAccessTokenDenyListLiveTests` | 7 | what the database implementation is *for*: that database mode really resolves to it rather than silently to the heap, that the entry is in the **table** so another instance over the same database sees it, that the row holds the jti and the token's own expiry and nothing about the account, that `ON CONFLICT DO NOTHING` makes a second logout one row, that an expired token is never written, that an over-long id is refused before it reaches the column, and that the sweep deletes what is long dead while leaving a live entry alone |
+| `DeniedTokenMigrationLiveTests` | 6 | V12 on a fresh database, the exact four columns (**no column for the account**) with `timestamptz` and the 64-character bound, the UNIQUE that forces the upsert, the CHECK refusing an entry that would outlive nothing, both indexes and why each exists, and that V12 leaves an existing **V11** database — accounts and counter rows — intact |
 | `RateLimitMigrationLiveTests` | 5 | V11 on a fresh database, the exact three columns (no column for anything secret) with `hit_at` not-null and `timestamptz`, both indexes and why each exists, that the `pg_advisory_xact_lock(hashtext(…)::bigint)` cast the store depends on resolves on this server, and that V11 leaves an existing **V10** database — accounts and tokens — intact |
 | `NeverVerifiedAccountSweepLiveTests` | 10 | one test **per guard** of the account sweep (§8): the abandoned sign-up deleted with its tokens cascading, and a verified account, an invitation identity, a disabled account, one ever signed in to, one inside the retention window, one holding a signer slot, one owning a workflow and one holding a claimed turn all surviving — the last three asserting the sweep **skips** them rather than failing — plus zero retention being a no-op |
 | `AccountTokenMigrationLiveTests` | 5 | V10 on a fresh database, the exact columns (no token column) and the unique hash, the expiry CHECK, cascade from `users`, and that V10 leaves an existing **V9** database — rows and session rows — intact |
@@ -562,6 +646,16 @@ the table, and the seven classes that reach a limited endpoint call it in
 longer rely on getting a fresh application context. It is the same move
 `LaunchCodeHttpTests` already made for the launch-code issue throttle.
 
+**What V12 cost the test suite**, in the same spirit. The V11 migration test
+asserted that `flyway_schema_history` held exactly 11 successful rows, and V12
+made that 12 — so adding a migration failed the test for the migration before
+it. The assertion was meant as *"V11 added itself and re-ran nothing"*, which
+is a claim about one step; written as a total it was really a claim about how
+many migrations exist. Both it and the new V12 test now migrate to their own
+target version, so each pins its own step and a V13 will not repeat this. The
+older V9 and V10 tests never had the problem: they compare the table list
+before and after instead of counting history rows.
+
 ## 11. Residual risks
 
 | # | Risk | Severity | Note |
@@ -581,6 +675,7 @@ longer rely on getting a fresh application context. It is the same move
 | ~~C6~~ | ~~The per-address limiter is in memory, per instance~~ | **FIXED** | §6, with D3 — the address filter moved onto the same store, so the two were one fix. It is the hottest path of the four, and the one where the shared count matters least on its own (the account lockout already spans instances) and most in combination: an attacker alternating instances no longer gets a fresh per-address budget on each. |
 | ~~C8~~ | ~~Website sessions and desktop refresh tokens are independent on a password change~~ | **FIXED** | §4. |
 | ~~C9~~ | ~~The CSRF bootstrap creates a session for an anonymous visitor~~ | **FIXED** | §7: 5-minute idle timeout before sign-in, promoted at sign-in, plus its own rate-limit bucket. |
+| ~~L4~~ | ~~Signing out ends the refresh token only; the access token keeps working for up to 15 minutes~~ | **FIXED** | §4. The `jti` deny-list Phase 2 prescribed, scoped to the one token presented with the logout so that one device signing out does not sign out the others, and failing **closed** because a revocation check that answers "not revoked" when it does not know is not one. **What remains:** the server can only refuse a token it has been shown, so a client that posts the refresh token alone still leaves its access token alive — the desktop client was changed to send the bearer, and a third-party client would have to do the same; and in file mode the list is per instance, so behind two such servers a logout reaches one of them. Both are visible in the tests rather than papered over. |
 
 ## 12. What was deliberately not done
 
@@ -590,7 +685,12 @@ longer rely on getting a fresh application context. It is the same move
   The verification token already carries the address it was sent to, so the
   flow has somewhere to build from.
 - No "sign out everywhere" button and no session list (Phase C risk C4) —
-  `WebSessionRegistry` now makes both straightforward.
+  `WebSessionRegistry` now makes both straightforward for the website. The
+  deny-list (§4) would **not** be the mechanism for the desktop half of it:
+  denying every bearer token of an account means knowing their ids, and
+  nothing records which are outstanding. That one wants a per-account
+  "valid from" stamp, which is what risk D7 already built — a reset is a
+  sign-out-everywhere that happens to change the password too.
 - No account deletion, no admin routes, no role management.
 - No CAPTCHA — it belongs with the sign-up page (D2), on top of the throttle.
 - No shared cache for the rate limits. Redis or similar would suit the shape

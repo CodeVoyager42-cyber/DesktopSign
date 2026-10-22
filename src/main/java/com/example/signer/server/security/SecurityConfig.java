@@ -1,5 +1,6 @@
 package com.example.signer.server.security;
 
+import com.example.signer.server.auth.AccessTokenDenyList;
 import com.example.signer.server.auth.JwtService;
 import com.example.signer.server.auth.UserAccountService;
 import com.example.signer.server.invites.InvitationService;
@@ -107,7 +108,8 @@ public class SecurityConfig {
     @Bean
     @Order(2)
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService,
-            UserAccountService accounts, ObjectProvider<InvitationService> invitations,
+            UserAccountService accounts, AccessTokenDenyList deniedTokens,
+            ObjectProvider<InvitationService> invitations,
             ObjectProvider<LaunchCodeService> launches,
             LoginRateLimitFilter loginRateLimitFilter)
             throws Exception {
@@ -131,7 +133,8 @@ public class SecurityConfig {
                             .jwtAuthenticationConverter(new TokenAuthenticationConverter())))
             .addFilterBefore(loginRateLimitFilter,
                     BearerTokenAuthenticationFilter.class)
-            .addFilterAfter(new AuthenticatedRequestFilter(accounts, invitations, launches),
+            .addFilterAfter(new AuthenticatedRequestFilter(accounts, deniedTokens,
+                            invitations, launches),
                     BearerTokenAuthenticationFilter.class)
             .authorizeHttpRequests(a -> a
                     .requestMatchers(PUBLIC).permitAll()
