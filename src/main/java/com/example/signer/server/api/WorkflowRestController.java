@@ -178,8 +178,10 @@ public class WorkflowRestController {
         byte[] pdf = service.getDocument(workflowId, user);
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
-                .header("Content-Disposition", "attachment; filename=\""
-                        + service.getWorkflow(workflowId, user).documentName() + "\"")
+                // The name is the uploader's text, so it is not put in a
+                // header as it stands — see WorkflowOperations.attachment.
+                .header("Content-Disposition", WorkflowOperations.attachment(
+                        service.getWorkflow(workflowId, user).documentName()))
                 .body(pdf);
     }
 
