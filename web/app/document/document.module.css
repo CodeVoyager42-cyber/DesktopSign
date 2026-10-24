@@ -1,0 +1,84 @@
+/* The status timeline: one rail, one dot per row.
+   The rail is the left border of each row rather than a pseudo-element of
+   the list, so it stops exactly at the last row instead of hanging below
+   it — a line that continues past the end reads as "more to come", which
+   for a finished document would be a lie. */
+
+.rail {
+  list-style: none;
+  margin: 1rem 0 1.5rem;
+  padding: 0;
+}
+
+.row {
+  position: relative;
+  padding: 0 0 1.25rem 1.75rem;
+  border-left: 2px solid var(--line);
+}
+
+/* No rail under the last dot, and nothing to separate from. */
+.row:last-child {
+  border-left-color: transparent;
+  padding-bottom: 0;
+}
+
+.dot {
+  position: absolute;
+  left: -0.4375rem;
+  top: 0.4375rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 999px;
+  /* A ring in the page colour, so the dot sits on the rail rather than
+     being crossed by it. */
+  box-shadow: 0 0 0 3px var(--surface);
+}
+
+/* One rule per mark, including the ordinary one: the page writes
+   `styles[row.mark]`, so a mark with no class of its own would be a
+   `className` of "row undefined" rather than a visible mistake. */
+.done > .dot {
+  background: var(--accent);
+}
+
+.pending > .dot {
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--surface), inset 0 0 0 2px var(--line);
+}
+
+.blocked > .dot {
+  background: var(--warn);
+}
+
+.words {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+.pending > .words {
+  color: var(--ink-muted);
+}
+
+.meta {
+  margin: 0.125rem 0 0;
+  font-size: 0.875rem;
+}
+
+.all {
+  margin: 0 0 1.5rem;
+}
+
+.all summary {
+  font-size: 0.9375rem;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.all summary:hover {
+  color: var(--accent-strong);
+}
+
+/* Inside the disclosure the rail starts under the summary, not against it. */
+.all .rail {
+  margin-top: 0.75rem;
+}

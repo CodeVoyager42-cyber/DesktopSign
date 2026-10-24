@@ -6,6 +6,7 @@ import { AppHeader, SiteFooter } from "../../components/SiteChrome";
 import {
   Badge,
   NoteRegion,
+  Separator,
   SessionPending,
   useNote,
   useSession,
@@ -35,12 +36,12 @@ function Group({
   heading,
   rows,
   emptyWords,
-  action,
+  note,
 }: {
   heading: string;
   rows: Row[];
   emptyWords: string;
-  action?: (row: Row) => React.ReactNode;
+  note?: (row: Row) => React.ReactNode;
 }) {
   return (
     <section>
@@ -64,7 +65,27 @@ function Group({
             ) : (
               <p>{STATE_WORDS[row.status] ?? row.status}</p>
             )}
-            {action ? action(row) : null}
+            {/* Every row opens the document's own screen — where it stands
+                and what happened to it, in order. The plan gave the rows
+                this link from the start; it waited for the screen to exist
+                rather than pointing at nothing. */}
+            <p className="more">
+              <Link href={`/document?id=${encodeURIComponent(row.id)}`}>
+                Open <span aria-hidden="true">›</span>
+              </Link>
+              {row.status === "COMPLETED" ? (
+                <>
+                  <Separator />
+                  {/* A plain link with `download`, not a fetch: the browser
+                      gets it with the session cookie and the bytes never
+                      pass through this code. */}
+                  <a href={api.downloadUrl(row.id)} download>
+                    Download the signed PDF <span aria-hidden="true">›</span>
+                  </a>
+                </>
+              ) : null}
+            </p>
+            {note ? note(row) : null}
           </article>
         ))
       )}
@@ -126,10 +147,11 @@ export default function Documents() {
               // Signing happens on the signer's own computer, with their own
               // card: there is no button here that could do it. Saying so
               // beats a link that cannot work — the hand-off that opens the
-              // application is Phase F.
-              action={() => (
+              // application is Phase F. "To sign it" rather than "Open",
+              // because the row's own link is now called that.
+              note={() => (
                 <p className={`muted ${styles.handoff}`}>
-                  Open SignFlow on your computer to sign this.
+                  To sign it, open SignFlow on your computer.
                 </p>
               )}
             />
@@ -142,18 +164,6 @@ export default function Documents() {
               heading="Finished"
               rows={finished}
               emptyWords="Nothing finished yet."
-              action={(row) =>
-                row.status === "COMPLETED" ? (
-                  // A plain link with `download`, not a fetch: the browser
-                  // gets it with the session cookie and the bytes never pass
-                  // through this code.
-                  <p className="more">
-                    <a href={api.downloadUrl(row.id)} download>
-                      Download the signed PDF <span aria-hidden="true">›</span>
-                    </a>
-                  </p>
-                ) : null
-              }
             />
           </>
         ) : null}
