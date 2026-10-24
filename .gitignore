@@ -24,3 +24,17 @@ Thumbs.db
 mail-secrets.env
 *.env
 !.env.example
+
+# Scratch working files. These are the by-products of the security
+# review -- the patches it was applied as, the one-off probes and status
+# scripts, and the report it was written up in -- and they are kept out
+# of the history on purpose: the reviewed result is in the commits and
+# in docs/security/, which is the record worth reading.
+*.patch
+check3-*
+signflow-*.cmd
+signflow-report.md
+
+# A staging copy of the architecture diagrams. The kept ones are
+# committed under docs/architecture/.
+phase3-diagrams/
