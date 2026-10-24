@@ -80,6 +80,22 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String DOCUMENTS_PAGE = "/documents";
 
     /**
+     * One document: where it stands, and its history in order.
+     *
+     * <p>The workflow is named in the query string — {@code
+     * /document?id=<workflowId>} — and not as a path segment, because the
+     * website is a static export and {@code /documents/<id>} would need a
+     * page per workflow (they are created at runtime) or a catch-all
+     * forward. The reasoning against a catch-all is in this class's own
+     * comment and has not changed: it would answer every mistyped path with
+     * an HTML 200. The id is not a credential, and the page is no more an
+     * authorisation than any other here — the server decides what it may
+     * read when it asks for the workflow, and answers a stranger with the
+     * same 404 as for a workflow that does not exist.
+     */
+    public static final String DOCUMENT_PAGE = "/document";
+
+    /**
      * Every path forwarded to the website. {@code SecurityConfig.PUBLIC}
      * reads this array, so adding a page is one line here and nothing else —
      * which also means the two lists cannot disagree about what is reachable.
@@ -87,7 +103,7 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String[] PAGES = {
         VERIFY_EMAIL_PAGE, RESET_PASSWORD_PAGE,
         SIGN_IN_PAGE, SIGN_UP_PAGE, FORGOT_PASSWORD_PAGE, CHANGE_PASSWORD_PAGE,
-        ACCOUNT_PAGE, DOCUMENTS_PAGE,
+        ACCOUNT_PAGE, DOCUMENTS_PAGE, DOCUMENT_PAGE,
     };
 
     /**

@@ -121,6 +121,7 @@ than that; being more helpful here would undo the server's work.
 |---|---|---|
 | **The public page** | `/` | hero, proof strip, role tabs over feature cards, how it works, security, closing CTA |
 | **Documents** | `/documents` | three groups with counts; the wider column |
+| **One document** | `/document?id=…` | where it stands, then what happened to it in order |
 | Sign in | `/sign-in` | one message for every kind of refusal |
 | Create an account | `/sign-up` | 202 either way; the confirmation page is worded for both |
 | Forgotten password | `/forgot-password` | same |
@@ -164,34 +165,93 @@ reads as broken. The column is the full 1080 px `--measure` rather than the
   somewhere. Each row carries its own state, so the distinction is still
   visible.
 
-**No `Open ›` link yet.** The plan gave every row one, but the screen it
-would open is the status timeline (§6), which is not built — so the rows
-carry what can be acted on today instead: a finished one offers *Download the
-signed PDF ›*, and an action-required one says *"Open SignFlow on your
-computer to sign this"* rather than a button that could not work. Signing
-needs the certificate on the signer's own card; the hand-off that opens the
-application is Phase F.
+**`Open ›` on every row**, now that there is a screen for it to open (§5b).
+It waited for that screen rather than pointing at nothing. Beside it, a
+finished row offers *Download the signed PDF ›* in the same line, separated
+by the `·` the links pattern uses; an action-required row adds *"To sign it,
+open SignFlow on your computer."* — worded that way round since the row's own
+link is called *Open*. Signing needs the certificate on the signer's own
+card, so no button here could do it; the hand-off that opens the application
+is Phase F.
 
 The download is a plain `<a download>` rather than a fetch: the browser
 fetches it with the session cookie, same origin, and the bytes never pass
 through the page's JavaScript. It is also what keeps the client-side router
 from swallowing the click and trying to render a PDF as a page.
 
-## 6. Planned, not built — Phases E and F
+## 5b. The status timeline, as built
 
-Recorded here so the shape is agreed before the screens exist. **None of
-this is implemented.** The routes for the timeline do exist now (Phase E
-parts 1–3); the "Sign" hand-off belongs to Phase F.
+A vertical rail, one dot per row in accent (done), a hollow ring in `--line`
+(pending) or `--warn` (blocked), read from the audit events the server
+records — which is why the screen can state the **order** of what happened
+rather than inferring it from the current state. The rail is each row's left
+border and not a line behind the list, so it stops at the last dot: a line
+continuing past the end reads as "more to come", which on a finished document
+would be a lie.
 
-### Document status timeline
+**The id is in the query string** — `/document?id=<workflowId>` — because the
+website is a static export. A path segment per document would need a page
+built per workflow, and those are created at runtime; the alternative is the
+catch-all forward `FrontendRoutingConfiguration` refuses, which would answer
+every mistyped path with an HTML 200. So it is one more line in `PAGES`, and
+the id travels the way the e-mail links' tokens already do.
 
-A vertical list of what happened, one row per event, each with a state dot in
-accent (done), `--line` (pending) or `--warn` (blocked): *created · sent to N
-· signed by X · waiting for Y · completed*. It is a read of the audit events
-the server already records, which is why it can be honest about ordering
-rather than inferring it.
+**Three deviations from §6's plan, all deliberate:**
 
-### The "Sign" hand-off screen
+- *"One row per event"* became **two layers**. The trail is complete and
+  internal: certificate bindings, revision writes, placement records,
+  ignored duplicate submissions. Shown in full by default, twenty rows of
+  bookkeeping bury the story of the document. So the story — created,
+  invited, opened, signed, finished, plus **everything that went wrong** —
+  is the list, and *"Everything that was recorded (n)"* is a disclosure
+  under it. Nothing is dropped; the default reading is just the part that is
+  about the agreement.
+- **An event type this version has never heard of is shown**, in the story,
+  with its name made readable (`WORKFLOW_FROZEN` → "Workflow frozen"). The
+  server can grow an event without the website changing, and a screen that
+  silently dropped what it did not recognise would be wrong in the direction
+  that hides things.
+- **The last row is the current state, not the last event.** The trail says
+  who was activated; the workflow says who is being waited for *now*, and
+  after a released turn those are different answers. It carries no
+  timestamp, because it has not happened.
+
+**`detail` is never rendered.** The server's audit detail is written for
+whoever reads an audit trail — *"Revision 3 accepted (54123 bytes)"*, a short
+fingerprint — and the words on screen are the website's own, from the event
+type. There is also a reason not to relax that: the detail of
+`INVITATION_CREATED` contains the invited **e-mail address** of a slot, and
+`GET /web/api/workflows/{id}/audit` is readable by every participant, so
+rendering it would show one signer another's address. No screen in this
+product renders detail today and this one does not become the first — but the
+exposure is in the endpoint, not in the screen, and it is recorded as a
+finding in `../security/phase-e-workflows.md` §6 rather than left as a
+property of which pages happen to exist.
+
+Dates are written once per day, times on every row — a column of identical
+dates is noise, and a row with only a time reads as "later the same day",
+which is what it means. Both come from `at()`, which formats as the account
+e-mails do (*24 October 2026 at 21:51*) and answers null for a timestamp it
+cannot read, so a row appears without one instead of showing *Invalid Date*.
+
+## 6. Planned, not built
+
+Recorded here so the shape is agreed before the screens exist. **None of this
+is implemented.**
+
+### The rest of Phase E: sending a document out
+
+The server side is finished and tested — create (multipart), invite a slot,
+invitation status, resend, revoke, cancel, and the revision chain — and no
+screen calls any of it yet. A workflow is still started from the desktop's
+wizard. What the website needs is the sending half of the product: choose a
+file, name the signers, pick sequential or any-order, then a tracking view of
+where each invitation stands with resend and withdraw beside it, and cancel
+on the document's own screen. It is the larger piece of work of the two left,
+and it is not a security phase: every rule it needs is already enforced by
+the routes it would call.
+
+### The "Sign" hand-off screen (Phase F)
 
 The screen that opens the desktop application, and the only one with a clock
 on it:

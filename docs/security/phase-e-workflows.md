@@ -244,9 +244,66 @@ for.
 | `withoutASessionThereIsNoDownload` | 401 |
 | `aDocumentNameCannotCarryAnythingIntoTheHeader` | quote, CR, LF, colon and `=` flattened; an all-punctuation name becomes `document.pdf`; `Q3 report (final).pdf` keeps its spaces |
 
-## 5. Still to do
+## 5. The screens
 
-**The screens.** The dashboard and the status timeline specified in
-`../frontend-design.md` §6, which all twelve of these routes exist to feed.
-The "Sign" hand-off screen described there belongs to Phase F, not here —
-Phase E stops where the desktop takes over.
+Two of them are built: the dashboard (`../frontend-design.md` §5a) and the
+status timeline (§5b). Between them they call **five** of the twelve routes
+above — the two lists, one workflow, its audit, and the finished document.
+
+The other seven have no screen yet: starting a workflow, inviting a slot,
+invitation status, resend, revoke, cancel, and the revision chain. A workflow
+is still started and managed from the desktop's wizard, so the routes answer
+and nothing on the website asks. Those screens are the rest of Phase E's
+front end; the server side of them is done and tested.
+
+The timeline is the one worth noting here, because what it chose **not** to
+show is a security decision rather than a design one: it renders an event's
+type, actor and time, and never the audit `detail`. See §6.
+
+The "Sign" hand-off screen belongs to Phase F, not here — Phase E stops where
+the desktop takes over.
+
+## 6. A finding the timeline turned up: audit detail carries addresses
+
+Writing a screen over `GET /web/api/workflows/{id}/audit` meant reading what
+that answer actually contains, and one field in it is wider than the route
+that serves it.
+
+`AuditView.detail` is free prose written at the call site. Most of it is
+operational — *"Revision 3 accepted (54123 bytes)"*, *"Certificate bound to
+signer 2 (a1b2c3d4)"* — but `INVITATION_CREATED` records:
+
+```java
+appendAudit(wf, AuditEventType.INVITATION_CREATED, invitedBy,
+        "Invitation created for signer " + signerOrder + " (" + normalizedEmail + ")");
+```
+
+The audit route is readable by **every participant**, not just the owner. The
+invited address of a slot, on the other hand, is otherwise owner-only: it is
+served by `GET /{id}/invitations`, which checks ownership. So a signer who
+reads the audit of a workflow they are in can learn the e-mail addresses of
+their co-signers, which the invitation route would refuse them.
+
+**Not introduced here, and not widened here.** The field has been in that
+answer since the trail existed; the desktop fetches the view
+(`WorkflowApiClient.audit`) but no screen in the product renders `detail`, so
+nothing has ever displayed it. The timeline keeps that true — it writes its
+own words from the event type — which is why this is a finding and not an
+incident.
+
+**The fix belongs in the server, not in a screen.** Two candidates, in
+preference order:
+
+1. **Structured detail.** Replace the prose with the fields the readers
+   actually need (`signerOrder`, revision number, byte count) and leave the
+   address out of the trail entirely. The address is already in
+   `invitations`, where the ownership check is.
+2. **Redact per reader.** Keep the row and have the route blank `detail` for
+   a caller who is not the owner.
+
+(1) is better: an audit trail that records a personal address in a field
+nobody may read has stored it for no reader. It is a change to what the
+server writes, so it wants its own commit and its own test — a participant
+reading the audit of a workflow they are in must not find a co-signer's
+address in it — and it is recorded here rather than done in passing behind a
+frontend change.
