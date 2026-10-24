@@ -82,10 +82,18 @@ public class SecurityConfig {
             // needs no token, so anything added to it is a decision. The
             // chain below ends in denyAll(), which is why a static file has
             // to be listed at all.
-            get("/"),
-            get("/index.html"),
-            get("/favicon.ico"),
-            get("/assets/**"),
+            // GET *and HEAD*: a matcher restricted to GET sends a HEAD of the
+            // website to denyAll(), which answers 401 — and browsers,
+            // proxies, link checkers and uptime monitors all use HEAD. A
+            // HEAD of a public page reveals exactly what a GET of it does.
+            // The invitation pages above are deliberately left GET-only:
+            // Spring answers a HEAD by running the GET handler and dropping
+            // the body, and those handlers read an invitation and log it, so
+            // widening their method surface is a separate decision.
+            getOrHead("/"),
+            getOrHead("/index.html"),
+            getOrHead("/favicon.ico"),
+            getOrHead("/assets/**"),
             websitePages(),
             // Spring's error dispatch, so a failure reports its real status.
             path("/error"));
@@ -175,8 +183,15 @@ public class SecurityConfig {
     private static RequestMatcher websitePages() {
         return new OrRequestMatcher(java.util.Arrays
                 .stream(FrontendRoutingConfiguration.PAGES)
-                .map(SecurityConfig::get)
+                .map(SecurityConfig::getOrHead)
                 .toList());
+    }
+
+    /** A static page or asset: readable, and askable about, by anyone. */
+    private static RequestMatcher getOrHead(String pattern) {
+        return new OrRequestMatcher(get(pattern),
+                PathPatternRequestMatcher.withDefaults()
+                        .matcher(HttpMethod.HEAD, pattern));
     }
 
     private static RequestMatcher path(String pattern) {
