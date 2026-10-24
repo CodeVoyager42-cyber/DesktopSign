@@ -34,9 +34,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("server")
 class SecurityHeadersHttpTests {
 
-    /** The policy both chains send. Restated here because this is its spec. */
-    private static final String POLICY =
-            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';"
+    /**
+     * The policy both chains send, after {@code script-src}. Restated here
+     * because this is its spec.
+     *
+     * <p>{@code script-src} itself is checked separately, because it is the
+     * one directive that is not a fixed string: it is {@code 'self'} plus a
+     * {@code sha256-} expression for each inline script in the exported
+     * website (see {@code InlineScriptHashes}). What matters about it is
+     * asserted below — {@code 'self'}, hashes, and no {@code 'unsafe-inline'}
+     * — rather than its exact length, which is a property of the frontend
+     * build.
+     */
+    private static final String POLICY_AFTER_SCRIPTS =
+            "style-src 'self' 'unsafe-inline';"
                     + " img-src 'self'; font-src 'self'; connect-src 'self';"
                     + " form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 
@@ -75,7 +86,9 @@ class SecurityHeadersHttpTests {
         assertThat(page.headers().firstValue("Referrer-Policy"))
                 .contains("no-referrer");
         assertThat(page.headers().firstValue("Content-Security-Policy"))
-                .contains(POLICY);
+                .hasValueSatisfying(policy -> assertThat(policy)
+                        .contains("script-src 'self' 'sha256-")
+                        .endsWith(POLICY_AFTER_SCRIPTS));
     }
 
     @Test
@@ -87,7 +100,9 @@ class SecurityHeadersHttpTests {
 
         assertThat(health.statusCode()).isEqualTo(200);
         assertThat(health.headers().firstValue("Referrer-Policy")).contains("no-referrer");
-        assertThat(health.headers().firstValue("Content-Security-Policy")).contains(POLICY);
+        assertThat(health.headers().firstValue("Content-Security-Policy"))
+                .hasValueSatisfying(policy -> assertThat(policy)
+                        .endsWith(POLICY_AFTER_SCRIPTS));
     }
 
     @Test
@@ -99,7 +114,9 @@ class SecurityHeadersHttpTests {
 
         assertThat(refused.statusCode()).isEqualTo(401);
         assertThat(refused.headers().firstValue("Referrer-Policy")).contains("no-referrer");
-        assertThat(refused.headers().firstValue("Content-Security-Policy")).contains(POLICY);
+        assertThat(refused.headers().firstValue("Content-Security-Policy"))
+                .hasValueSatisfying(policy -> assertThat(policy)
+                        .endsWith(POLICY_AFTER_SCRIPTS));
     }
 
     @Test
@@ -115,8 +132,21 @@ class SecurityHeadersHttpTests {
                 .as("script comes from this origin only — an injected <script> tag,"
                         + " which is the ordinary shape of XSS, cannot run")
                 .contains("script-src 'self'")
-                .doesNotContain("script-src 'self' 'unsafe-inline'")
+                .doesNotContain("'unsafe-inline' 'self'")
                 .doesNotContain("unsafe-eval");
+
+        // The website's own inline scripts are permitted one at a time, by
+        // hash, and nothing else inline is. A hash names one exact script, so
+        // this stays true of an injected one. If this list is ever replaced by
+        // 'unsafe-inline' the assertion below is what should stop it.
+        String scriptSrc = policy.substring(policy.indexOf("script-src"),
+                policy.indexOf(';', policy.indexOf("script-src")));
+        assertThat(scriptSrc)
+                .as("the exported website's inline bootstrap, hashed")
+                .contains("'sha256-");
+        assertThat(scriptSrc)
+                .as("and no blanket permission for inline script, ever")
+                .doesNotContain("'unsafe-inline'");
         assertThat(policy)
                 .as("the one concession is for styles, which cannot execute")
                 .contains("style-src 'self' 'unsafe-inline'");

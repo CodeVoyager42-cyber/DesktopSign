@@ -1,0 +1,408 @@
+/*
+ * SignFlow's design system, carried over from the hand-written stylesheet it
+ * replaces (docs/frontend-design.md §1). The values are not re-decided here:
+ * every contrast ratio in that document still describes these tokens.
+ *
+ * Light theme only, deliberately, and `color-scheme` is pinned so form
+ * controls follow. A dark theme means contrast decisions nobody has checked,
+ * and guessing them is worse than waiting to be asked.
+ */
+
+:root {
+  color-scheme: light;
+
+  --ink: #0f1b2d;
+  --ink-muted: #4a5567;
+  --accent: #0e7c66;
+  --accent-strong: #0a6453;
+  --accent-tint: #e9f2f0;
+  --band: #062a23;
+  --surface: #ffffff;
+  --surface-sunken: #f5f8f7;
+  --line: #dde3e2;
+  --danger: #a3242a;
+  --danger-tint: #fdf1f1;
+  --warn: #7a5200;
+  --warn-tint: #fdf6e7;
+
+  --radius: 8px;
+  --measure: 1080px;
+  --measure-wide: 1200px;
+
+  --t-hero: clamp(2.5rem, 6vw, 4rem);
+  --t-title: 2.5rem;
+  --t-section: 1.5rem;
+
+  /* "Inter Variable" is the family @fontsource-variable/inter registers. The
+     platform stack behind it is what shows if the font file ever fails to
+     load, which is a slightly looser page and nothing worse. */
+  --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+main {
+  flex: 1;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+p {
+  margin: 0 0 1rem;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+a:hover {
+  color: var(--accent-strong);
+  text-decoration: underline;
+}
+
+/* Nothing removes an outline anywhere: the ring is the only thing a keyboard
+   user has to go on (docs/frontend-design.md §4). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.muted {
+  color: var(--ink-muted);
+}
+
+/* A skip link, visible the moment it is focused. DocuSign's page has one and
+   it is the right pattern: the mega-menu is a long way to tab through. */
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background: var(--surface);
+  color: var(--accent);
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0 0 var(--radius) 0;
+}
+
+.skip:focus {
+  left: 0;
+}
+
+/* ------------------------------- layout -------------------------------- */
+
+.wrap {
+  width: 100%;
+  max-width: var(--measure-wide);
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.column {
+  width: 100%;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 3.5rem 1.5rem 4rem;
+}
+
+/* The narrow column every form sits in. */
+.panel {
+  width: 100%;
+  max-width: 29rem;
+  margin: 0 auto;
+  padding: 3.5rem 1.5rem 4rem;
+}
+
+.panel h1,
+.column h1 {
+  font-size: var(--t-title);
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin: 0 0 0.75rem;
+}
+
+h2 {
+  font-size: var(--t-section);
+  font-weight: 400;
+  margin: 2.5rem 0 0.75rem;
+}
+
+.lede {
+  color: var(--ink-muted);
+  margin-bottom: 2rem;
+}
+
+/* ------------------------------ surfaces ------------------------------- */
+
+.sheet {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  margin: 0 0 1rem;
+}
+
+.card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem;
+  letter-spacing: -0.01em;
+}
+
+.card p {
+  margin: 0 0 0.25rem;
+  color: var(--ink-muted);
+  font-size: 0.9375rem;
+}
+
+.card .more {
+  margin-top: 0.75rem;
+  display: inline-block;
+}
+
+/* ------------------------------- controls ------------------------------ */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.75rem 1.25rem;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.button:hover {
+  background: var(--accent-strong);
+  color: #fff;
+  text-decoration: none;
+}
+
+.button[disabled] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.button.block {
+  width: 100%;
+}
+
+.button.ghost {
+  background: transparent;
+  color: var(--accent);
+  border-color: var(--line);
+}
+
+.button.ghost:hover {
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+
+.text-button {
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.text-button:hover {
+  color: var(--accent-strong);
+  text-decoration: underline;
+}
+
+.field {
+  display: grid;
+  gap: 0.375rem;
+  margin: 0 0 1.25rem;
+}
+
+label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+input {
+  font: inherit;
+  width: 100%;
+  padding: 0.6875rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}
+
+.hint {
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+  margin: -0.875rem 0 1.25rem;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.625rem;
+  margin: 1.5rem 0 0;
+  font-size: 0.9375rem;
+}
+
+.links .sep {
+  color: var(--line);
+}
+
+/* ------------------------------ messages ------------------------------- */
+
+/* One region per screen, announced when its text changes rather than only
+   coloured. The square left edge is deliberate: a radius there reads as a
+   detached chip instead of an annotation. */
+.note {
+  min-height: 1.5rem;
+  margin: 1.25rem 0 0;
+  font-size: 0.9375rem;
+  color: var(--ink-muted);
+  border-left: 3px solid transparent;
+  padding-left: 0.75rem;
+}
+
+.note:empty {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.note.bad {
+  color: var(--danger);
+  background: var(--danger-tint);
+  border-left-color: var(--danger);
+  padding: 0.625rem 0.75rem;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.note.good {
+  color: var(--accent-strong);
+  background: var(--accent-tint);
+  border-left-color: var(--accent);
+  padding: 0.625rem 0.75rem;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+
+.badge.pending {
+  background: var(--warn-tint);
+  color: var(--warn);
+}
+
+.notice {
+  background: var(--surface-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+}
+
+.notice p:last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 30rem) {
+  .column,
+  .panel {
+    padding: 2rem 1rem 3rem;
+  }
+
+  .panel h1,
+  .column h1 {
+    font-size: 1.75rem;
+  }
+
+  h2 {
+    font-size: 1.25rem;
+    margin-top: 2rem;
+  }
+
+  .sheet {
+    padding: 1.25rem;
+  }
+
+  .card {
+    padding: 1rem 1.125rem;
+  }
+
+  .wrap {
+    padding: 0 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
+}

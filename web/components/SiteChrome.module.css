@@ -1,0 +1,195 @@
+/* Header, product menu and footer. */
+
+.header {
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  min-height: 4.5rem;
+}
+
+.brand {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  text-decoration: none;
+  flex: none;
+}
+
+.brand:hover {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.mark {
+  color: var(--accent);
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex: 1;
+}
+
+.navLink {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.navLink:hover {
+  color: var(--accent-strong);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: none;
+  min-height: 2.75rem;
+}
+
+/* ----------------------------- product menu ---------------------------- */
+
+.menu {
+  position: relative;
+}
+
+/* The default disclosure triangle is replaced by a chevron of our own, so the
+   label reads as a menu rather than as an expandable paragraph. */
+.menuLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+}
+
+.menuLabel::-webkit-details-marker {
+  display: none;
+}
+
+.menuLabel::after {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-0.1rem);
+}
+
+.menuLabel:hover {
+  color: var(--accent-strong);
+}
+
+.menuPanel {
+  position: absolute;
+  top: calc(100% + 0.75rem);
+  left: -1rem;
+  width: min(26rem, calc(100vw - 2rem));
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.menuItem {
+  display: grid;
+  gap: 0.125rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+
+.menuItem:hover {
+  background: var(--surface-sunken);
+  text-decoration: none;
+}
+
+.menuItemTitle {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.menuItemDetail {
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* -------------------------------- footer ------------------------------- */
+
+.footer {
+  background: var(--band);
+  color: #e7efed;
+  margin-top: 4rem;
+}
+
+.footerRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 1.75rem;
+  padding-bottom: 1.75rem;
+}
+
+.footerLine {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #b9cdc8;
+}
+
+.footerLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  font-size: 0.875rem;
+}
+
+.footerLinks a {
+  color: #e7efed;
+}
+
+.footerLinks a:hover {
+  color: #fff;
+}
+
+@media (max-width: 52rem) {
+  .headerRow {
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding-top: 0.875rem;
+    padding-bottom: 0.875rem;
+  }
+
+  .nav {
+    order: 3;
+    flex-basis: 100%;
+    gap: 1.25rem;
+  }
+
+  .actions {
+    margin-left: auto;
+  }
+
+  .menuPanel {
+    left: 0;
+  }
+}

@@ -93,7 +93,21 @@ public class SecurityConfig {
             getOrHead("/"),
             getOrHead("/index.html"),
             getOrHead("/favicon.ico"),
-            getOrHead("/assets/**"),
+            getOrHead("/icon.svg"),
+            // The built website's own files. One prefix, because a build
+            // tool names them: the export puts every script, stylesheet and
+            // font under /_next/static with a content hash in the file name.
+            // Nothing else is served from there, and nothing in there is
+            // secret — it is the same code every visitor downloads.
+            getOrHead("/_next/**"),
+            // The page the router asks for when it moves between screens
+            // without a reload: one per page, holding what that page needs.
+            // Public for the same reason the page itself is, and no more
+            // revealing than the HTML it belongs to.
+            getOrHead("/*.txt"),
+            // The export's own 404 document, so a mistyped path gets the
+            // website's own page rather than the container's.
+            getOrHead("/404.html"),
             websitePages(),
             // Spring's error dispatch, so a failure reports its real status.
             path("/error"));
@@ -180,10 +194,24 @@ public class SecurityConfig {
      * one array is what stops a page being routable but refused, or — worse —
      * permitted here and never routed.
      */
+    /**
+     * Every page of the website: the path a visitor types, and the file it is
+     * served from.
+     *
+     * <p>Both, because the route is a forward. {@code /sign-in} forwards to
+     * {@code /sign-in.html}, and whether that second dispatch is filtered
+     * again depends on {@code spring.security.filter.dispatcher-types} —
+     * which is a setting, not a guarantee. Permitting only the path worked
+     * while every page forwarded to {@code index.html}, which was permitted
+     * for its own sake; with a file per page it would depend on that setting.
+     * Both are the same public document either way, so listing both costs
+     * nothing and removes the dependency.
+     */
     private static RequestMatcher websitePages() {
         return new OrRequestMatcher(java.util.Arrays
                 .stream(FrontendRoutingConfiguration.PAGES)
-                .map(SecurityConfig::getOrHead)
+                .flatMap(page -> java.util.stream.Stream.of(
+                        getOrHead(page), getOrHead(page + ".html")))
                 .toList());
     }
 

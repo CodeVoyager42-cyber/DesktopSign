@@ -509,11 +509,16 @@ class WebAccountHttpTests {
         HttpResponse<String> csrf = get("/web/api/csrf", null);
 
         assertThat(csrf.headers().firstValue("Referrer-Policy")).contains("no-referrer");
+        // script-src is 'self' plus one sha256 expression per inline script in
+        // the exported website, so it is asserted by its two properties
+        // rather than as a fixed string; everything after it is fixed.
         assertThat(csrf.headers().firstValue("Content-Security-Policy"))
-                .contains("default-src 'none'; script-src 'self';"
-                        + " style-src 'self' 'unsafe-inline'; img-src 'self';"
-                        + " font-src 'self'; connect-src 'self'; form-action 'self';"
-                        + " base-uri 'none'; frame-ancestors 'none'");
+                .hasValueSatisfying(policy -> assertThat(policy)
+                        .contains("default-src 'none'; script-src 'self'")
+                        .contains("style-src 'self' 'unsafe-inline'; img-src 'self';"
+                                + " font-src 'self'; connect-src 'self';"
+                                + " form-action 'self'; base-uri 'none';"
+                                + " frame-ancestors 'none'"));
         assertThat(csrf.headers().firstValue("X-Content-Type-Options")).contains("nosniff");
         assertThat(csrf.headers().firstValue("X-Frame-Options")).contains("DENY");
     }
