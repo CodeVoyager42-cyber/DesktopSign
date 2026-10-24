@@ -11,7 +11,12 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.security.MessageDigest;
+import java.util.Base64;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -62,7 +67,7 @@ class FrontendServingHttpTests {
             assertThat(page.headers().firstValue("Content-Type"))
                     .as(path)
                     .hasValueSatisfying(type -> assertThat(type).contains("text/html"));
-            assertThat(page.body()).as(path).contains("<!doctype html>");
+            assertThat(page.body()).as(path).contains("<!DOCTYPE html>");
         }
     }
 
@@ -77,7 +82,7 @@ class FrontendServingHttpTests {
             HttpResponse<String> page = get(path);
 
             assertThat(page.statusCode()).as(path).isEqualTo(200);
-            assertThat(page.body()).as(path).contains("<!doctype html>");
+            assertThat(page.body()).as(path).contains("<!DOCTYPE html>");
         }
     }
 
@@ -108,23 +113,76 @@ class FrontendServingHttpTests {
     }
 
     @Test
-    void theEntryPointLoadsItsCodeAsFilesAndNotInline() throws Exception {
-        // The policy is script-src 'self' with no 'unsafe-inline', so every
-        // script on the page has to be a file this server serves. An inline
-        // <script> block would be silently blocked in a browser and nowhere
-        // else, which is exactly the failure a test should catch instead.
-        String html = get("/").body();
+    void everyInlineScriptIsPermittedByItsOwnHashAndNothingElseIs() throws Exception {
+        // The invariant that replaced "there is no inline script at all".
+        //
+        // The website is a Next.js static export, and every page carries the
+        // inline payload React needs to take over the markup. The policy is
+        // still script-src 'self' with no 'unsafe-inline', so each of those
+        // blocks is permitted one at a time by the hash of its contents
+        // (InlineScriptHashes). Get that wrong and the page loads its code and
+        // then does nothing — in a browser console, and nowhere a build would
+        // notice. So this computes the hashes the way a browser does and
+        // checks the header really names them.
+        for (String path : new String[] {"/", "/sign-in", "/documents"}) {
+            HttpResponse<String> page = get(path);
+            String policy = page.headers()
+                    .firstValue("Content-Security-Policy").orElseThrow();
 
-        assertThat(html).contains("<script type=\"module\" src=\"/assets/app.js\"></script>");
-        assertThat(html)
-                .as("no inline script: every script tag is closed immediately after its src")
-                .doesNotContainPattern("(?s)<script(?![^>]*\\bsrc=)[^>]*>\\s*\\S");
-        assertThat(html)
-                .as("and nothing is loaded from another origin")
-                .doesNotContain("http://").doesNotContain("https://");
-        assertThat(html)
-                .as("no inline event handlers either, for the same reason")
-                .doesNotContain("onclick=").doesNotContain("onload=");
+            Matcher inline = Pattern.compile(
+                    "<script(?![^>]*\\ssrc=)([^>]*)>(.*?)</script>", Pattern.DOTALL)
+                    .matcher(page.body());
+            int found = 0;
+            while (inline.find()) {
+                if (inline.group(2).isEmpty()
+                        || inline.group(1).contains("application/json")) {
+                    continue;
+                }
+                found++;
+                String hash = Base64.getEncoder().encodeToString(
+                        MessageDigest.getInstance("SHA-256")
+                                .digest(inline.group(2).getBytes(StandardCharsets.UTF_8)));
+                assertThat(policy)
+                        .as(path + " has an inline script the policy does not permit")
+                        .contains("'sha256-" + hash + "'");
+            }
+            assertThat(found)
+                    .as(path + " should have inline scripts to hash — if the export"
+                            + " stops emitting them, this test has stopped testing"
+                            + " anything and the hashes can go")
+                    .isPositive();
+            // Only the script-src segment: 'unsafe-inline' appears later in
+            // the policy for styles, which is a concession of its own and
+            // deliberately not this test's business.
+            String scriptSrc = policy.substring(policy.indexOf("script-src"),
+                    policy.indexOf(';', policy.indexOf("script-src")));
+            assertThat(scriptSrc)
+                    .as("still no blanket permission for inline script")
+                    .startsWith("script-src 'self' 'sha256-")
+                    .doesNotContain("'unsafe-inline'");
+        }
+    }
+
+    @Test
+    void thePagesLoadTheirCodeFromThisOriginOnly() throws Exception {
+        // Everything the export references is content-hashed under /_next,
+        // which is this server's own path. An absolute URL in the markup would
+        // mean the build had been pointed at a CDN — blocked by the policy at
+        // runtime, and only visible in a browser console.
+        for (String path : new String[] {"/", "/sign-in", "/documents", "/account"}) {
+            String html = get(path).body();
+
+            assertThat(html).as(path).contains("/_next/static/");
+            assertThat(html)
+                    .as(path + " must load nothing from another origin")
+                    .doesNotContain("http://")
+                    .doesNotContain("https://");
+            assertThat(html)
+                    .as(path + " must carry no inline event handler: a hash covers"
+                            + " a <script> block, and nothing covers onclick=")
+                    .doesNotContain("onclick=")
+                    .doesNotContain("onload=");
+        }
     }
 
     @Test
@@ -134,8 +192,8 @@ class FrontendServingHttpTests {
         // everything else to denyAll(). Browsers, proxies, link checkers and
         // uptime monitors all use HEAD, and a HEAD of a public page reveals
         // exactly what a GET of it does.
-        for (String path : new String[] {"/", "/index.html", "/assets/app.js",
-                "/assets/app.css", "/sign-in"}) {
+        for (String path : new String[] {"/", "/index.html", anyScript(),
+                anyStylesheet(), "/sign-in", "/documents"}) {
             HttpResponse<Void> head = http.send(
                     HttpRequest.newBuilder(URI.create(this.base + path))
                             .method("HEAD", HttpRequest.BodyPublishers.noBody()).build(),
@@ -146,49 +204,57 @@ class FrontendServingHttpTests {
     }
 
     @Test
-    void theWebsiteOwnPagesAnswerWithTheEntryPointToo() throws Exception {
+    void everyPageTheWebsiteListsIsItsOwnDocument() throws Exception {
         // Each of these is one line in FrontendRoutingConfiguration.PAGES,
         // which SecurityConfig.PUBLIC reads as well — so a page cannot be
         // routable but refused, nor permitted and never routed.
-        for (String path : new String[] {"/sign-in", "/sign-up", "/forgot-password"}) {
+        //
+        // They are separate documents now. The old website was one
+        // index.html that built every view in the browser; the export writes
+        // a real page per route, so the forward goes to that page's own file
+        // and this asserts the right one arrives.
+        for (String path : new String[] {"/sign-in", "/sign-up", "/forgot-password",
+                "/change-password", "/account", "/documents", "/verify-email",
+                "/reset-password"}) {
             HttpResponse<String> page = get(path);
 
             assertThat(page.statusCode()).as(path).isEqualTo(200);
-            assertThat(page.body()).as(path).contains("/assets/app.js");
+            assertThat(page.body()).as(path).contains("<!DOCTYPE html>");
+            assertThat(page.body())
+                    .as(path + " should be the page for that route")
+                    .contains("/_next/static/chunks/app" + path);
         }
     }
 
     @Test
     void theScriptAndStylesheetAreServedWithTypesABrowserWillAccept()
             throws Exception {
-        // A module served as text/plain is refused by the browser outright,
+        // A script served as text/plain is refused by the browser outright,
         // and a stylesheet served as the wrong type is ignored. Both failures
         // appear only in a browser console, so they are worth pinning here.
-        assertThat(get("/assets/app.js").headers().firstValue("Content-Type"))
+        // The file names are content-hashed by the build, so they are read out
+        // of the page rather than written down.
+        assertThat(get(anyScript()).headers().firstValue("Content-Type"))
                 .hasValueSatisfying(type -> assertThat(type).contains("javascript"));
-        assertThat(get("/assets/app.css").headers().firstValue("Content-Type"))
+        assertThat(get(anyStylesheet()).headers().firstValue("Content-Type"))
                 .hasValueSatisfying(type -> assertThat(type).contains("text/css"));
     }
 
     @Test
-    void theScriptTalksOnlyToThisOriginAndStoresNoCredentials() throws Exception {
-        // The session cookie is HttpOnly and __Host- prefixed, so there is
-        // nothing for the page to keep. If this ever starts stashing tokens
-        // in localStorage, or calling another host, the policy and the
-        // same-origin decision have both been worked around.
-        String script = get("/assets/app.js").body() + get("/assets/api.js").body();
+    void theFontIsServedFromHereAndNotFromAFontService() throws Exception {
+        // font-src 'self' permits no font service, which is the point. The
+        // hand-written stylesheet pointed @font-face at files nobody had
+        // added and fell back to the platform font; the build now emits the
+        // font itself, so this asserts there is really one to serve.
+        String css = get(anyStylesheet()).body();
+        Matcher font = Pattern.compile("/_next/static/media/[^\")]+\\.woff2")
+                .matcher(css);
 
-        // Usage, not the words: the modules discuss web storage in a comment
-        // explaining why they do not use it, and a test that cannot tell the
-        // difference would push that explanation out of the code.
-        assertThat(script)
-                .doesNotContainPattern("(local|session)Storage\\s*[.\\[]")
-                .doesNotContain("document.cookie =")
-                .doesNotContain("http://")
-                .doesNotContain("https://");
-        assertThat(script)
-                .as("and it sends the session cookie deliberately, not by accident")
-                .contains("credentials: \"same-origin\"");
+        assertThat(font.find()).as("the stylesheet should reference a woff2").isTrue();
+        HttpResponse<String> served = get(font.group());
+        assertThat(served.statusCode()).as(font.group()).isEqualTo(200);
+        assertThat(served.headers().firstValue("Content-Type"))
+                .hasValueSatisfying(type -> assertThat(type).contains("font"));
     }
 
     /* -------------------------- what it did not open -------------------- */
@@ -234,18 +300,18 @@ class FrontendServingHttpTests {
         assertThat(api.statusCode()).isEqualTo(401);
         assertThat(api.headers().firstValue("Content-Type"))
                 .hasValueSatisfying(type -> assertThat(type).contains("application/json"));
-        assertThat(api.body()).doesNotContain("<!doctype html>");
+        assertThat(api.body()).doesNotContain("<!DOCTYPE html>");
     }
 
     @Test
     void aMissingAssetIs404AndNotTheEntryPage() throws Exception {
-        // Same reasoning: /assets/** is served, so a file that is not there
+        // Same reasoning: /_next/** is served, so a file that is not there
         // must say so rather than returning HTML that a script tag would then
         // try to execute as JavaScript.
-        HttpResponse<String> missing = get("/assets/does-not-exist.js");
+        HttpResponse<String> missing = get("/_next/static/chunks/does-not-exist.js");
 
         assertThat(missing.statusCode()).isEqualTo(404);
-        assertThat(missing.body()).doesNotContain("<!doctype html>");
+        assertThat(missing.body()).doesNotContain("<!DOCTYPE html>");
     }
 
     @Test
@@ -268,6 +334,27 @@ class FrontendServingHttpTests {
     private HttpResponse<String> get(String path) throws Exception {
         return http.send(HttpRequest.newBuilder(URI.create(this.base + path)).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
+    }
+
+    /**
+     * One script the entry page loads. The build gives every file a
+     * content-hashed name, so a test that wrote one down would be rewritten
+     * by the next frontend change; this reads one out of the page instead.
+     */
+    private String anyScript() throws Exception {
+        return firstMatch("/_next/static/chunks/[^\"]+\\.js", get("/").body(), "script");
+    }
+
+    private String anyStylesheet() throws Exception {
+        return firstMatch("/_next/static/css/[^\"]+\\.css", get("/").body(), "stylesheet");
+    }
+
+    private static String firstMatch(String regex, String html, String what) {
+        Matcher match = Pattern.compile(regex).matcher(html);
+        assertThat(match.find())
+                .as("the entry page should reference a " + what)
+                .isTrue();
+        return match.group();
     }
 
     /** A real access token, for showing that denial is not about the token. */

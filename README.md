@@ -187,7 +187,9 @@ launcher prints a warning asking you to move it. Never commit secrets:
 │   ├── config/             Typed configuration properties
 │   └── exception/          Error codes and the service exception
 ├── src/main/resources/     application.yml, Flyway migrations (db/migration), UI styles
+│   └── static/             The built website (generated — see web/)
 ├── src/test/java/          Tests, in the same packages as the code they test
+├── web/                    The website: Next.js + TypeScript, exported into static/
 ├── docs/                   Design notes; docs/architecture/ has the sequence diagrams
 ├── scripts/                package.sh, db-console.cmd, (un)register-signflow-protocol.cmd
 ├── tools/                  Build helpers (icon generation)

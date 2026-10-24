@@ -69,12 +69,15 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
      */
     public static final String CHANGE_PASSWORD_PAGE = "/change-password";
 
-    /**
-     * The account screen. It used to be what {@code /} showed; {@code /} is
-     * the document dashboard now, because that is what somebody opens the
-     * site for, and the account moved to a page of its own.
-     */
+    /** The account screen. */
     public static final String ACCOUNT_PAGE = "/account";
+
+    /**
+     * The document dashboard — the screen somebody signing in is going to.
+     * {@code /} is the public page that explains the product, as every site
+     * of this kind has; the dashboard is a path of its own behind it.
+     */
+    public static final String DOCUMENTS_PAGE = "/documents";
 
     /**
      * Every path forwarded to the website. {@code SecurityConfig.PUBLIC}
@@ -84,16 +87,32 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String[] PAGES = {
         VERIFY_EMAIL_PAGE, RESET_PASSWORD_PAGE,
         SIGN_IN_PAGE, SIGN_UP_PAGE, FORGOT_PASSWORD_PAGE, CHANGE_PASSWORD_PAGE,
-        ACCOUNT_PAGE,
+        ACCOUNT_PAGE, DOCUMENTS_PAGE,
     };
 
-    /** The one document the website is served from. */
-    static final String ENTRY_POINT = "forward:/index.html";
+    /**
+     * The file a page is served from: {@code /sign-in} → {@code
+     * /sign-in.html}.
+     *
+     * <p>Each page is its own document now. The website used to be one
+     * {@code index.html} that built every view in the browser, so every path
+     * forwarded to that single file; the Next.js export writes a real
+     * document per route instead, which is why the forward is derived from
+     * the path rather than being one constant.
+     *
+     * <p>Still a list and <b>not</b> a catch-all: the reasoning above about
+     * honest 404s is unchanged, and now there is a second reason — a
+     * {@code /**} forward would answer a mistyped path with whichever page
+     * the fallback named, which is a worse lie than a 404.
+     */
+    static String fileFor(String page) {
+        return "forward:" + page + ".html";
+    }
 
     @Override
     public void addViewControllers(ViewControllerRegistry registry) {
         for (String page : PAGES) {
-            registry.addViewController(page).setViewName(ENTRY_POINT);
+            registry.addViewController(page).setViewName(fileFor(page));
         }
     }
 }
