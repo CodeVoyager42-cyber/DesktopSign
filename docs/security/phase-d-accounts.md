@@ -393,6 +393,27 @@ it needed: lock per account *and* address, a progressive delay, an operator
 unlock and a notice to the holder. **All four are now done**, which does not
 mean the risk is closed — see the end of this section and §11.
 
+#### A refused attempt is not a counted one
+
+Worth stating, because it is easy to assume otherwise and one test did. The
+delay is checked **before** the password: an attempt made while the pair is
+refused is answered without the password being looked at, so it does **not**
+increment the counter. The count therefore advances only on attempts that got
+as far as a password check — five *counted* failures to reach the
+`lock-minutes` lock, not five requests.
+
+For an attacker this is the right way round: attempts made during a refusal
+cost them the wait and buy them nothing. What it breaks is the intuition that
+*n* requests produce *n* failures, which is how
+`WebSessionHttpTests.accountLockoutIsSharedWithTheDesktopLogin` came to pass
+for the wrong reason — it fired five attempts back to back, and the two after
+the third were swallowed by that failure's 2-second refusal. It passed
+because they were answered 401 *by the refusal* rather than by the lock it
+meant to assert, and it failed on any run slow enough for the refusal to
+expire first, leaving the count at three and the correct password accepted.
+It now waits each delay out and reads the counter from `login_failures`
+directly, where four failures from the two chains have to appear as one row.
+
 #### Telling the holder — the notice
 
 When the **account-wide** lock fires, the account's address gets a message:
