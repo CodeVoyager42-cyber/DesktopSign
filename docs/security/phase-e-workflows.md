@@ -6,8 +6,8 @@ parts:
 
 | Part | Scope | State |
 |---|---|---|
-| **1** | The read side: the two lists, and one workflow's state, audit trail and revision chain | **done**, this document |
-| 2 | The write side: create a workflow (multipart), invite, resend, revoke, cancel | planned |
+| **1** | The read side: the two lists, and one workflow's state, audit trail and revision chain | **done**, §1 |
+| **2** | The write side: start a workflow, invite a slot, track, resend, revoke, cancel | **done**, §3 |
 | 3 | The final signed PDF, once the workflow is complete — gap G6 | planned |
 
 Signing is in none of them. The website never downloads a document in order
@@ -90,13 +90,83 @@ cannot differ from `/api` without the service differing — but "cannot differ"
 is exactly how a route ends up on the wrong chain, and proving it costs one
 file.
 
-## 3. Still to do
+## 3. Part 2 — the write side
 
-- **Part 2**: `POST /web/api/workflows` (multipart), `{id}/invitations`
-  (POST and GET), `{id}/cancel`, `invitations/{id}/resend` and `/revoke`.
-  CSRF is already enforced on every state-changing `/web/api` request, so the
-  tests there are about the owner-only rules and about CSRF being required
-  rather than merely configured.
+Six routes. Four join `WebWorkflowController`; the two that address an
+invitation by its own id are `WebInvitationController`, because the path is
+`/web/api/invitations/{id}/…` and not under a workflow — the same shape
+`/api/invitations` has.
+
+| Method | Path | Answers |
+|---|---|---|
+| POST | `/web/api/workflows` | 201: the workflow, plus the links that were e-mailed |
+| POST | `/web/api/workflows/{id}/invitations` | 201: the invitation, with the link that just went out |
+| GET | `/web/api/workflows/{id}/invitations` | where each invitation stands, slot by slot |
+| POST | `/web/api/workflows/{id}/cancel` | 200: the workflow, now `CANCELLED` |
+| POST | `/web/api/invitations/{id}/resend` | 200: the fresh link; the old token stops working |
+| POST | `/web/api/invitations/{id}/revoke` | 204 |
+
+### One copy of each multi-step operation
+
+Three of these are not single service calls. Starting a workflow has to
+prepare the e-mail-addressed slots **before** the workflow exists and send
+their invitations **after** it does. Inviting a slot has to check the caller
+may see the workflow at all before validating a slot number against how many
+it has — otherwise the error message describes a workflow the caller cannot
+see. Reading invitation status runs the access check, then lets
+`InvitationService` re-check ownership.
+
+Each of those orders carries a rule, and part 1 warned about exactly this:
+two chains with a copy each is how a check gets tightened on one and
+forgotten on the other. So the sequences moved into
+`api/WorkflowOperations`, which both controllers call, and
+`WorkflowRestController` lost about sixty lines to it. What stays in a
+controller is what belongs to its own domain: resolving the caller from its
+own credential, and the HTTP status of the answer.
+
+`WorkflowOperations` holds no authorization rules of its own. Every path
+starts at `RemoteWorkflowService.getWorkflow`, whose uniform 404 is the
+Phase 3 guard, and invitation ownership stays in `InvitationService`.
+
+### What the routes did not need
+
+- **No CSRF code.** The Phase C chain already enforces a token on every
+  state-changing `/web/api` request. The tests assert that a session alone
+  — the cookie, no `X-XSRF-TOKEN` — is refused 403 on all five POSTs, and
+  that nothing happened: no workflow was created and the existing one is not
+  cancelled.
+- **No verification gate.** `createWorkflow` carries the Phase D rule in the
+  service, so an unverified account is refused `403 EMAIL_NOT_VERIFIED` on
+  this route without the route mentioning it. Asserted, because that is the
+  kind of thing a refactor silently drops.
+- **No ownership checks.** Resend and revoke take a numeric invitation id,
+  which is guessable; both pass the caller's username to
+  `InvitationService`, which re-checks who created the workflow. The test
+  proves another owner's id gets the same answer as an id belonging to
+  nobody, and that the invitation still works afterwards for its owner.
+
+### Test results
+
+`WebWorkflowWriteHttpTests`, over real HTTP against a real PostgreSQL.
+**5 tests, 0 failures.**
+
+| Test | Asserts |
+|---|---|
+| `aWorkflowStartedHereIsOwnedAndItsInvitationsAreTracked` | 201; it is in `owned`; the e-mailed link is in that answer and never in a later read |
+| `everyStateChangingRouteNeedsItsCsrfToken` | 403 on all five POSTs with a session but no token, and no state changed |
+| `onlyTheOwnerInvitesTracksAndCancels` | a signer and a stranger are refused; a stranger's cancel is the uniform 404; the owner's succeeds |
+| `anInvitationIdIsNotACapability` | another owner's id gets the answer a non-existent id gets, and the invitation survives it |
+| `anUnverifiedAccountCannotStartAWorkflow` | `403 EMAIL_NOT_VERIFIED`, and nothing created |
+
+One finding from writing these, worth knowing for the screens: **both cookies
+rotate at sign-in**, the session id against fixation and the CSRF token with
+it, so a client has to keep the pair the login response sets rather than the
+pair the `/web/api/csrf` bootstrap handed out. `assets/api.js` already reads
+the token fresh from its cookie per request, so the website does the right
+thing; a test that cached it did not.
+
+## 4. Still to do
+
 - **Part 3**: `GET /web/api/workflows/{id}/download` — the final signed PDF,
   for the owner and the signers, once the workflow is `COMPLETED`. New
   behaviour rather than a thin call, and the one place in Phase E where
