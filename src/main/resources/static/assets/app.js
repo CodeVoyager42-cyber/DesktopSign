@@ -1,6 +1,12 @@
-// The website: sign up, confirm an address, sign in, reset or change a
-// password, sign out. Everything the account API offers and nothing else —
-// there are no workflow routes under /web/api yet (Phase E).
+// The website: the document dashboard, and the account screens behind it —
+// sign up, confirm an address, sign in, reset or change a password, sign out.
+//
+// "/" is the dashboard and the account screen is at /account, because
+// documents are what somebody opens this site for. Signing itself is not
+// here and cannot be: the certificate is on the signer's own smart card and
+// the desktop application does the signing, so a row waiting for you says so
+// rather than offering a button that could not work. The hand-off that opens
+// the application is Phase F.
 //
 // Written as plain ES modules with no build step, deliberately. The server
 // has no Node toolchain and does not need one for this much, and a module
@@ -46,6 +52,14 @@ function el(tag, attributes = {}, children = []) {
 // navigation bar came to read "SignFlownull".
 function show(...nodes) {
   view.replaceChildren(el("div", { class: "panel" }, nodes.filter(Boolean)));
+}
+
+/**
+ * The same, in the wider column. A form reads best narrow; a list of rows
+ * with a name, a line about it and an action does not fit in 29 rem.
+ */
+function showWide(...nodes) {
+  view.replaceChildren(el("div", { class: "panel wide" }, nodes.filter(Boolean)));
 }
 
 function title(text) {
@@ -318,6 +332,147 @@ function resetPasswordView() {
   );
 }
 
+/* ----------------------------- dashboard ------------------------------- */
+
+// The raw state names stay the server's (it deliberately sends no
+// presentation strings), so the mapping to something readable lives here.
+const STATE_WORDS = {
+  DRAFT: "Not sent yet",
+  READY_FOR_SIGNING: "Ready to sign",
+  WAITING_FOR_SIGNER: "Waiting for a signature",
+  SIGNATURE_SUBMITTED: "Checking a signature",
+  VALIDATING: "Checking a signature",
+  COMPLETED: "Signed by everyone",
+  CANCELLED: "Cancelled",
+  FAILED: "Stopped by an error",
+};
+
+const FINISHED = ["COMPLETED", "CANCELLED", "FAILED"];
+
+/**
+ * One row per document, merged from the two lists.
+ *
+ * A workflow you sent AND sign appears in both, so `participating` is applied
+ * second and wins: it is the one that knows about your own slot. Keyed by
+ * workflow id, which is why a document cannot show up twice.
+ */
+function dashboardRows(owned, tasks, me) {
+  const rows = new Map();
+  for (const w of owned) {
+    rows.set(w.workflowId, {
+      id: w.workflowId,
+      name: w.documentName,
+      status: w.status,
+      signed: w.completedSignatures,
+      total: w.totalSignatures,
+      sent: true,
+      // The owner may hold a slot too, in which case the server already
+      // names them as the current signer.
+      waitingForMe: w.currentSignerUserId === me.username,
+    });
+  }
+  for (const t of tasks) {
+    const existing = rows.get(t.workflowId);
+    rows.set(t.workflowId, {
+      id: t.workflowId,
+      name: t.documentName,
+      status: t.status,
+      signed: t.completedSignatures,
+      total: t.totalSignatures,
+      sent: Boolean(existing),
+      from: t.senderDisplayName || t.senderId,
+      waitingForMe: Boolean(t.myState
+        && (t.myState.waitingForMe || t.myState.waitingForClaim)),
+      iSigned: Boolean(t.myState && t.myState.signed),
+    });
+  }
+  return [...rows.values()];
+}
+
+/** The second line of a row: who it is from, and how far it has got. */
+function rowStory(row) {
+  const progress = `${row.signed} of ${row.total} signed`;
+  if (row.from && row.sent) return `you sent this · ${progress}`;
+  if (row.from) return `from ${row.from} · ${progress}`;
+  return `you sent this · ${progress}`;
+}
+
+/**
+ * A group, with its count in the heading. An empty one collapses to a single
+ * muted line rather than an empty panel: a dashboard whose first impression
+ * is three empty boxes reads as broken.
+ */
+function group(heading, rows, emptyWords, action) {
+  const header = el("h2", {}, [
+    el("span", { text: heading }),
+    rows.length ? el("span", { class: "count", text: String(rows.length) }) : null,
+  ]);
+  if (!rows.length) {
+    return [header, el("p", { class: "muted empty", text: emptyWords })];
+  }
+  return [header, ...rows.map((row) => card(
+    row.name,
+    [rowStory(row), FINISHED.includes(row.status)
+      ? badge(STATE_WORDS[row.status] || row.status, row.status !== "COMPLETED")
+      : el("p", { text: STATE_WORDS[row.status] || row.status })],
+    action ? action(row) : null))];
+}
+
+async function dashboardView(me) {
+  const status = note();
+  showWide(title("Documents"), lede("Loading…"), status.node);
+
+  const [ownedResult, participatingResult] = await Promise.all([
+    api.owned(), api.participating(),
+  ]);
+  if (!ownedResult.ok || !participatingResult.ok) {
+    status.say("Your documents could not be loaded. Try again in a moment.", "bad");
+    showWide(title("Documents"), status.node, links(link("/account", "Your account")));
+    return;
+  }
+
+  const rows = dashboardRows(
+    ownedResult.body || [],
+    (participatingResult.body && participatingResult.body.tasks) || [],
+    me);
+  const finished = rows.filter((row) => FINISHED.includes(row.status));
+  const mine = rows.filter((row) => !FINISHED.includes(row.status) && row.waitingForMe);
+  const theirs = rows.filter((row) => !FINISHED.includes(row.status) && !row.waitingForMe);
+
+  // The count belongs in the tab title too: a signing request that arrived
+  // while this tab sat open should be visible without reading the page.
+  document.title = mine.length ? `SignFlow — ${mine.length} to sign` : "SignFlow";
+
+  showWide(
+    title("Documents"),
+    rows.length
+      ? null
+      : lede("Nothing here yet. A document appears once you are asked to sign"
+        + " one, or you send one out."),
+    ...group("Action required", mine,
+      "Nothing is waiting for your signature.",
+      // Signing happens on the signer's own computer, with their card: there
+      // is no button here that could do it. Saying so is better than a link
+      // that cannot work yet — the hand-off that opens the app is Phase F.
+      () => el("p", { class: "muted more",
+        text: "Open SignFlow on your computer to sign this." })),
+    ...group("Waiting for others", theirs,
+      "Nothing of yours is in flight."),
+    ...group("Finished", finished,
+      "Nothing finished yet.",
+      (row) => (row.status === "COMPLETED"
+        // `download` keeps this out of the client-side router below, which
+        // would otherwise swallow the click and try to render a PDF as a
+        // page. The browser fetches it with the session cookie attached.
+        ? el("p", { class: "more" }, [
+            el("a", { href: api.downloadUrl(row.id), download: true,
+              text: "Download the signed PDF ›" }),
+          ])
+        : null)),
+    status.node,
+  );
+}
+
 function accountView(me) {
   const status = note();
   const confirmed = me.emailVerified;
@@ -353,7 +508,7 @@ function accountView(me) {
       "desktop app, and e-mails you to say it happened.",
     ], el("p", { class: "more" }, [link("/change-password", "Change password ›")])),
     status.node,
-    links(signOut),
+    links(link("/", "Documents"), signOut),
   );
 }
 
@@ -413,8 +568,14 @@ const ROUTES = {
   "/reset-password": resetPasswordView,
 };
 
-/** Screens that need a session; without one they fall back to signing in. */
+/**
+ * Screens that need a session; without one they fall back to signing in.
+ * "/" is the dashboard, because documents are what somebody opens the site
+ * for; the account screen is a page of its own at /account.
+ */
 const SIGNED_IN_ROUTES = {
+  "/": dashboardView,
+  "/account": accountView,
   "/change-password": changePasswordView,
 };
 
@@ -439,12 +600,9 @@ async function route(path) {
     return;
   }
   renderNav(me.body);
-  const signedIn = SIGNED_IN_ROUTES[target];
-  if (signedIn) {
-    signedIn(me.body);
-  } else {
-    accountView(me.body);
-  }
+  // Anything else a signed-in visitor asks for lands on the dashboard. The
+  // server only forwards the paths it lists, so "anything else" is narrow.
+  await (SIGNED_IN_ROUTES[target] || dashboardView)(me.body);
 }
 
 function renderNav(me) {
@@ -453,7 +611,11 @@ function renderNav(me) {
     el("span", { text: "Flow" }),
   ])];
   if (me) {
-    items.push(el("span", { class: "who", text: me.username }));
+    items.push(el("span", { class: "who" }, [
+      link("/", "Documents"),
+      el("span", { class: "sep", text: "·" }),
+      link("/account", me.username),
+    ]));
   }
   nav.replaceChildren(...items);
 }
@@ -461,7 +623,8 @@ function renderNav(me) {
 /** Links inside the app navigate without a page load. */
 document.addEventListener("click", (event) => {
   const anchor = event.target.closest("a[href^='/']");
-  if (!anchor || anchor.target === "_blank" || event.metaKey || event.ctrlKey) {
+  if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download")
+      || event.metaKey || event.ctrlKey) {
     return;
   }
   event.preventDefault();

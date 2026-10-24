@@ -111,6 +111,21 @@ export const api = {
     post("/web/api/auth/password-reset/confirm", { token, newPassword }),
   changePassword: (currentPassword, newPassword) =>
     post("/web/api/me/password", { currentPassword, newPassword }),
+
+  /* Workflows (Phase E). Two lists, because which group a document belongs
+     in depends on the viewer's own slot and not on the document's state:
+     `participating` knows whose turn it is, `owned` knows what you sent. */
+  participating: () => get("/web/api/workflows/participating"),
+  owned: () => get("/web/api/workflows/owned"),
+
+  /**
+   * The finished document. A plain URL rather than a fetch: this is a
+   * download, and letting the browser do it keeps the bytes out of this
+   * script entirely. The session cookie travels with it because it is the
+   * same origin — which is the whole reason the website is served from here.
+   */
+  downloadUrl: (workflowId) =>
+    "/web/api/workflows/" + encodeURIComponent(workflowId) + "/download",
 };
 
 /** Minimum password length, as the server enforces it. */
