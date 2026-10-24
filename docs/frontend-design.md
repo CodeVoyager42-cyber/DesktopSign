@@ -109,37 +109,68 @@ than that; being more helpful here would undo the server's work.
 
 | Screen | Path | Notes |
 |---|---|---|
+| **Documents** | `/` when signed in | three groups with counts; the wider column |
 | Sign in | `/sign-in` | one message for every kind of refusal |
 | Create an account | `/sign-up` | 202 either way; the confirmation page is worded for both |
 | Forgotten password | `/forgot-password` | same |
 | Confirm address | `/verify-email?token=…` | acts on arrival, then reports |
 | Set a new password | `/reset-password?token=…` | refuses an absent token before asking for anything |
-| My account | `/` when signed in | two cards, a state badge, sign out as a text button |
+| My account | `/account` | two cards, a state badge, sign out as a text button |
 | Change password | `/change-password` | its own screen; falls back to sign-in without a session |
 
 Every path is one line in `FrontendRoutingConfiguration.PAGES`, which
 `SecurityConfig.PUBLIC` reads as well, so a page cannot be routable but
 refused — or permitted and never routed.
 
-## 6. Planned, not built — Phases E and F
+## 5a. The dashboard, as built
 
-Recorded here so the shape is agreed before the routes exist. **None of this
-is implemented**; there are no workflow routes under `/web/api` yet.
+Three groups, each with its count in the heading and the action-required
+count in the tab title, so a request that arrived while the tab sat open is
+visible without reading the page.
 
-### Dashboard
-
-Grouped by what the viewer has to do, with a count on each group heading:
-
-| Group | Contains | Count |
-|---|---|---|
-| **Action required** | documents waiting for this account's signature | the number badged in the group heading, and in the page title |
-| **Waiting for others** | sent by this account, not yet complete | ditto |
-| **Completed** | everything finished, newest first | ditto |
+| Group | Contains |
+|---|---|
+| **Action required** | not finished, and the server says the caller's slot is the one being waited for (`myState.waitingForMe` or `waitingForClaim`) |
+| **Waiting for others** | not finished, and waiting for somebody else |
+| **Finished** | `COMPLETED`, `CANCELLED` or `FAILED` |
 
 Each row is the card pattern: document name, *"from X · 2 of 3 signed"*, and
-`Open ›`. Empty groups collapse to a single muted line rather than an empty
-panel — a dashboard whose first impression is three empty boxes reads as
-broken.
+a state line or badge. Empty groups collapse to a single muted line rather
+than an empty panel — a dashboard whose first impression is three empty boxes
+reads as broken. The column is the full 1080 px `--measure` rather than the
+29 rem the forms use, because a row carries a name, a line and an action.
+
+**Two deviations from §6's plan, both deliberate:**
+
+- *"Waiting for others"* was specified as "sent by this account, not yet
+  complete". That would have hidden a document the viewer had **already
+  signed** while others still had not — it is neither theirs to act on nor
+  theirs by sending. The group is now everything in flight that is not
+  waiting for the viewer, whoever sent it, which is what the heading says
+  anyway.
+- *"Completed"* became **"Finished"**, because cancelled and failed
+  workflows are finished without having completed, and they have to live
+  somewhere. Each row carries its own state, so the distinction is still
+  visible.
+
+**No `Open ›` link yet.** The plan gave every row one, but the screen it
+would open is the status timeline (§6), which is not built — so the rows
+carry what can be acted on today instead: a finished one offers *Download the
+signed PDF ›*, and an action-required one says *"Open SignFlow on your
+computer to sign this"* rather than a button that could not work. Signing
+needs the certificate on the signer's own card; the hand-off that opens the
+application is Phase F.
+
+The download is a plain `<a download>` rather than a fetch: the browser
+fetches it with the session cookie, same origin, and the bytes never pass
+through the page's JavaScript. It is also what keeps the client-side router
+from swallowing the click and trying to render a PDF as a page.
+
+## 6. Planned, not built — Phases E and F
+
+Recorded here so the shape is agreed before the screens exist. **None of
+this is implemented.** The routes for the timeline do exist now (Phase E
+parts 1–3); the "Sign" hand-off belongs to Phase F.
 
 ### Document status timeline
 

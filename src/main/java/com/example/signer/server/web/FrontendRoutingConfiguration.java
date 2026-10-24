@@ -70,6 +70,13 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String CHANGE_PASSWORD_PAGE = "/change-password";
 
     /**
+     * The account screen. It used to be what {@code /} showed; {@code /} is
+     * the document dashboard now, because that is what somebody opens the
+     * site for, and the account moved to a page of its own.
+     */
+    public static final String ACCOUNT_PAGE = "/account";
+
+    /**
      * Every path forwarded to the website. {@code SecurityConfig.PUBLIC}
      * reads this array, so adding a page is one line here and nothing else —
      * which also means the two lists cannot disagree about what is reachable.
@@ -77,6 +84,7 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String[] PAGES = {
         VERIFY_EMAIL_PAGE, RESET_PASSWORD_PAGE,
         SIGN_IN_PAGE, SIGN_UP_PAGE, FORGOT_PASSWORD_PAGE, CHANGE_PASSWORD_PAGE,
+        ACCOUNT_PAGE,
     };
 
     /** The one document the website is served from. */
