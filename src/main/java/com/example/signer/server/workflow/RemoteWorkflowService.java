@@ -522,6 +522,30 @@ public class RemoteWorkflowService {
         return store.readRevision(workflowId, wf.currentRevision().revisionNumber());
     }
 
+    /**
+     * The finished document, for everyone who took part in it (gap G6).
+     *
+     * <p>{@link #getDocument} is the signing download: it hands the current
+     * revision to the one signer whose turn it is, because that is the only
+     * person who has a use for it. This is the other kind — the result, once
+     * there is one, for the creator and every signer alike. Nobody's turn is
+     * involved and nothing can follow it, so no signing rule applies.
+     *
+     * <p>Before the last signature there is deliberately nothing to give out:
+     * a half-signed revision is a working copy, and handing it out as "the
+     * document" invites it to be forwarded, printed and treated as the
+     * agreement. {@code INVALID_WORKFLOW_STATE} (409) says so, and the
+     * uniform 404 still covers anyone who is not in the workflow at all.
+     */
+    public byte[] getCompletedDocument(String workflowId, String userId) {
+        SigningWorkflowAggregate wf = requireAccessible(workflowId, userId);
+        if (wf.status() != WorkflowState.COMPLETED) {
+            throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
+                    "This document is not signed by everyone yet");
+        }
+        return store.readRevision(workflowId, wf.currentRevision().revisionNumber());
+    }
+
     /** Revision history visible to participants. */
     public List<RevisionView> getRevisions(String workflowId, String userId) {
         SigningWorkflowAggregate wf = requireAccessible(workflowId, userId);
