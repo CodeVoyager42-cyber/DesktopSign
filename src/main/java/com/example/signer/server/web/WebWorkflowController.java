@@ -14,6 +14,7 @@ import com.example.signer.server.workflow.RemoteWorkflowService;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -31,8 +32,9 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * What the website may do with workflows: read them (Phase E part 1), and
- * start, invite to, track and cancel them (part 2). Each route is one line
+ * What the website may do with workflows: read them (Phase E part 1), start,
+ * invite to, track and cancel them (part 2), and take the finished document
+ * away at the end (part 3). Each route is one line
  * over {@link RemoteWorkflowService} or {@link WorkflowOperations} — the same
  * service, the same arguments and the same refusals the desktop's
  * {@code /api/workflows} gets.
@@ -66,7 +68,7 @@ import java.util.List;
  * <p><b>Signing is in none of it.</b> The website never downloads a document
  * in order to sign it and never submits a signature: the certificate stays on
  * the signer's smart card and the desktop application does the signing. The
- * final signed PDF, once a workflow is complete, is part 3.
+ * one download here is of a document that is already finished.
  */
 @RestController
 @RequestMapping("/web/api/workflows")
@@ -181,4 +183,32 @@ public class WebWorkflowController {
         return this.workflows.cancelWorkflow(workflowId, caller.getName());
     }
 
+    /* --------------------- part 3: the finished document --------------- */
+
+    /**
+     * The signed document, once everyone has signed it (gap G6: until now,
+     * only the signer whose turn it was could download anything, so the
+     * person who sent a contract out could never get the finished copy
+     * back).
+     *
+     * <p>Everyone who took part may read it — the creator and every signer —
+     * and nobody else, by the uniform 404 the service applies. Before the
+     * last signature it answers 409: a half-signed revision is a working
+     * copy, not the agreement.
+     *
+     * <p>This is the only place in Phase E where document bytes leave the
+     * server, and it is still not a signing route: what it hands over is
+     * finished and cannot be submitted back.
+     */
+    @GetMapping("/{workflowId}/download")
+    public ResponseEntity<byte[]> download(@PathVariable String workflowId,
+                                           Authentication caller) {
+        String user = caller.getName();
+        byte[] pdf = this.workflows.getCompletedDocument(workflowId, user);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, WorkflowOperations.attachment(
+                        this.workflows.getWorkflow(workflowId, user).documentName()))
+                .body(pdf);
+    }
 }

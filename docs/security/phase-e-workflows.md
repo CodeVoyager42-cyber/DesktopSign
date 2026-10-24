@@ -8,7 +8,7 @@ parts:
 |---|---|---|
 | **1** | The read side: the two lists, and one workflow's state, audit trail and revision chain | **done**, §1 |
 | **2** | The write side: start a workflow, invite a slot, track, resend, revoke, cancel | **done**, §3 |
-| 3 | The final signed PDF, once the workflow is complete — gap G6 | planned |
+| **3** | The final signed PDF, once the workflow is complete — gap G6 | **done**, §4 |
 
 Signing is in none of them. The website never downloads a document in order
 to sign it and never submits a signature: the certificate stays on the
@@ -165,11 +165,88 @@ pair the `/web/api/csrf` bootstrap handed out. `assets/api.js` already reads
 the token fresh from its cookie per request, so the website does the right
 thing; a test that cached it did not.
 
-## 4. Still to do
+## 4. Part 3 — the finished document, and gap G6
 
-- **Part 3**: `GET /web/api/workflows/{id}/download` — the final signed PDF,
-  for the owner and the signers, once the workflow is `COMPLETED`. New
-  behaviour rather than a thin call, and the one place in Phase E where
-  document bytes leave the server, so it gets its own part.
-- **The screens**: the dashboard and the status timeline specified in
-  `../frontend-design.md` §6, which these routes exist to feed.
+`GET /web/api/workflows/{id}/download`, over
+`RemoteWorkflowService.getCompletedDocument`.
+
+G6 (phase-3-authorization.md) read: *the owner cannot download the document
+unless it is their turn*. There was exactly one download, `GET
+…/document`, and it hands the current revision to the one signer whose turn
+it is — which is right for what it is for, and leaves the person who sent a
+contract out with no way to get the signed copy back. Before Phase E that was
+a missing feature. With a website in front of it, it is the obvious thing to
+click.
+
+So there are now two downloads, and they are different in kind:
+
+| | `…/document` (desktop) | `…/download` (website) |
+|---|---|---|
+| Hands over | the current revision | the final revision |
+| To | the signer whose turn it is | the creator and every signer |
+| When | while signing is in progress | only once `COMPLETED` |
+| Next step | a signature comes back | nothing; it is finished |
+| Unverified account | refused — step one of signing | allowed; see below |
+
+**Before the last signature there is deliberately nothing to give out.** A
+half-signed revision is a working copy, and handing it out as "the document"
+invites it to be forwarded, printed and treated as the agreement.
+`409 INVALID_WORKFLOW_STATE` says so. Anyone who is not in the workflow at all
+gets the uniform 404 instead — asserted byte-for-byte against a made-up id,
+including that the document's name is not in the refusal.
+
+**The Phase D gate is not applied here, and deliberately.** Its stated
+reasoning (phase-d-accounts.md §5) is that handing the document to an account
+that has not proved its address serves no purpose when it cannot submit the
+result. Here there is no result to submit: the document is finished, and what
+the download is for is keeping your own copy of something you signed or sent.
+In practice the question barely arises — a workflow cannot reach `COMPLETED`
+unless every slot signed, and `createWorkflow` is gated — but the rule is
+stated rather than left to that coincidence.
+
+### A header-injection fix in passing
+
+Writing the route turned up something in the existing one. A document's name
+is the uploader's text, validated only for being non-blank, and
+`/api/…/document` put it straight into `Content-Disposition`:
+
+```java
+.header("Content-Disposition", "attachment; filename=\"" + documentName + "\"")
+```
+
+A name containing a `"` ends the filename early and leaves the rest to be
+read as further header parameters; one containing CR/LF is a header-splitting
+attempt, which the container turns into a 500 rather than a download. Both
+routes now go through `WorkflowOperations.attachment(…)`, which replaces
+anything outside `[A-Za-z0-9 ._-]` with `_` and falls back to
+`document.pdf` when nothing usable is left. Spaces are kept, because
+filenames have them.
+
+The cost is real and worth naming: accents and non-Latin scripts are
+flattened too. The fix for that is RFC 5987's `filename*`, which deserves its
+own tests for how each browser reads it rather than being slipped in behind a
+security fix.
+
+### Test results
+
+`WebWorkflowDownloadHttpTests`, over real HTTP against a real PostgreSQL.
+**5 tests, 0 failures.** The workflows here are genuinely signed — one slot
+bound to the mock card's certificate, signed through the same
+`WorkflowSigningService` the desktop uses, submitted and accepted — because a
+faked `COMPLETED` would have tested the route and not the thing the route is
+for.
+
+| Test | Asserts |
+|---|---|
+| `theFinishedDocumentGoesToEveryoneWhoTookPart` | the sender, who signed nothing, gets 200, `application/pdf` and a `%PDF-`; the signer gets the identical bytes |
+| `beforeItIsFinishedThereIsNothingToDownload` | 409 `INVALID_WORKFLOW_STATE` for sender and signer alike while it waits |
+| `aStrangerGetsExactlyTheAnswerForAWorkflowThatDoesNotExist` | 404, the same body a made-up id gets, and the document's name nowhere in it |
+| `withoutASessionThereIsNoDownload` | 401 |
+| `aDocumentNameCannotCarryAnythingIntoTheHeader` | quote, CR, LF, colon and `=` flattened; an all-punctuation name becomes `document.pdf`; `Q3 report (final).pdf` keeps its spaces |
+
+## 5. Still to do
+
+**The screens.** The dashboard and the status timeline specified in
+`../frontend-design.md` §6, which all twelve of these routes exist to feed.
+The "Sign" hand-off screen described there belongs to Phase F, not here —
+Phase E stops where the desktop takes over.
