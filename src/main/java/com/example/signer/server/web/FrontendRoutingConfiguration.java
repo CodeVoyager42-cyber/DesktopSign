@@ -60,13 +60,23 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String FORGOT_PASSWORD_PAGE = "/forgot-password";
 
     /**
+     * Changing a password while signed in. A page of its own rather than a
+     * panel on the account screen, because the design keeps one primary
+     * action per screen — and because it is then a link somebody can be
+     * sent. Whether the visitor is signed in is decided by the server when
+     * the page asks {@code /web/api/auth/me}, not by this route: a page is
+     * not an authorisation.
+     */
+    public static final String CHANGE_PASSWORD_PAGE = "/change-password";
+
+    /**
      * Every path forwarded to the website. {@code SecurityConfig.PUBLIC}
      * reads this array, so adding a page is one line here and nothing else —
      * which also means the two lists cannot disagree about what is reachable.
      */
     public static final String[] PAGES = {
         VERIFY_EMAIL_PAGE, RESET_PASSWORD_PAGE,
-        SIGN_IN_PAGE, SIGN_UP_PAGE, FORGOT_PASSWORD_PAGE,
+        SIGN_IN_PAGE, SIGN_UP_PAGE, FORGOT_PASSWORD_PAGE, CHANGE_PASSWORD_PAGE,
     };
 
     /** The one document the website is served from. */

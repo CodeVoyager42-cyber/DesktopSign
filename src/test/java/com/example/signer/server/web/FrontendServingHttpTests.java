@@ -128,6 +128,24 @@ class FrontendServingHttpTests {
     }
 
     @Test
+    void aHeadRequestIsAnsweredAndNotRefused() throws Exception {
+        // Found by running the server and asking it for HEAD /assets/app.js:
+        // it answered 401, because a matcher restricted to GET sends
+        // everything else to denyAll(). Browsers, proxies, link checkers and
+        // uptime monitors all use HEAD, and a HEAD of a public page reveals
+        // exactly what a GET of it does.
+        for (String path : new String[] {"/", "/index.html", "/assets/app.js",
+                "/assets/app.css", "/sign-in"}) {
+            HttpResponse<Void> head = http.send(
+                    HttpRequest.newBuilder(URI.create(this.base + path))
+                            .method("HEAD", HttpRequest.BodyPublishers.noBody()).build(),
+                    HttpResponse.BodyHandlers.discarding());
+
+            assertThat(head.statusCode()).as("HEAD " + path).isEqualTo(200);
+        }
+    }
+
+    @Test
     void theWebsiteOwnPagesAnswerWithTheEntryPointToo() throws Exception {
         // Each of these is one line in FrontendRoutingConfiguration.PAGES,
         // which SecurityConfig.PUBLIC reads as well — so a page cannot be
