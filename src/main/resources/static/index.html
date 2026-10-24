@@ -7,25 +7,33 @@
      can carry a one-time token in the query string, and it must not leave in
      a Referer. -->
 <meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#0e7c66">
 <title>SignFlow</title>
 <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body>
-<header><div id="nav"></div></header>
+<header class="site-header"><div id="nav"></div></header>
 <!-- Every view is built by app.js. There is no inline script and no inline
      event handler anywhere in this document, which is what lets the
      Content-Security-Policy stay at script-src 'self' with no
      'unsafe-inline'. -->
 <main id="view">
   <noscript>
-    <h1>SignFlow</h1>
-    <p>This website needs JavaScript to sign in and manage your account.</p>
-    <p>
-      If you arrived from an e-mailed link, the link itself is still valid —
-      it works once and expires — but the page that uses it cannot run.
-    </p>
+    <div class="panel">
+      <h1>SignFlow</h1>
+      <p class="lede">This website needs JavaScript to sign in and manage your
+        account.</p>
+      <div class="notice">
+        <p>If you arrived from an e-mailed link, the link itself is still
+          valid — it works once and expires — but the page that uses it cannot
+          run.</p>
+      </div>
+    </div>
   </noscript>
 </main>
+<footer class="site-footer">
+  <div>SignFlow — documents signed with a certificate on your own smart card.</div>
+</footer>
 <script type="module" src="/assets/app.js"></script>
 </body>
 </html>

@@ -8,6 +8,10 @@
 // script-src 'self'. There is no inline script anywhere here, and no inline
 // event handler — every listener is addEventListener, which is what keeps
 // 'unsafe-inline' out of the policy.
+//
+// Layout follows the design direction: one centred column, one primary
+// action per screen as a filled button, secondary actions as text buttons,
+// separation by tinted surfaces rather than shadows.
 
 import { api, MIN_PASSWORD_LENGTH } from "./api.js";
 
@@ -36,40 +40,85 @@ function el(tag, attributes = {}, children = []) {
   return node;
 }
 
-function field(label, name, type, extras = {}) {
-  const input = el("input", { id: name, name, type, required: true, ...extras });
-  return { input, row: el("p", { class: "field" }, [el("label", { for: name, text: label }), input]) };
+// Nulls are filtered rather than passed through: replaceChildren does not
+// reject null, it inserts the STRING "null" — so a conditional child that
+// evaluates to nothing silently prints the word in the page. That is how the
+// navigation bar came to read "SignFlownull".
+function show(...nodes) {
+  view.replaceChildren(el("div", { class: "panel" }, nodes.filter(Boolean)));
 }
 
-function form(children, submitLabel) {
-  return el("form", { novalidate: false }, [
+function title(text) {
+  return el("h1", { text });
+}
+
+function lede(text) {
+  return el("p", { class: "lede", text });
+}
+
+function field(label, name, type, extras = {}) {
+  const input = el("input", { id: name, name, type, required: true, ...extras });
+  return {
+    input,
+    row: el("p", { class: "field" }, [
+      el("label", { for: name, text: label }),
+      input,
+    ]),
+  };
+}
+
+/** A form whose single primary action fills the width of the sheet. */
+function sheet(children, submitLabel) {
+  const f = el("form", {}, [
     ...children,
-    el("p", { class: "field" }, [el("button", { type: "submit", text: submitLabel })]),
+    el("button", { type: "submit", class: "block", text: submitLabel }),
+  ]);
+  return { form: f, node: el("div", { class: "sheet" }, [f]) };
+}
+
+/** Title, two lines, and a "… ›" action. */
+function card(heading, lines, action) {
+  return el("div", { class: "card" }, [
+    el("h3", { text: heading }),
+    ...[].concat(lines).map((line) =>
+      typeof line === "string" ? el("p", { text: line }) : line),
+    action,
   ]);
 }
 
-/** A message area whose text is replaced rather than appended to. */
+/** A message area, announced when its text changes. */
 function note() {
-  const node = el("p", { class: "note", role: "status" });
+  const node = el("p", { class: "note", role: "status", "aria-live": "polite" });
   return {
     node,
     say(message, kind = "info") {
       node.textContent = message;
       node.className = "note " + kind;
     },
-    clear() {
-      node.textContent = "";
-      node.className = "note";
-    },
   };
+}
+
+function badge(text, pending) {
+  return el("span", { class: pending ? "badge pending" : "badge", text });
 }
 
 function link(href, text) {
   return el("a", { href, text });
 }
 
-function show(...nodes) {
-  view.replaceChildren(...nodes);
+function textButton(label, onClick) {
+  const button = el("button", { type: "button", class: "text", text: label });
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function links(...items) {
+  const spaced = [];
+  items.filter(Boolean).forEach((item, index) => {
+    if (index > 0) spaced.push(el("span", { class: "sep", text: "·" }));
+    spaced.push(item);
+  });
+  return el("p", { class: "links" }, spaced);
 }
 
 /** The token a page was opened with, from the query string. */
@@ -82,12 +131,12 @@ function tokenFromUrl() {
 function signInView() {
   const status = note();
   const user = field("E-mail address or username", "username", "text",
-    { autocomplete: "username" });
+    { autocomplete: "username", autofocus: true });
   const password = field("Password", "password", "password",
     { autocomplete: "current-password" });
 
-  const f = form([user.row, password.row], "Sign in");
-  f.addEventListener("submit", async (event) => {
+  const { form, node } = sheet([user.row, password.row], "Sign in");
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     status.say("Signing in…");
     const result = await api.signIn(user.input.value, password.input.value);
@@ -106,26 +155,26 @@ function signInView() {
   });
 
   show(
-    el("h1", { text: "Sign in" }),
-    f,
+    title("Sign in"),
+    lede("Use the account you created for SignFlow."),
+    node,
     status.node,
-    el("p", { class: "links" }, [
-      link("/forgot-password", "Forgotten your password?"),
-      el("span", { text: " · " }),
-      link("/sign-up", "Create an account"),
-    ]),
+    links(link("/forgot-password", "Forgotten your password?"),
+      link("/sign-up", "Create an account")),
   );
 }
 
 function signUpView() {
   const status = note();
-  const email = field("E-mail address", "email", "email", { autocomplete: "email" });
+  const email = field("E-mail address", "email", "email",
+    { autocomplete: "email", autofocus: true });
   const name = field("Your name", "displayName", "text", { autocomplete: "name" });
   const password = field("Password", "password", "password",
     { autocomplete: "new-password", minlength: String(MIN_PASSWORD_LENGTH) });
 
-  const f = form([email.row, name.row, password.row], "Create account");
-  f.addEventListener("submit", async (event) => {
+  const { form, node } = sheet([email.row, name.row, password.row],
+    "Create account");
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     status.say("Creating your account…");
     const result = await api.signUp(email.input.value, password.input.value,
@@ -135,71 +184,77 @@ function signUpView() {
       // whether the address was already taken, and neither will this. The
       // wording has to be true in both cases.
       show(
-        el("h1", { text: "Check your e-mail" }),
-        el("p", { text: "If that address can be used, a confirmation link is on its"
-          + " way to it. The link works once and expires in 24 hours." }),
-        el("p", { class: "note" , text: "Nothing else happens until you open it." }),
-        el("p", { class: "links" }, [link("/sign-in", "Back to sign in")]),
+        title("Check your e-mail"),
+        lede("If that address can be used, a confirmation link is on its way"
+          + " to it."),
+        el("div", { class: "notice" }, [
+          el("p", { text: "The link works once and expires in 24 hours."
+            + " Nothing else happens until you open it." }),
+        ]),
+        links(link("/sign-in", "Back to sign in")),
       );
       return;
     }
     // The password rules describe the request, not who exists, so the server
     // does report those.
-    status.say(result.message || "That did not work. Check the address and try again.",
-      "bad");
+    status.say(result.message
+      || "That did not work. Check the address and try again.", "bad");
   });
 
   show(
-    el("h1", { text: "Create an account" }),
-    el("p", { text: `At least ${MIN_PASSWORD_LENGTH} characters, and not a password you`
-      + " use anywhere else." }),
-    f,
+    title("Create an account"),
+    lede(`At least ${MIN_PASSWORD_LENGTH} characters, and not a password you use`
+      + " anywhere else."),
+    node,
     status.node,
-    el("p", { class: "links" }, [link("/sign-in", "I already have an account")]),
+    links(link("/sign-in", "I already have an account")),
   );
 }
 
 function forgotPasswordView() {
   const status = note();
-  const email = field("E-mail address", "email", "email", { autocomplete: "email" });
+  const email = field("E-mail address", "email", "email",
+    { autocomplete: "email", autofocus: true });
 
-  const f = form([email.row], "Send a reset link");
-  f.addEventListener("submit", async (event) => {
+  const { form, node } = sheet([email.row], "Send a reset link");
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     status.say("Sending…");
     await api.requestPasswordReset(email.input.value);
     // Always 202, known address or not. Saying "if" is the honest wording.
     show(
-      el("h1", { text: "Check your e-mail" }),
-      el("p", { text: "If that address belongs to an account, a link to set a new"
-        + " password is on its way. It works once and expires in 30 minutes." }),
-      el("p", { class: "note", text: "Setting a new password signs the account out"
-        + " everywhere, on the website and in the desktop app." }),
-      el("p", { class: "links" }, [link("/sign-in", "Back to sign in")]),
+      title("Check your e-mail"),
+      lede("If that address belongs to an account, a link to set a new password"
+        + " is on its way."),
+      el("div", { class: "notice" }, [
+        el("p", { text: "The link works once and expires in 30 minutes." }),
+        el("p", { text: "Setting a new password signs the account out"
+          + " everywhere, on the website and in the desktop app." }),
+      ]),
+      links(link("/sign-in", "Back to sign in")),
     );
   });
 
   show(
-    el("h1", { text: "Forgotten password" }),
-    el("p", { text: "We will e-mail you a link to set a new one." }),
-    f,
+    title("Forgotten password"),
+    lede("We will e-mail you a link to set a new one."),
+    node,
     status.node,
-    el("p", { class: "links" }, [link("/sign-in", "Back to sign in")]),
+    links(link("/sign-in", "Back to sign in")),
   );
 }
 
 async function verifyEmailView() {
   const token = tokenFromUrl();
-  show(el("h1", { text: "Confirming your address" }),
-    el("p", { class: "note", text: "One moment…" }));
+  show(title("Confirming your address"), el("p", { class: "note", role: "status",
+    text: "One moment…" }));
 
   const result = token ? await api.verifyEmail(token) : { ok: false, message: null };
   if (result.ok) {
     show(
-      el("h1", { text: "Address confirmed" }),
-      el("p", { text: "Thank you. You can now create signing requests and sign"
-        + " documents." }),
-      el("p", { class: "links" }, [link("/sign-in", "Sign in")]),
+      title("Address confirmed"),
+      lede("Thank you. You can now create signing requests and sign documents."),
+      links(link("/sign-in", "Sign in")),
     );
     return;
   }
@@ -207,133 +262,160 @@ async function verifyEmailView() {
   // design. The page offers the only useful next step instead of guessing
   // which it was.
   show(
-    el("h1", { text: "That link did not work" }),
-    el("p", { text: result.message
-      || "This confirmation link is not valid. It may have expired, or been used"
-         + " already." }),
-    el("p", { text: "Sign in and ask for a new one." }),
-    el("p", { class: "links" }, [link("/sign-in", "Sign in")]),
+    title("That link did not work"),
+    lede(result.message
+      || "This confirmation link is not valid. It may have expired, or been"
+         + " used already."),
+    el("div", { class: "notice" }, [
+      el("p", { text: "Sign in and ask for a new one — the page will offer it"
+        + " while your address is unconfirmed." }),
+    ]),
+    links(link("/sign-in", "Sign in")),
   );
 }
 
 function resetPasswordView() {
   const token = tokenFromUrl();
+  if (!token) {
+    show(
+      title("That link is incomplete"),
+      lede("Open the link from the e-mail again, or ask for a new one."),
+      links(link("/forgot-password", "Send a new link")),
+    );
+    return;
+  }
+
   const status = note();
   const password = field("New password", "newPassword", "password",
-    { autocomplete: "new-password", minlength: String(MIN_PASSWORD_LENGTH) });
+    { autocomplete: "new-password", minlength: String(MIN_PASSWORD_LENGTH),
+      autofocus: true });
 
-  const f = form([password.row], "Set new password");
-  f.addEventListener("submit", async (event) => {
+  const { form, node } = sheet([password.row], "Set new password");
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     status.say("Setting your new password…");
     const result = await api.confirmPasswordReset(token, password.input.value);
     if (result.ok) {
       show(
-        el("h1", { text: "Password set" }),
-        el("p", { text: "You can sign in with it now. Everywhere else that was"
-          + " signed in to this account has been signed out." }),
-        el("p", { class: "links" }, [link("/sign-in", "Sign in")]),
+        title("Password set"),
+        lede("You can sign in with it now. Everywhere else that was signed in"
+          + " to this account has been signed out."),
+        links(link("/sign-in", "Sign in")),
       );
       return;
     }
     status.say(result.message
-      || "This link is not valid. It may have expired, or been used already.", "bad");
+      || "This link is not valid. It may have expired, or been used already.",
+      "bad");
   });
 
-  if (!token) {
-    show(
-      el("h1", { text: "That link is incomplete" }),
-      el("p", { text: "Open the link from the e-mail again, or ask for a new one." }),
-      el("p", { class: "links" }, [link("/forgot-password", "Send a new link")]),
-    );
-    return;
-  }
-
   show(
-    el("h1", { text: "Set a new password" }),
-    el("p", { text: `At least ${MIN_PASSWORD_LENGTH} characters. This signs the account`
-      + " out everywhere else." }),
-    f,
+    title("Set a new password"),
+    lede(`At least ${MIN_PASSWORD_LENGTH} characters. This signs the account out`
+      + " everywhere else."),
+    node,
     status.node,
   );
 }
 
 function accountView(me) {
   const status = note();
-  const unverified = !me.emailVerified;
+  const confirmed = me.emailVerified;
 
+  const resend = textButton("Send the confirmation link again", async () => {
+    status.say("Sending…");
+    await api.resendVerification(me.email);
+    status.say("If that address still needs confirming, another link is on its"
+      + " way.", "info");
+  });
+
+  const signOut = textButton("Sign out", async () => {
+    await api.signOut();
+    await route("/sign-in");
+  });
+
+  show(
+    title(me.username),
+    lede(me.email || "No e-mail address on file."),
+    confirmed
+      ? card("E-mail address", [
+          me.email || "",
+          badge("Confirmed"),
+        ])
+      : card("E-mail address", [
+          me.email || "",
+          badge("Not confirmed yet", true),
+          el("p", { text: "You can sign in and look around, but not create"
+            + " signing requests or sign documents until it is confirmed." }),
+        ], resend),
+    card("Password", [
+      "Changing it signs out every other session, on the website and in the",
+      "desktop app, and e-mails you to say it happened.",
+    ], el("p", { class: "more" }, [link("/change-password", "Change password ›")])),
+    status.node,
+    links(signOut),
+  );
+}
+
+function changePasswordView() {
+  const status = note();
   const current = field("Current password", "currentPassword", "password",
-    { autocomplete: "current-password" });
+    { autocomplete: "current-password", autofocus: true });
   const next = field("New password", "newPassword", "password",
     { autocomplete: "new-password", minlength: String(MIN_PASSWORD_LENGTH) });
 
-  const changeForm = form([current.row, next.row], "Change password");
-  changeForm.addEventListener("submit", async (event) => {
+  const { form, node } = sheet([current.row, next.row], "Change password");
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     status.say("Changing your password…");
     const result = await api.changePassword(current.input.value, next.input.value);
     if (result.ok) {
-      current.input.value = "";
-      next.input.value = "";
-      status.say("Password changed. Every other session has been signed out, and"
-        + " you have been e-mailed about it.", "good");
+      show(
+        title("Password changed"),
+        lede("Every other session has been signed out, and you have been"
+          + " e-mailed to say it happened."),
+        links(link("/", "Back to your account")),
+      );
       return;
     }
     status.say(result.message || "That did not work.", "bad");
   });
 
-  const resend = el("button", { type: "button", text: "Send it again" });
-  resend.addEventListener("click", async () => {
-    resend.disabled = true;
-    await api.resendVerification(me.email);
-    status.say("If that address still needs confirming, another link is on its way.",
-      "info");
-  });
-
-  const signOut = el("button", { type: "button", class: "quiet", text: "Sign out" });
-  signOut.addEventListener("click", async () => {
-    await api.signOut();
-    await route("/");
-  });
-
   show(
-    el("h1", { text: me.displayName || me.username }),
-    el("p", { class: "muted", text: me.email || "" }),
-    unverified
-      ? el("div", { class: "warn" }, [
-          el("p", { text: "Your e-mail address is not confirmed yet. You can sign in"
-            + " and look around, but not create signing requests or sign"
-            + " documents until it is." }),
-          resend,
-        ])
-      : el("p", { class: "good", text: "E-mail address confirmed." }),
-    el("h2", { text: "Change password" }),
-    changeForm,
+    title("Change password"),
+    lede(`At least ${MIN_PASSWORD_LENGTH} characters. You stay signed in here;`
+      + " everywhere else is signed out."),
+    node,
     status.node,
-    el("p", { class: "links" }, [signOut]),
+    links(link("/", "Cancel")),
   );
 }
 
 function errorView(message) {
   show(
-    el("h1", { text: "Something went wrong" }),
-    el("p", { text: message }),
-    el("p", { class: "links" }, [link("/", "Start again")]),
+    title("Something went wrong"),
+    lede(message),
+    links(link("/", "Start again")),
   );
 }
 
 /* ------------------------------ routing -------------------------------- */
 
 // Client-side views for the paths the server forwards to this document. Each
-// one is listed in FrontendRoutingConfiguration and in SecurityConfig.PUBLIC,
-// so a path that is not here does not reach here either.
+// one is listed in FrontendRoutingConfiguration.PAGES, which
+// SecurityConfig.PUBLIC reads as well, so a path that is not here does not
+// reach here either.
 const ROUTES = {
-  "/": null, // decided by whether there is a session
   "/sign-in": signInView,
   "/sign-up": signUpView,
   "/forgot-password": forgotPasswordView,
   "/verify-email": verifyEmailView,
   "/reset-password": resetPasswordView,
+};
+
+/** Screens that need a session; without one they fall back to signing in. */
+const SIGNED_IN_ROUTES = {
+  "/change-password": changePasswordView,
 };
 
 async function route(path) {
@@ -343,29 +425,37 @@ async function route(path) {
   }
   renderNav(null);
 
-  const render = ROUTES[target];
-  if (render) {
-    await render();
+  const open = ROUTES[target];
+  if (open) {
+    await open();
     return;
   }
 
-  // "/" and anything else forwarded here: the server is the authority on
-  // whether we are signed in, so ask rather than guess from a cookie we
-  // cannot read.
+  // "/" and the signed-in screens: the server is the authority on whether we
+  // are signed in, so ask rather than guess from a cookie we cannot read.
   const me = await api.me();
-  if (me.ok && me.body) {
-    renderNav(me.body);
-    accountView(me.body);
-  } else {
+  if (!me.ok || !me.body) {
     signInView();
+    return;
+  }
+  renderNav(me.body);
+  const signedIn = SIGNED_IN_ROUTES[target];
+  if (signedIn) {
+    signedIn(me.body);
+  } else {
+    accountView(me.body);
   }
 }
 
 function renderNav(me) {
-  nav.replaceChildren(
-    el("span", { class: "brand", text: "SignFlow" }),
-    me ? el("span", { class: "who", text: me.username }) : null,
-  );
+  const items = [el("span", { class: "brand" }, [
+    el("span", { class: "brand-mark", text: "Sign" }),
+    el("span", { text: "Flow" }),
+  ])];
+  if (me) {
+    items.push(el("span", { class: "who", text: me.username }));
+  }
+  nav.replaceChildren(...items);
 }
 
 /** Links inside the app navigate without a page load. */
@@ -380,4 +470,5 @@ document.addEventListener("click", (event) => {
 
 window.addEventListener("popstate", () => route());
 
-route().catch(() => errorView("The server could not be reached. Try again in a moment."));
+route().catch(() => errorView("The server could not be reached. Try again in"
+  + " a moment."));

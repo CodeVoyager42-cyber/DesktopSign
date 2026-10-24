@@ -1,131 +1,340 @@
-/* The website's only stylesheet. Served from this origin, which is what
-   style-src 'self' in the Content-Security-Policy permits. */
+/* SignFlow — the website's only stylesheet.
+ *
+ * Served from this origin, which is what style-src 'self' permits. Nothing is
+ * fetched from anywhere else: no font service, no icon CDN, no reset library.
+ *
+ * Light theme only, deliberately. The design direction specifies a white
+ * background and a measured set of light-theme tokens; inventing a dark
+ * palette would mean inventing contrast decisions nobody checked, so
+ * color-scheme is pinned to light and a dark theme waits to be directed.
+ */
 
-:root {
-  color-scheme: light dark;
-  --bg: #f6f7f9;
-  --card: #ffffff;
-  --ink: #1a1d21;
-  --muted: #5c636b;
-  --line: #dcdfe4;
-  --accent: #1f5fd0;
-  --bad: #a3242a;
-  --good: #1f6b3a;
-  --warn-bg: #fff6e5;
-  --warn-line: #e8c477;
+/* Inter, self-hosted — font-src 'self'. The two files belong in
+   /assets/fonts/; until they are there the stack below falls through to the
+   platform UI font, which is metrically close enough that nothing shifts. */
+@font-face {
+  font-family: "Inter var";
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url("/assets/fonts/Inter-roman-var.woff2") format("woff2-variations");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/assets/fonts/Inter-Regular.woff2") format("woff2");
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #16181c;
-    --card: #1d2024;
-    --ink: #e6e8eb;
-    --muted: #9aa1a9;
-    --line: #2d3137;
-    --accent: #7aa7f0;
-    --bad: #f08a8f;
-    --good: #7fd6a0;
-    --warn-bg: #2a2317;
-    --warn-line: #5c4a24;
-  }
+:root {
+  color-scheme: light;
+
+  /* Ink and accent */
+  --ink: #0f1b2d;
+  --ink-muted: #4a5567;        /* 7.3:1 on white */
+  --accent: #0e7c66;           /* 5.1:1 on white, and white on it */
+  --accent-strong: #0a6453;    /* hover/active */
+  --accent-tint: #e9f2f0;      /* ~9% accent over white */
+  --band: #062a23;             /* near-black of the accent */
+
+  /* Surfaces — separation by tint, never by shadow */
+  --surface: #ffffff;
+  --surface-sunken: #f5f8f7;
+  --line: #dde3e2;
+
+  --danger: #a3242a;           /* 6.5:1 on white */
+  --danger-tint: #fdf0f0;
+  --warn: #7a5200;             /* 5.6:1 on white */
+  --warn-tint: #fdf6e8;
+
+  --radius: 8px;
+
+  /* 64 / 40 / 24 / 16 */
+  --t-hero: 4rem;
+  --t-title: 2.5rem;
+  --t-section: 1.5rem;
+  --t-body: 1rem;
+
+  --measure: 1080px;
 }
 
 * { box-sizing: border-box; }
 
+html { -webkit-text-size-adjust: 100%; }
+
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-sunken);
   color: var(--ink);
-  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: "Inter var", "Inter", system-ui, -apple-system, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+  font-size: var(--t-body);
+  line-height: 1.55;
+  font-synthesis-weight: none;
 }
 
-header {
+/* ------------------------------- header -------------------------------- */
+
+.site-header {
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
-  background: var(--card);
 }
 
 #nav {
-  max-width: 34rem;
+  max-width: var(--measure);
   margin: 0 auto;
-  padding: .9rem 1rem;
+  padding: 1.125rem 1.5rem;
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: baseline;
   gap: 1rem;
 }
 
-.brand { font-weight: 600; letter-spacing: -.01em; }
-.who { color: var(--muted); font-size: .9rem; }
-
-main {
-  max-width: 34rem;
-  margin: 0 auto;
-  padding: 2rem 1rem 4rem;
+.brand {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
 }
 
-h1 { font-size: 1.4rem; margin: 0 0 .5rem; letter-spacing: -.02em; }
-h2 { font-size: 1.05rem; margin: 2rem 0 .5rem; }
+.brand-mark { color: var(--accent); }
+
+.who { color: var(--ink-muted); font-size: 0.875rem; }
+
+/* -------------------------------- main --------------------------------- */
+
+main {
+  flex: 1;
+  width: 100%;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 3.5rem 1.5rem 4rem;
+  display: flex;
+  justify-content: center;
+}
+
+/* One centred column for every account screen. */
+.panel {
+  width: 100%;
+  max-width: 29rem;
+}
+
+.panel > h1 {
+  font-size: var(--t-title);
+  font-weight: 300;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin: 0 0 0.75rem;
+}
+
+h2 {
+  font-size: var(--t-section);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  margin: 2.5rem 0 0.75rem;
+}
+
 p { margin: 0 0 1rem; }
+.lede { color: var(--ink-muted); margin-bottom: 2rem; }
+.muted { color: var(--ink-muted); }
 
-.muted { color: var(--muted); }
-.good { color: var(--good); }
+/* The white sheet the forms sit on: hairline, tint, no shadow. */
+.sheet {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+}
 
-.field { display: grid; gap: .35rem; margin: 0 0 1rem; }
+/* A card: title, two lines, and a "… ›" link. */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  margin: 0 0 1rem;
+}
 
-label { font-size: .9rem; color: var(--muted); }
+.card h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.25rem;
+  letter-spacing: -0.01em;
+}
+
+.card p { margin: 0 0 0.25rem; color: var(--ink-muted); font-size: 0.9375rem; }
+.card .more { margin-top: 0.75rem; display: inline-block; }
+
+/* ------------------------------- forms --------------------------------- */
+
+.field { display: grid; gap: 0.375rem; margin: 0 0 1.25rem; }
+
+label { font-size: 0.875rem; font-weight: 500; color: var(--ink); }
 
 input {
   font: inherit;
-  padding: .6rem .7rem;
+  color: var(--ink);
+  background: var(--surface);
+  padding: 0.6875rem 0.75rem;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--card);
-  color: inherit;
+  border-radius: var(--radius);
   width: 100%;
 }
 
-input:focus-visible {
+input::placeholder { color: var(--ink-muted); opacity: 0.8; }
+
+input:hover { border-color: #c4cdcc; }
+
+input:focus-visible,
+input:focus {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
   border-color: var(--accent);
 }
 
-button {
+.hint { font-size: 0.8125rem; color: var(--ink-muted); margin: -0.875rem 0 1.25rem; }
+
+/* ------------------------------ buttons -------------------------------- */
+
+/* One primary action per screen. */
+button,
+.button {
   font: inherit;
-  font-weight: 500;
-  padding: .6rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  padding: 0.75rem 1rem;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--accent);
   color: #fff;
   cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
 }
 
-button:hover:not(:disabled) { filter: brightness(1.08); }
-button:disabled { opacity: .55; cursor: default; }
+button:hover:not(:disabled) { background: var(--accent-strong); }
+button:disabled { opacity: 0.5; cursor: default; }
 
-button.quiet {
-  background: transparent;
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+button.block { width: 100%; }
+
+/* Secondary actions are text buttons, never a second filled one. */
+button.text {
+  background: none;
   color: var(--accent);
-  border-color: var(--line);
-  padding: .4rem .8rem;
+  border-color: transparent;
+  padding: 0.5rem 0;
+  font-weight: 600;
 }
 
-.note { min-height: 1.6em; margin: 0 0 1rem; font-size: .92rem; color: var(--muted); }
-.note.bad { color: var(--bad); }
-.note.good { color: var(--good); }
+button.text:hover:not(:disabled) {
+  background: none;
+  color: var(--accent-strong);
+  text-decoration: underline;
+}
 
-.warn {
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-line);
-  border-radius: 8px;
-  padding: 1rem 1rem .25rem;
+a { color: var(--accent); text-decoration: none; font-weight: 500; }
+a:hover { text-decoration: underline; }
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.9375rem;
+  margin-top: 1.5rem;
+}
+
+.links .sep { color: var(--line); }
+
+/* ------------------------- status and messages ------------------------- */
+
+/* A message area, announced to assistive technology when it changes. */
+.note {
+  min-height: 1.5rem;
   margin: 0 0 1rem;
+  font-size: 0.9375rem;
+  color: var(--ink-muted);
 }
 
-.warn p { margin-bottom: .75rem; }
-.warn button { margin-bottom: 1rem; }
+.note:empty { min-height: 0; margin: 0; }
 
-.links { font-size: .92rem; display: flex; align-items: center; gap: .4rem; }
-.links a, a { color: var(--accent); }
+.note.bad {
+  color: var(--danger);
+  background: var(--danger-tint);
+  border-left: 3px solid var(--danger);
+  padding: 0.625rem 0.75rem;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.note.good {
+  color: var(--accent-strong);
+  background: var(--accent-tint);
+  border-left: 3px solid var(--accent);
+  padding: 0.625rem 0.75rem;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--accent-strong);
+}
+
+.badge.pending { background: var(--warn-tint); color: var(--warn); }
+
+.notice {
+  background: var(--warn-tint);
+  border: 1px solid #e7d6ac;
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  margin: 0 0 1.5rem;
+}
+
+.notice p:last-child { margin-bottom: 0; }
+
+/* ------------------------------- footer -------------------------------- */
+
+.site-footer {
+  background: var(--band);
+  color: #c8d8d3;
+  font-size: 0.8125rem;
+}
+
+.site-footer div {
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+/* ------------------------------- 375px --------------------------------- */
+
+@media (max-width: 30rem) {
+  #nav { padding: 1rem; }
+  main { padding: 2rem 1rem 3rem; }
+  .panel > h1 { font-size: 1.75rem; }
+  h2 { font-size: 1.25rem; margin-top: 2rem; }
+  .sheet { padding: 1.25rem; }
+  .card { padding: 1rem 1.125rem; }
+  .site-footer div { padding: 1.25rem 1rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
