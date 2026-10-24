@@ -131,7 +131,15 @@ too.
 | `/sign-in`, `/sign-up`, `/forgot-password` | the account screens |
 | `/verify-email?token=…`, `/reset-password?token=…` | the e-mailed links |
 | `/documents` | the dashboard: action required, waiting for others, finished |
+| `/document?id=…` | one document: its state, then its history in order |
 | `/account`, `/change-password` | the account screens behind a session |
+
+The document screen takes its workflow id in the **query string** for the
+same reason the e-mailed links do: a static export has no server to match
+`/documents/<id>`, a page per workflow cannot be built for ids created at
+runtime, and the catch-all forward that would make a path segment work is the
+one `FrontendRoutingConfiguration` exists to refuse. One more line in
+`PAGES`, nothing else.
 
 `/_next/**` is the built code, stylesheets and fonts, each content-hashed by
 the build. `/*.txt` is the per-page payload the router fetches when moving
@@ -159,6 +167,24 @@ people you are signing with, and those are not always Latin.
 - **The grouping logic** — `web/lib/dashboard.test.ts` (7 tests) in Node's
   own runner: a document in both lists appears once, the viewer's own slot
   decides the group, cancelled and failed are finished.
+- **The timeline logic** — `web/lib/timeline.test.ts` (12 tests), same
+  runner: which events reach the story, that a failure always does, that an
+  unknown event type is shown rather than dropped, that the server's `detail`
+  never reaches a row, that the trail is ordered by sequence however it
+  arrives, that the last row is the current state and not the last event, and
+  that dates are written once per day. Every case passes `"UTC"` as the zone,
+  so the assertions do not depend on where the suite runs.
+
+  `npm test` is Node running the TypeScript directly, which needs the exact
+  specifier — `./dashboard.ts` — while `next build` type-checks with
+  `moduleResolution: "bundler"`, which rejects a `.ts` specifier unless
+  `allowImportingTsExtensions` is set. The test files had been getting away
+  with it because `next build` type-checks the app graph and nothing in it
+  imported them — `npx tsc --noEmit` over the whole project rejects all
+  three. `timeline.ts` is imported by the app *and* by a test, so it had
+  nowhere to hide, and the flag is now set in `tsconfig.json`. It is legal
+  here precisely because `noEmit` is true: nothing is compiled, so no emitted
+  import path can be wrong.
 - **Not tested here: that it renders and behaves in a browser.** Nothing in
   either suite executes React. The page structure, hydration and the
   interactions are checked by opening the site — `run-server.cmd`, then

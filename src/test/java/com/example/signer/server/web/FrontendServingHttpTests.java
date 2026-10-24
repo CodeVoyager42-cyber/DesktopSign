@@ -214,15 +214,19 @@ class FrontendServingHttpTests {
         // a real page per route, so the forward goes to that page's own file
         // and this asserts the right one arrives.
         for (String path : new String[] {"/sign-in", "/sign-up", "/forgot-password",
-                "/change-password", "/account", "/documents", "/verify-email",
-                "/reset-password"}) {
+                "/change-password", "/account", "/documents", "/document",
+                "/verify-email", "/reset-password"}) {
             HttpResponse<String> page = get(path);
 
             assertThat(page.statusCode()).as(path).isEqualTo(200);
             assertThat(page.body()).as(path).contains("<!DOCTYPE html>");
+            // "app<path>/page" and not just "app<path>": /document is a
+            // prefix of /documents, so the looser form would be satisfied by
+            // the wrong page's chunk — the one mistake this assertion exists
+            // to catch.
             assertThat(page.body())
                     .as(path + " should be the page for that route")
-                    .contains("/_next/static/chunks/app" + path);
+                    .contains("/_next/static/chunks/app" + path + "/page");
         }
     }
 
