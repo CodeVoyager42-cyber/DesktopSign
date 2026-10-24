@@ -1,10 +1,16 @@
 # SignFlow website — design system
 
-What the account website is built from, and what the later screens are
-planned to be. The security reasoning behind the same-origin decision, the
+What the website is built from, and what the later screens are planned to be.
+The security reasoning behind the same-origin decision, the
 Content-Security-Policy and the wording of refusals lives in
 `security/phase-d-accounts.md` §7a and §7b; this document is the visual and
 structural side of the same work.
+
+**The implementation is `web/`** — Next.js, exported to static files and
+served by the application itself; see `frontend-nextjs.md` for the build, the
+routing and what choosing it cost. Everything below describes the system
+those components render, and the token values are unchanged from the
+hand-written stylesheet they came from.
 
 **Not DocuSign.** The patterns below are drawn from the same family of
 enterprise signing products, but nothing is borrowed from anyone's identity:
@@ -13,7 +19,9 @@ anyone's copy.
 
 ## 1. Tokens
 
-All of these are CSS custom properties on `:root` in `assets/app.css`. Light
+All of these are CSS custom properties on `:root` in `web/app/globals.css`
+(they moved there unchanged when the website became a Next.js export —
+see `frontend-nextjs.md`). Light
 theme only, deliberately — the direction specifies a white background and a
 measured light palette, and inventing a dark theme would mean inventing
 contrast decisions nobody checked. `color-scheme` is pinned to `light` so
@@ -63,12 +71,14 @@ the policy, by design). The scale is 64 / 40 / 24 / 16 px:
 At ≤ 480 px the title drops to 28 px and the section to 20 px; nothing else
 changes.
 
-> **The font files are not in the repository.** `@font-face` rules point at
-> `/assets/fonts/Inter-roman-var.woff2` and `/assets/fonts/Inter-Regular.woff2`,
-> and the stack falls through to the platform UI font until those two files
-> are dropped in — which is why nothing looks broken without them, only
-> slightly less tight. They are a licensed binary and were not fetched
-> automatically.
+> **The font ships in the build.** It comes from
+> `@fontsource-variable/inter` (OFL-1.1) and is emitted under
+> `/_next/static/media`, so it is served from this origin and `font-src
+> 'self'` permits it with no font service in the policy. All seven subsets
+> are kept, because the dashboard shows the names of the people you sign
+> with and those are not always Latin. Until the website became a Next.js
+> export this pointed `@font-face` at two files nobody had added, and the
+> stack quietly fell through to the platform font.
 
 ## 3. Patterns
 
@@ -109,7 +119,8 @@ than that; being more helpful here would undo the server's work.
 
 | Screen | Path | Notes |
 |---|---|---|
-| **Documents** | `/` when signed in | three groups with counts; the wider column |
+| **The public page** | `/` | hero, proof strip, role tabs over feature cards, how it works, security, closing CTA |
+| **Documents** | `/documents` | three groups with counts; the wider column |
 | Sign in | `/sign-in` | one message for every kind of refusal |
 | Create an account | `/sign-up` | 202 either way; the confirmation page is worded for both |
 | Forgotten password | `/forgot-password` | same |

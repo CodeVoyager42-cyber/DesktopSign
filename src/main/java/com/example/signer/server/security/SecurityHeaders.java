@@ -66,17 +66,29 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
 final class SecurityHeaders {
 
     /**
-     * Allows nothing to be loaded, and no script to run under any
-     * circumstances. Asserted character by character in
-     * {@code SecurityHeadersHttpTests} so that a change to it is a change
-     * someone made on purpose.
+     * {@code script-src 'self'}, plus one {@code sha256-} expression per
+     * inline script in the exported website — see {@link InlineScriptHashes}
+     * for why the website has any and why they are hashed rather than
+     * permitted wholesale. There is still no {@code 'unsafe-inline'}, and
+     * there must never be one: a hash names one exact script, so an injected
+     * {@code <script>} does not run even if some escaping is wrong somewhere.
+     *
+     * <p>Computed once, at class initialisation, from the pages on the
+     * classpath.
      */
-    static final String CONTENT_SECURITY_POLICY =
-            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';"
-                    + " img-src 'self'; font-src 'self'; connect-src 'self';"
-                    + " form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
+    static final String CONTENT_SECURITY_POLICY = policy();
 
     private SecurityHeaders() {
+    }
+
+    private static String policy() {
+        StringBuilder scripts = new StringBuilder("script-src 'self'");
+        for (String hash : InlineScriptHashes.scan()) {
+            scripts.append(' ').append(hash);
+        }
+        return "default-src 'none'; " + scripts + "; style-src 'self' 'unsafe-inline';"
+                + " img-src 'self'; font-src 'self'; connect-src 'self';"
+                + " form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
     }
 
     /** Adds both headers to a chain, keeping Spring Security's defaults. */
