@@ -28,6 +28,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -467,22 +468,60 @@ class WebSessionHttpTests {
         String user = newAccount();
         Csrf csrf = bootstrapCsrf();
 
-        // Three failures on the website...
-        for (int i = 0; i < 3; i++) {
-            assertThat(post("/web/api/auth/login", body(user, "wrong-" + i),
+        // Two failures on the website, two on the desktop API. Neither of the
+        // first two carries a delay (people mistype their own password), so
+        // all four are counted as they are made.
+        for (int i = 0; i < 2; i++) {
+            assertThat(post("/web/api/auth/login", body(user, "wrong-web-" + i),
                     csrf.cookieHeader(), csrf.token()).statusCode()).isEqualTo(401);
         }
-        // ...and two on the desktop API: five in total for ONE account.
-        for (int i = 0; i < 2; i++) {
-            assertThat(post("/api/auth/login", body(user, "wrong-api-" + i), null, null)
-                    .statusCode()).isEqualTo(401);
-        }
+        failOnTheApiAfterTheDelay(user, "wrong-api-0", Duration.ZERO);
+        // The third failure costs 2 s and the fourth 8 s, and an attempt made
+        // inside one of those is refused WITHOUT being counted — so a test
+        // that fires five attempts back to back never reaches the fifth
+        // failure. It used to pass only because the last two attempts landed
+        // inside the 2 s refusal and were answered 401 by that, not by the
+        // lock it was claiming to assert. On a slower run they landed outside
+        // it, the count was still 3, and the correct password was accepted.
+        failOnTheApiAfterTheDelay(user, "wrong-api-1", Duration.ofSeconds(2));
 
-        // The CORRECT password is now refused on both, from one shared counter.
+        // Four failures, from two different chains, in ONE row: this is the
+        // property, and it is read from the counter rather than inferred from
+        // a refusal, so no clock is involved.
+        assertThat(count("SELECT count(*) FROM login_failures WHERE username = '"
+                + user + "'"))
+                .as("one counter, not one per chain").isEqualTo(1);
+        assertThat(count("SELECT failed_count FROM login_failures WHERE username = '"
+                + user + "'"))
+                .as("website and desktop failures add up").isEqualTo(4);
+
+        // The fifth is the lock the policy is configured for: lock-minutes,
+        // not seconds, so what follows cannot depend on how fast this machine
+        // is. It is made on the WEBSITE, against a count the desktop API
+        // contributed half of.
+        Thread.sleep(Duration.ofSeconds(8).plusMillis(250).toMillis());
+        assertThat(post("/web/api/auth/login", body(user, "wrong-web-2"),
+                csrf.cookieHeader(), csrf.token()).statusCode()).isEqualTo(401);
+
+        // And now the CORRECT password is refused on both.
         assertThat(post("/api/auth/login", body(user, PASSWORD), null, null).statusCode())
                 .as("lockout must not be per-chain").isEqualTo(401);
         assertThat(post("/web/api/auth/login", body(user, PASSWORD),
                 csrf.cookieHeader(), csrf.token()).statusCode()).isEqualTo(401);
+    }
+
+    /**
+     * A failed desktop sign-in, made after any progressive refusal from the
+     * previous failure has expired, so that it is counted rather than
+     * swallowed. The wait is the feature being waited out, not a guess.
+     */
+    private void failOnTheApiAfterTheDelay(String user, String wrongPassword,
+                                           Duration previousDelay) throws Exception {
+        if (!previousDelay.isZero()) {
+            Thread.sleep(previousDelay.plusMillis(250).toMillis());
+        }
+        assertThat(post("/api/auth/login", body(user, wrongPassword), null, null)
+                .statusCode()).isEqualTo(401);
     }
 
     /* ------------------- account status (risk C3) ---------------------- */
