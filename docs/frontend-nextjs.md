@@ -131,7 +131,8 @@ too.
 | `/sign-in`, `/sign-up`, `/forgot-password` | the account screens |
 | `/verify-email?token=…`, `/reset-password?token=…` | the e-mailed links |
 | `/documents` | the dashboard: action required, waiting for others, finished |
-| `/document?id=…` | one document: its state, then its history in order |
+| `/document?id=…` | one document: its state, its history, and the owner's invitations |
+| `/send` | starting a signing request: the only page that uploads |
 | `/account`, `/change-password` | the account screens behind a session |
 
 The document screen takes its workflow id in the **query string** for the
@@ -167,6 +168,19 @@ people you are signing with, and those are not always Latin.
 - **The grouping logic** — `web/lib/dashboard.test.ts` (7 tests) in Node's
   own runner: a document in both lists appears once, the viewer's own slot
   decides the group, cancelled and failed are finished.
+- **The sending logic** — `web/lib/send.test.ts` (12 tests), same runner:
+  blank signer rows dropped with the numbering closed up behind them, a slot
+  trimmed, no certificate ever named from the browser, the one missing thing
+  reported in order, and how a slot's row reads — signed winning over an
+  invitation that is still `PENDING`, an undelivered e-mail saying so, and no
+  action offered against a signature.
+
+  The multipart create is the one call that cannot go through `post`: the
+  `Content-Type` is left to the browser, which alone knows the boundary it is
+  about to write, and the request part is appended as a `Blob` typed
+  `application/json`, because a plain string part arrives as `text/plain` and
+  Spring will not bind that to `@RequestPart CreateWorkflowRequest`. The CSRF
+  header is sent exactly as it is for a JSON POST.
 - **The timeline logic** — `web/lib/timeline.test.ts` (12 tests), same
   runner: which events reach the story, that a failure always does, that an
   unknown event type is shown rather than dropped, that the server's `detail`

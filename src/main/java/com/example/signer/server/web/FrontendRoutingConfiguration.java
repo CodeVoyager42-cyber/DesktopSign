@@ -96,6 +96,16 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String DOCUMENT_PAGE = "/document";
 
     /**
+     * Sending a document out: the file, the signers, the order.
+     *
+     * <p>The one page that uploads anything, and the only website route that
+     * is multipart. It needs no id of its own — what it creates is identified
+     * by the answer, which is why it ends by going to {@link #DOCUMENT_PAGE}
+     * for the workflow it just started.
+     */
+    public static final String SEND_PAGE = "/send";
+
+    /**
      * Every path forwarded to the website. {@code SecurityConfig.PUBLIC}
      * reads this array, so adding a page is one line here and nothing else —
      * which also means the two lists cannot disagree about what is reachable.
@@ -103,7 +113,7 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String[] PAGES = {
         VERIFY_EMAIL_PAGE, RESET_PASSWORD_PAGE,
         SIGN_IN_PAGE, SIGN_UP_PAGE, FORGOT_PASSWORD_PAGE, CHANGE_PASSWORD_PAGE,
-        ACCOUNT_PAGE, DOCUMENTS_PAGE, DOCUMENT_PAGE,
+        ACCOUNT_PAGE, DOCUMENTS_PAGE, DOCUMENT_PAGE, SEND_PAGE,
     };
 
     /**

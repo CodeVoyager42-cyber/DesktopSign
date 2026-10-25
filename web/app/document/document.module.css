@@ -64,6 +64,46 @@
   font-size: 0.875rem;
 }
 
+/* The finished document's download, under the heading. `.more` is defined
+   only inside `.card`, so it would style nothing out here. */
+.download {
+  margin: 0 0 1.5rem;
+}
+
+/* The owner's invitation panel. A plain list of the cards used everywhere
+   else, so a slot reads like a row of the dashboard rather than a table
+   nobody can follow on a phone. */
+.slots {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+}
+
+/* Actions sit in a row and stay apart when they wrap. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin: 0.75rem 0 0;
+}
+
+/* Cancelling is last, quiet, and fenced off by a rule above it. Not red
+   until it is asked for: a destructive colour on a screen somebody is only
+   reading is a warning about nothing. */
+.stop {
+  margin: 2rem 0 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.stop p {
+  margin: 0 0 0.5rem;
+  color: var(--ink-muted);
+  font-size: 0.9375rem;
+  max-width: 44rem;
+}
+
 .all {
   margin: 0 0 1.5rem;
 }
