@@ -225,8 +225,17 @@ public class InvitationService {
         slot.setInvitedAt(Instant.now());
         signers.save(slot);
 
+        // The slot number, and NOT the address. Every participant of a
+        // workflow may read its audit trail, while the addresses of its slots
+        // are owner-only (they are served by the invitation routes, behind
+        // requireCreator) — so writing the address here published it to the
+        // co-signers through a different door. Nothing is lost: an invitation
+        // can only ever be addressed to the slot account's own address (the
+        // EMAIL_MISMATCH guard above), so the address of a slot is a property
+        // of the slot, which `invitationStatus` serves to the people entitled
+        // to it. See docs/security/phase-e-workflows.md §6.
         appendAudit(wf, AuditEventType.INVITATION_CREATED, invitedBy,
-                "Invitation created for signer " + signerOrder + " (" + normalizedEmail + ")");
+                "Invitation created for signer " + signerOrder);
         log.info("Invitation created for workflow {} signer {} (recipient {},"
                         + " registered={}) — nothing is signed by this",
                 wf.getWorkflowId(), signerOrder, normalizedEmail,

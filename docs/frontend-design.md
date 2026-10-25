@@ -235,13 +235,20 @@ the id travels the way the e-mail links' tokens already do.
 whoever reads an audit trail — *"Revision 3 accepted (54123 bytes)"*, a short
 fingerprint — and the words on screen are the website's own, from the event
 type. There is also a reason not to relax that: the detail of
-`INVITATION_CREATED` contains the invited **e-mail address** of a slot, and
-`GET /web/api/workflows/{id}/audit` is readable by every participant, so
-rendering it would show one signer another's address. No screen in this
-product renders detail today and this one does not become the first — but the
-exposure is in the endpoint, not in the screen, and it is recorded as a
-finding in `../security/phase-e-workflows.md` §6 rather than left as a
-property of which pages happen to exist.
+`INVITATION_CREATED` **used to contain the invited e-mail address** of a slot,
+and `GET /web/api/workflows/{id}/audit` is readable by every participant, so
+rendering it would have shown one signer another's address. Writing this
+screen is what found that; it was fixed in the endpoint rather than worked
+around in the page (`../security/phase-e-workflows.md` §6.1 — the address is
+no longer written, and the detail of the three event types that could name
+one reaches the creator alone, which covers the rows already written).
+
+The rule stands anyway, and not only for that reason: `detail` is prose for
+whoever reads an audit trail, and a screen that printed it would have shown
+*"Revision 3 accepted (54123 bytes)"* to somebody who wanted to know whether
+their contract had been signed. It would also have hidden §7.2 — the event
+type that was recorded twice under one name — behind prose that read
+correctly.
 
 Dates are written once per day, times on every row — a column of identical
 dates is noise, and a row with only a time reads as "later the same day",
