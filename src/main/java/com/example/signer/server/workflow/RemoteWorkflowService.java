@@ -162,7 +162,11 @@ public class RemoteWorkflowService {
             if (!allBound) {
                 long unbound = aggregate.pendingSigners().stream()
                         .filter(s -> !s.isBound()).count();
-                aggregate.appendAudit(AuditEventType.WORKFLOW_CREATED, creator,
+                // Its own event type, not a second WORKFLOW_CREATED: this is a
+                // different fact about the workflow, and a reader that shows
+                // the type rather than this prose could only say "created"
+                // twice (the website's status timeline does exactly that).
+                aggregate.appendAudit(AuditEventType.CERTIFICATES_PENDING, creator,
                         unbound + " signer(s) must bind a certificate before the"
                                 + " document is prepared");
                 store.stageOriginal(workflowId, originalPdf);
@@ -615,8 +619,15 @@ public class RemoteWorkflowService {
             if (wf == null) {
                 continue;
             }
-            if (userId != null && userId.equals(wf.createdBy())
-                    && wf.status() != WorkflowState.CANCELLED) {
+            // Every lifecycle state, cancelled included. Hiding CANCELLED
+            // made a request disappear from its sender's own list the moment
+            // they cancelled it: the website's dashboard groups COMPLETED,
+            // CANCELLED and FAILED as "Finished", and for a workflow its
+            // creator does not also sign, this was the only list it could
+            // ever appear in — so cancelling from the document screen left
+            // the reader on a page that had fallen out of their dashboard.
+            // Cancelled is a state to be shown, not a reason to forget.
+            if (userId != null && userId.equals(wf.createdBy())) {
                 result.add(toView(wf));
             }
         }

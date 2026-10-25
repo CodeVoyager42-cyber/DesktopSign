@@ -42,6 +42,7 @@ export type Mark = "done" | "pending" | "blocked";
  */
 export const EVENT_WORDS: Record<string, string> = {
   WORKFLOW_CREATED: "Created",
+  CERTIFICATES_PENDING: "Every signer must register a certificate before this is prepared",
   WORKFLOW_PREPARED: "Prepared for signing",
   INVITATION_CREATED: "A signer was invited",
   INVITATION_SENT: "The invitation went out",
@@ -96,6 +97,9 @@ const BLOCKED = new Set([
  */
 const STORY = new Set([
   "WORKFLOW_CREATED",
+  // Why a new document sits there doing nothing is exactly what its sender
+  // comes to this screen to find out.
+  "CERTIFICATES_PENDING",
   "INVITATION_SENT",
   "INVITATION_ACCEPTED",
   "SIGNER_COMPLETED",
@@ -214,6 +218,20 @@ export function pendingRow(
     // The server's own sentence, shown as given — the rule api.ts keeps for
     // its messages. Nothing here knows more about why than it does.
     return { ...base, words: workflow.blockedReason, mark: "blocked" };
+  }
+  // DRAFT means the document cannot be prepared yet because a slot has no
+  // certificate. What is being waited for is a certificate, not a signature,
+  // and the server names the slot it is waiting on — so this is said before
+  // the signature wording below, which would otherwise claim somebody is
+  // being asked to sign a document that has not been prepared.
+  if (workflow.status === "DRAFT") {
+    const who =
+      workflow.currentSignerUserId === username
+        ? "your certificate"
+        : workflow.currentSignerUserId
+          ? `a certificate from ${workflow.currentSignerUserId}`
+          : "the signers' certificates";
+    return { ...base, words: `Waiting for ${who}`, mark: "pending" };
   }
   if (workflow.waitingForClaim) {
     return {

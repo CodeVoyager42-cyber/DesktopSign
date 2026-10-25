@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Task, Workflow } from "./api.ts";
-import { groupRows, mergeRows, rowStory } from "./dashboard.ts";
+import { FINISHED, STATE_WORDS, groupRows, mergeRows, rowStory } from "./dashboard.ts";
 
 /**
  * The dashboard's grouping, tested without a browser.
@@ -55,6 +55,23 @@ function task(over: Partial<Task> = {}): Task {
     ...over,
   };
 }
+
+test("a draft is waiting for certificates, not unsent", () => {
+  // Invitations go out when the workflow is created; DRAFT only means a slot
+  // still has no certificate bound. "Not sent yet" against a document whose
+  // invitations have gone would invite a pointless resend.
+  assert.equal(STATE_WORDS.DRAFT, "Waiting for certificates");
+});
+
+test("a cancelled document is finished, so it has a group to live in", () => {
+  // The server used to leave CANCELLED out of the owner's list, which meant
+  // this grouping could never receive one. It is in the list now.
+  assert.equal(FINISHED.includes("CANCELLED"), true);
+  const { finished } = groupRows(
+    mergeRows([workflow({ status: "CANCELLED" })], [], "alice"),
+  );
+  assert.deepEqual(finished.map((row) => row.status), ["CANCELLED"]);
+});
 
 test("a document appears once even when it is both sent and signed by you", () => {
   const rows = mergeRows(

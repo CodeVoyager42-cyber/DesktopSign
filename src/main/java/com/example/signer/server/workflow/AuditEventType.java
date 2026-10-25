@@ -13,6 +13,17 @@ public enum AuditEventType {
     SIGNING_SESSION_CREATED,
     SIGNER_REGISTERED,
     WORKFLOW_CREATED,
+    /**
+     * The workflow was created but cannot be prepared yet: at least one slot
+     * has no certificate bound, so it stays DRAFT until every signer has
+     * registered theirs from their own machine.
+     *
+     * <p>Recorded as {@code WORKFLOW_CREATED} until this type existed, which
+     * made a trail with two "created" events in it — and any reader that
+     * shows an event's type rather than its prose detail (the website's
+     * status timeline does, deliberately) could only say "Created" twice.
+     */
+    CERTIFICATES_PENDING,
     WORKFLOW_PREPARED,
     CERTIFICATE_BOUND,
     SIGNING_TURN_CLAIMED,
