@@ -122,3 +122,8 @@
 .all .rail {
   margin-top: 0.75rem;
 }
+
+/* The hand-off button inside the "it is your turn" notice. */
+.handoff {
+  margin: 0.75rem 0 0;
+}

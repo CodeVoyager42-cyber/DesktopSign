@@ -143,6 +143,25 @@ export interface InvitationStatus {
   slotSigned: boolean;
 }
 
+/**
+ * POST /web/api/workflows/{id}/launch-codes — the hand-off to the desktop.
+ *
+ * `deepLink` contains a single-use code valid for `expiresInSeconds`. It is a
+ * credential: it is navigated to and never rendered, never logged, and never
+ * put anywhere a reader could copy it out of.
+ */
+export interface LaunchCode {
+  deepLink: string;
+  expiresInSeconds: number;
+}
+
+/** GET /web/api/app-info — what this deployment can tell a page about itself. */
+export interface AppInfo {
+  appName: string;
+  /** Where to get the desktop application, or null when none is configured. */
+  downloadUrl: string | null;
+}
+
 /** GET /web/api/workflows/{id}/audit */
 export interface AuditEntry {
   sequence: number;
@@ -346,6 +365,21 @@ export const api = {
   /** Ends the invitation. The slot stays, unsigned and uninvited. */
   revokeInvitation: (invitationId: number) =>
     post<void>(`/web/api/invitations/${invitationId}/revoke`),
+
+  /* The hand-off to the desktop (Phase F). */
+
+  /**
+   * A fresh link that opens SignFlow at this one signing task. Two minutes,
+   * one use; the server refuses it unless this account holds a slot that can
+   * sign now and has a certificate registered already.
+   */
+  launchCode: (id: string) =>
+    post<LaunchCode>(
+      `/web/api/workflows/${encodeURIComponent(id)}/launch-codes`,
+    ),
+
+  /** Where to get the desktop application, when this deployment says. */
+  appInfo: () => get<AppInfo>("/web/api/app-info"),
 
   /**
    * The finished document. A plain URL rather than a fetch: this is a

@@ -106,6 +106,23 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String SEND_PAGE = "/send";
 
     /**
+     * The hand-off: the screen that opens the desktop application at one
+     * signing task (Phase F).
+     *
+     * <p>Takes the workflow in the query string like {@link #DOCUMENT_PAGE},
+     * for the same reason. It holds no code of its own — it asks for one when
+     * it loads, and that code is good for two minutes — so the path is not
+     * worth bookmarking and nothing is lost if it is.
+     *
+     * <p><b>Not {@code /sign}</b>, although that is what the button says.
+     * {@code /sign/{token}} is already the public, server-rendered invitation
+     * page, and a second meaning one segment away from it is the kind of
+     * neighbourhood where a matcher written {@code /sign*} quietly covers a
+     * page nobody meant it to. {@code /open} also says what the screen does.
+     */
+    public static final String OPEN_PAGE = "/open";
+
+    /**
      * Every path forwarded to the website. {@code SecurityConfig.PUBLIC}
      * reads this array, so adding a page is one line here and nothing else —
      * which also means the two lists cannot disagree about what is reachable.
@@ -113,7 +130,7 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String[] PAGES = {
         VERIFY_EMAIL_PAGE, RESET_PASSWORD_PAGE,
         SIGN_IN_PAGE, SIGN_UP_PAGE, FORGOT_PASSWORD_PAGE, CHANGE_PASSWORD_PAGE,
-        ACCOUNT_PAGE, DOCUMENTS_PAGE, DOCUMENT_PAGE, SEND_PAGE,
+        ACCOUNT_PAGE, DOCUMENTS_PAGE, DOCUMENT_PAGE, SEND_PAGE, OPEN_PAGE,
     };
 
     /**
