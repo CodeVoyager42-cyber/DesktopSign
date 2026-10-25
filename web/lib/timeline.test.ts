@@ -147,6 +147,48 @@ test("the last row is who is being waited for now, not the last event", () => {
   );
 });
 
+test("a draft waits for a certificate, not for a signature", () => {
+  // Found against a live server: a new workflow is DRAFT with no
+  // blockedReason, and the generic wording claimed the signer was being
+  // asked to sign a document that had not been prepared.
+  const rows = buildTimeline(
+    workflow({ status: "DRAFT", currentSignerUserId: "bob", completedSignatures: 0 }),
+    [entry(1, "WORKFLOW_CREATED"), entry(2, "CERTIFICATES_PENDING")],
+    "alice",
+    "UTC",
+  );
+
+  const last = rows[rows.length - 1];
+  assert.equal(last.words, "Waiting for a certificate from bob");
+  assert.equal(last.mark, "pending");
+  // And the reason is in the story rather than only in the trail.
+  assert.equal(rows[1].story, true);
+  assert.equal(
+    rows[1].words,
+    "Every signer must register a certificate before this is prepared",
+  );
+});
+
+test("a draft waiting on the reader says so in the second person", () => {
+  const rows = buildTimeline(
+    workflow({ status: "DRAFT", currentSignerUserId: "bob" }),
+    [],
+    "bob",
+    "UTC",
+  );
+  assert.equal(rows[0].words, "Waiting for your certificate");
+});
+
+test("a draft with nobody named waits for the signers", () => {
+  const rows = buildTimeline(
+    workflow({ status: "DRAFT", currentSignerUserId: null }),
+    [],
+    "alice",
+    "UTC",
+  );
+  assert.equal(rows[0].words, "Waiting for the signers' certificates");
+});
+
 test("it says so when the wait is yours", () => {
   const rows = buildTimeline(workflow({ currentSignerUserId: "bob" }), [], "bob", "UTC");
 

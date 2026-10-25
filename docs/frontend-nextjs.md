@@ -165,7 +165,7 @@ people you are signing with, and those are not always Latin.
   page is its own document, the hashes cover the inline scripts, the assets
   and the font are served with types a browser accepts, HEAD works, a missing
   asset is a 404 and not a page, and nothing else became readable.
-- **The grouping logic** — `web/lib/dashboard.test.ts` (7 tests) in Node's
+- **The grouping logic** — `web/lib/dashboard.test.ts` (9 tests) in Node's
   own runner: a document in both lists appears once, the viewer's own slot
   decides the group, cancelled and failed are finished.
 - **The sending logic** — `web/lib/send.test.ts` (12 tests), same runner:
@@ -181,7 +181,7 @@ people you are signing with, and those are not always Latin.
   `application/json`, because a plain string part arrives as `text/plain` and
   Spring will not bind that to `@RequestPart CreateWorkflowRequest`. The CSRF
   header is sent exactly as it is for a JSON POST.
-- **The timeline logic** — `web/lib/timeline.test.ts` (12 tests), same
+- **The timeline logic** — `web/lib/timeline.test.ts` (15 tests), same
   runner: which events reach the story, that a failure always does, that an
   unknown event type is shown rather than dropped, that the server's `detail`
   never reaches a row, that the trail is ordered by sequence however it

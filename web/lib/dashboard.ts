@@ -11,7 +11,12 @@ import type { Task, Workflow } from "./api";
 // The raw state names are the server's — it deliberately sends no
 // presentation strings — so the mapping to something readable lives here.
 export const STATE_WORDS: Record<string, string> = {
-  DRAFT: "Not sent yet",
+  // DRAFT is not "not sent yet": invitations go out at creation, and the
+  // workflow stays DRAFT only until every slot has a certificate bound —
+  // which the signers do from their own machines. Saying "not sent yet"
+  // against a document whose invitations have already gone was the one
+  // wording here that could make a sender resend something unnecessarily.
+  DRAFT: "Waiting for certificates",
   READY_FOR_SIGNING: "Ready to sign",
   WAITING_FOR_SIGNER: "Waiting for a signature",
   SIGNATURE_SUBMITTED: "Checking a signature",
