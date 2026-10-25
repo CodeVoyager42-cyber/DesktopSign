@@ -246,15 +246,17 @@ for.
 
 ## 5. The screens
 
-Two of them are built: the dashboard (`../frontend-design.md` §5a) and the
-status timeline (§5b). Between them they call **five** of the twelve routes
-above — the two lists, one workflow, its audit, and the finished document.
+All of them are built: the dashboard (`../frontend-design.md` §5a), the status
+timeline (§5b), and the sending side — the create form and the owner's
+invitation panel (§5c). Between them they call **ten** of the twelve routes
+above.
 
-The other seven have no screen yet: starting a workflow, inviting a slot,
-invitation status, resend, revoke, cancel, and the revision chain. A workflow
-is still started and managed from the desktop's wizard, so the routes answer
-and nothing on the website asks. Those screens are the rest of Phase E's
-front end; the server side of them is done and tested.
+Two are not called from the website, each for a stated reason:
+
+| Route | Why no screen |
+|---|---|
+| `POST /{id}/invitations` | It only accepts the address the slot's account already has — `EMAIL_MISMATCH` otherwise, so that a slot cannot be handed to a stranger. The one case it would serve is a slot assigned by username that was never e-mailed, and the website cannot know that account's address, so it would be asking the owner to guess one the server then checks. The desktop keeps it. |
+| `GET /{id}/revisions` | Hashes and sizes of the revision chain. Nothing on a reader's screen needs them: the timeline says a new version was stored, and the download gives the document. It stays for the desktop and for anyone auditing over the API. |
 
 The timeline is the one worth noting here, because what it chose **not** to
 show is a security decision rather than a design one: it renders an event's
