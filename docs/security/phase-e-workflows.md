@@ -309,3 +309,80 @@ server writes, so it wants its own commit and its own test — a participant
 reading the audit of a workflow they are in must not find a co-signer's
 address in it — and it is recorded here rather than done in passing behind a
 frontend change.
+
+## 7. Three things only a live run found
+
+The screens were green in every suite — 36 frontend tests, the whole Java
+suite — and then the server was started for real, an account registered
+through the website's own routes, and a document sent. Three defects surfaced
+in the first five minutes. Each is recorded with what it cost, because all
+three are the kind of thing a test suite cannot see: two were wrong *words*
+and one was a query that no test asserted either way.
+
+### 7.1 A cancelled document vanished from its sender's dashboard
+
+`RemoteWorkflowService.ownedBy` ended with `&& wf.status() !=
+WorkflowState.CANCELLED`. Reproduced against the live server: `/owned` held
+the workflow before the cancel and was one shorter after it.
+
+The dashboard groups `COMPLETED`, `CANCELLED` and `FAILED` as *Finished*, and
+for a workflow whose creator does not also sign it, `owned` is the **only**
+list it can appear in — `participating` is slot-based. So that group could
+never receive a cancelled document, and the cancel button on the document
+screen left the reader looking at a page that had just fallen out of their own
+dashboard.
+
+Fixed by removing the condition: every lifecycle state is listed, cancelled
+included. No test asserted the exclusion, which is why it survived; there is
+one now (`aCancelledWorkflowStaysInTheListOfWhatYouSent`) asserting the
+workflow is in `/owned` both before and after, and still not in
+`/participating`.
+
+### 7.2 The timeline said "Created" twice
+
+`createWorkflow` appended `WORKFLOW_CREATED` twice: once for the creation, and
+again for *"N signer(s) must bind a certificate before the document is
+prepared"* — a different fact under the same event type, distinguished only by
+the prose `detail`. The status timeline shows an event's **type** and never
+its detail (§6, and `lib/timeline.ts`), so it could only say *Created* twice
+and never say what the document was waiting for.
+
+Fixed with a new `AuditEventType.CERTIFICATES_PENDING`. No migration: the
+column is `VARCHAR(50)` with no `CHECK`, and the first `WORKFLOW_CREATED`
+stays, so `WorkflowFileStore`'s creator recovery is untouched.
+`aDraftSaysWhyItIsADraftRatherThanSayingCreatedTwice` counts exactly one of
+each over HTTP. The timeline now reads *"Every signer must register a
+certificate before this is prepared"*, in the story rather than the trail,
+because why a new document is sitting still is what its sender came to find
+out.
+
+**This is the audit-`detail` decision earning its keep in both directions.**
+Not rendering `detail` is what exposed the overloaded event type — a screen
+that printed the prose would have looked fine and hidden the modelling fault.
+It is also what made the fault matter at all. The answer was to fix the model,
+not to start printing the prose.
+
+### 7.3 A draft claimed it had not been sent
+
+`STATE_WORDS.DRAFT` was *"Not sent yet"*. But invitations go out when the
+workflow is created, and a workflow stays `DRAFT` only until every slot has a
+certificate bound — which the signers do from their own machines, after the
+e-mail has arrived. So every freshly sent document told its sender it had not
+been sent, which is the one wording here that could make somebody resend
+something unnecessarily. `blockedReason` is null in that state, so the
+timeline's pending row also fell through to its signature wording and claimed
+a signer was being asked to sign a document that had not been prepared.
+
+Now *"Waiting for certificates"*, and the pending row says *"Waiting for a
+certificate from X"*, *"Waiting for your certificate"* or *"Waiting for the
+signers' certificates"*. Three tests in `timeline.test.ts` and one in
+`dashboard.test.ts`.
+
+### What this says about the test suite
+
+Nothing here was a logic error, which is why 726 Java tests and 31 frontend
+tests all passed over it. 7.1 was a query whose behaviour no test had an
+opinion about; 7.2 and 7.3 were sentences that were wrong about the state they
+described. A suite asserts what someone thought to assert, and nobody asserts
+that a sentence is *true* — so the live run is not a formality to do once the
+tests are green. It is a different instrument.

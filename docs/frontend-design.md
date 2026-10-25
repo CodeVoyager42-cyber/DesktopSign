@@ -147,6 +147,13 @@ visible without reading the page.
 | **Waiting for others** | not finished, and waiting for somebody else |
 | **Finished** | `COMPLETED`, `CANCELLED` or `FAILED` |
 
+Two of those words were wrong until a live run said so (`../security/phase-e-workflows.md`
+§7). `DRAFT` read *"Not sent yet"*, when it actually means the invitations
+have gone and the signers have not registered their certificates yet — it is
+*"Waiting for certificates"* now. And the *Finished* group could never
+receive a `CANCELLED` document at all, because the server left cancelled
+workflows out of the owner's list; that was a server fix, not a wording one.
+
 Each row is the card pattern: document name, *"from X · 2 of 3 signed"*, and
 a state line or badge. Empty groups collapse to a single muted line rather
 than an empty panel — a dashboard whose first impression is three empty boxes
@@ -206,7 +213,11 @@ the id travels the way the e-mail links' tokens already do.
   invited, opened, signed, finished, plus **everything that went wrong** —
   is the list, and *"Everything that was recorded (n)"* is a disclosure
   under it. Nothing is dropped; the default reading is just the part that is
-  about the agreement.
+  about the agreement. `CERTIFICATES_PENDING` is in the story too: why a
+  freshly sent document is sitting still is exactly what its sender came
+  here to find out. That event type exists because of this screen — the
+  server used to record a second `WORKFLOW_CREATED` for it
+  (`../security/phase-e-workflows.md` §7.2).
 - **An event type this version has never heard of is shown**, in the story,
   with its name made readable (`WORKFLOW_FROZEN` → "Workflow frozen"). The
   server can grow an event without the website changing, and a screen that
@@ -215,7 +226,10 @@ the id travels the way the e-mail links' tokens already do.
 - **The last row is the current state, not the last event.** The trail says
   who was activated; the workflow says who is being waited for *now*, and
   after a released turn those are different answers. It carries no
-  timestamp, because it has not happened.
+  timestamp, because it has not happened. For a `DRAFT` workflow it names
+  what is actually missing — *"Waiting for a certificate from X"* — rather
+  than falling through to the signature wording, which claimed somebody was
+  being asked to sign a document that had not been prepared yet.
 
 **`detail` is never rendered.** The server's audit detail is written for
 whoever reads an audit trail — *"Revision 3 accepted (54123 bytes)"*, a short

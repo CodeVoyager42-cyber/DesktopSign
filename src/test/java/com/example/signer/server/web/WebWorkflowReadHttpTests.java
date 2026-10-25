@@ -126,6 +126,61 @@ class WebWorkflowReadHttpTests {
     }
 
     @Test
+    void aDraftSaysWhyItIsADraftRatherThanSayingCreatedTwice() throws Exception {
+        String owner = account(true);
+        String signer = account(true);
+        // No certificate for the slot, which is how the website creates every
+        // workflow: a certificate lives on the signer's own card.
+        String workflow = this.workflows.createWorkflow(
+                new CreateWorkflowRequest("unbound.pdf", "SEQUENTIAL",
+                        List.of(new CreateWorkflowRequest.SignerSpec(1, signer, null))),
+                pdf(), owner).workflowId();
+
+        HttpResponse<String> trail = get("/web/api/workflows/" + workflow + "/audit",
+                cookies(login(owner)), null);
+        assertThat(trail.statusCode()).isEqualTo(200);
+
+        // The second event of a draft creation used to be another
+        // WORKFLOW_CREATED, carrying its real meaning only in the prose
+        // detail — which a reader showing event types (the website's
+        // timeline) cannot use, so it said "Created" twice and never said
+        // what the document was waiting for.
+        assertThat(countOf("WORKFLOW_CREATED", trail.body())).isEqualTo(1);
+        assertThat(countOf("CERTIFICATES_PENDING", trail.body())).isEqualTo(1);
+    }
+
+    /** How often an event type appears in an audit answer. */
+    private static int countOf(String eventType, String body) {
+        int count = 0;
+        String needle = "\"eventType\":\"" + eventType + "\"";
+        for (int at = body.indexOf(needle); at >= 0; at = body.indexOf(needle, at + 1)) {
+            count++;
+        }
+        return count;
+    }
+
+    @Test
+    void aCancelledWorkflowStaysInTheListOfWhatYouSent() throws Exception {
+        String owner = account(true);
+        String signer = account(true);
+        String workflow = workflow(owner, signer);
+        assertThat(read("/owned", login(owner))).contains(workflow);
+
+        this.workflows.cancelWorkflow(workflow, owner);
+
+        // Cancelled is a state to be shown, not a reason to forget. The
+        // dashboard groups COMPLETED, CANCELLED and FAILED as "Finished",
+        // and for a workflow its creator does not also sign, "owned" is the
+        // only list it can ever appear in — so leaving CANCELLED out made a
+        // request vanish from its sender's own dashboard the moment they
+        // cancelled it, from the screen that offers the button.
+        assertThat(read("/owned", login(owner)))
+                .as("the sender must still see what they cancelled")
+                .contains(workflow);
+        assertThat(read("/participating", login(owner))).doesNotContain(workflow);
+    }
+
+    @Test
     void aStrangerGetsExactlyTheAnswerForAWorkflowThatDoesNotExist() throws Exception {
         String workflow = workflow(account(true), account(true));
         String stranger = login(account(true));
