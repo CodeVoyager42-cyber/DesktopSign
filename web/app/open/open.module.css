@@ -1,0 +1,27 @@
+/* The hand-off screen. The only screen in this website with a clock on it,
+   so the clock is the one thing that must be legible at a glance. */
+
+.clock {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 0.9375rem;
+  color: var(--ink-muted);
+}
+
+/* Tabular figures so the number does not jitter as it counts down — the
+   digits of a proportional font have different widths. */
+.remaining {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  margin-right: 0.375rem;
+}
+
+/* Present on every state of this screen, and quiet on all of them: it is the
+   answer to a question the reader only asks when something went wrong. */
+.fallback {
+  margin: 1.5rem 0 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.9375rem;
+}

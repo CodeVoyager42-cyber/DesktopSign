@@ -6,10 +6,12 @@ import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowResponse;
 import com.example.signer.server.api.ApiContracts.InvitationStatusView;
 import com.example.signer.server.api.ApiContracts.InvitationView;
+import com.example.signer.server.api.ApiContracts.LaunchCodeIssued;
 import com.example.signer.server.api.ApiContracts.RevisionView;
 import com.example.signer.server.api.ApiContracts.SigningTasksView;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
 import com.example.signer.server.api.WorkflowOperations;
+import com.example.signer.server.launch.LaunchCodeService;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -80,10 +82,15 @@ public class WebWorkflowController {
 
     private final WorkflowOperations operations;
 
+    /** Phase B's launch codes, issued here for a website session. */
+    private final LaunchCodeService launches;
+
     public WebWorkflowController(RemoteWorkflowService workflows,
-                                 WorkflowOperations operations) {
+                                 WorkflowOperations operations,
+                                 LaunchCodeService launches) {
         this.workflows = workflows;
         this.operations = operations;
+        this.launches = launches;
     }
 
     /** Workflows this account created — the dashboard's "sent" side. */
@@ -181,6 +188,36 @@ public class WebWorkflowController {
     @PostMapping("/{workflowId}/cancel")
     public WorkflowView cancel(@PathVariable String workflowId, Authentication caller) {
         return this.workflows.cancelWorkflow(workflowId, caller.getName());
+    }
+
+    /* ------------------- Phase F: the hand-off to the desktop ---------- */
+
+    /**
+     * A single-use link that opens SignFlow on this person's computer at this
+     * one signing task (Phase F; the launch codes themselves are Phase B).
+     *
+     * <p>Why the website needs a route of its own for something Phase B
+     * already exposed at {@code POST /api/workflows/{id}/launch-codes}: that
+     * one reads a bearer token, and this chain has no bearer token to read —
+     * it has a session cookie and a CSRF token, and the two chains do not
+     * parse each other's credentials (Phase C §3). The service underneath is
+     * the same call, so every rule it applies is applied here by
+     * construction: the caller must hold a slot of this workflow, the slot
+     * must be able to sign now, its certificate must already be bound (the
+     * Phase B review's H2 — a launch never enrols a certificate), the
+     * address must be verified, and at most five codes a minute.
+     *
+     * <p><b>{@code Cache-Control: no-store}</b>, because the answer contains
+     * the code itself. It is the credential that opens a signing session: two
+     * minutes, one use, and no copy of it is kept server-side beyond its
+     * hash.
+     */
+    @PostMapping("/{workflowId}/launch-codes")
+    public ResponseEntity<LaunchCodeIssued> launchCode(@PathVariable String workflowId,
+                                                       Authentication caller) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(this.launches.issue(caller.getName(), workflowId));
     }
 
     /* --------------------- part 3: the finished document --------------- */

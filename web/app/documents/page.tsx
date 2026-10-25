@@ -153,14 +153,18 @@ export default function Documents() {
               heading="Action required"
               rows={mine}
               emptyWords="Nothing is waiting for your signature."
-              // Signing happens on the signer's own computer, with their own
-              // card: there is no button here that could do it. Saying so
-              // beats a link that cannot work — the hand-off that opens the
-              // application is Phase F. "To sign it" rather than "Open",
-              // because the row's own link is now called that.
-              note={() => (
-                <p className={`muted ${styles.handoff}`}>
-                  To sign it, open SignFlow on your computer.
+              // The hand-off (Phase F). Signing still happens on the signer's
+              // own computer with their own card — this link does not sign
+              // anything, it opens the application at this one task and says
+              // so on the way.
+              note={(row) => (
+                <p className={styles.handoff}>
+                  <Link
+                    href={`/open?id=${encodeURIComponent(row.id)}`}
+                    className="button"
+                  >
+                    Sign it in SignFlow
+                  </Link>
                 </p>
               )}
             />
