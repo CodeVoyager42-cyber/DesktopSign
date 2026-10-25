@@ -310,6 +310,53 @@ reading the audit of a workflow they are in must not find a co-signer's
 address in it — and it is recorded here rather than done in passing behind a
 frontend change.
 
+### 6.1 Fixed, with both halves
+
+**The address is no longer written.** Two call sites put one in a detail:
+`INVITATION_CREATED` in `InvitationService.invite`, and `INVITATION_EXPIRED`
+in `InvitationExpirySweeper`. Both now record the **slot number** only.
+Nothing is lost by it: an invitation can only ever be addressed to the slot
+account's own address — the `EMAIL_MISMATCH` guard in the same method enforces
+exactly that — so a slot's address is a property of the slot, and
+`invitationStatus` serves it to the people entitled to it. Every other detail
+in the trail already used slot numbers.
+
+**And the detail of three event types is served to the creator only.** That is
+what covers the rows already in the table: rewriting an append-only audit
+trail to hide what it recorded would be worse than the exposure, and a
+migration that scrubbed it would be exactly that. The three are
+`INVITATION_CREATED` and `INVITATION_EXPIRED`, whose old rows name an address,
+and `EMAIL_DELIVERY_FAILED` — which is **current**, not legacy: it carries the
+mail transport's own error text, and an SMTP rejection routinely names the
+recipient. No scrubbing of somebody else's error message would be dependable,
+and the creator is the only reader who can act on a delivery failure anyway.
+The event type, the actor and the time are unchanged for everybody.
+
+**The first version of this rule was "all prose to the creator", and it was
+wrong.** Two Phase B tests caught it within the same suite run:
+`LaunchCodeHttpTests` reads the trail *as the signer* and asserts on
+`DESKTOP_SESSION_OPENED` and `DESKTOP_SESSION_REVOKED` detail — which carries
+the device and app version of the session that was opened. That is not
+incidental: it is the whole of the F3 mitigation in
+`../architecture/website-launch-code-plan.md`, where the website shows the
+signer *"opened on device X, app vY at hh:mm"* with a "this wasn't me" revoke.
+A blanket rule would have hidden a signer's own session from them to protect a
+co-signer's address — one exposure traded for a worse one. Hence a named list
+of event types, with the reason recorded beside it.
+
+Tested by `aCoSignerCannotReadAnAddressOutOfTheAuditTrail`: a second signer
+reads the trail of a workflow they are in and finds no address of any account
+in it, still sees `INVITATION_CREATED`, and gets none of its prose — but does
+still get the detail of an event that never named an address, which is what
+pins the rule as a list rather than a blanket. The creator reads the same
+trail, still gets *"Invitation created for signer 1"*, and that sentence no
+longer names an address either.
+
+**What this does not fix.** A signer can still learn *that* slot 1 was
+invited and when, which is proper to a shared workflow. And `actor` is a
+username, which participants see anyway. The exposure that is closed is the
+address.
+
 ## 7. Three things only a live run found
 
 The screens were green in every suite — 36 frontend tests, the whole Java

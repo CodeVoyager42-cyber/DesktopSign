@@ -44,8 +44,10 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -561,11 +563,51 @@ public class RemoteWorkflowService {
     }
 
     /** Audit trail visible to participants. */
+    /**
+     * The event types whose {@code detail} has ever named an e-mail address,
+     * and whose prose therefore goes to the workflow's creator alone.
+     *
+     * <p>{@code INVITATION_CREATED} and {@code INVITATION_EXPIRED} wrote the
+     * invited address until it was taken out (see those call sites), so this
+     * is what covers the rows already in the table: rewriting an append-only
+     * audit trail to hide what it recorded would be worse than the exposure.
+     * {@code EMAIL_DELIVERY_FAILED} is different and still current — it
+     * carries the mail transport's own error text, which routinely names the
+     * recipient it rejected, and no scrubbing of somebody else's SMTP message
+     * would be dependable. The creator is also the only reader who can act on
+     * a delivery failure.
+     *
+     * <p>Deliberately a narrow list and not "all prose to the owner". That
+     * blunter rule was written first and two Phase B tests caught it:
+     * {@code DESKTOP_SESSION_OPENED} carries the device and app version of
+     * the session, which the signer whose session it is must be able to see —
+     * it is the whole of the F3 mitigation ("opened on device X, app vY", with
+     * a "this wasn't me" revoke). Hiding a signer's own session detail to
+     * protect a co-signer's address would have traded one exposure for a
+     * worse one.
+     */
+    private static final Set<AuditEventType> CREATOR_ONLY_DETAIL = EnumSet.of(
+            AuditEventType.INVITATION_CREATED,
+            AuditEventType.INVITATION_EXPIRED,
+            AuditEventType.EMAIL_DELIVERY_FAILED);
+
+    /**
+     * What happened, in order, to a workflow the caller takes part in.
+     *
+     * <p>Every participant reads the event type, the actor and the time —
+     * what happened and in what order is what the trail is for. The prose
+     * {@code detail} of the few event types in {@link #CREATOR_ONLY_DETAIL}
+     * reaches the creator only; see there for which and why.
+     */
     public List<AuditView> getAudit(String workflowId, String userId) {
         SigningWorkflowAggregate wf = requireAccessible(workflowId, userId);
+        boolean creator = userId != null && userId.equals(wf.createdBy());
         return wf.audit().stream()
                 .map(a -> new AuditView(a.sequence(), a.eventType().name(),
-                        a.actor(), a.detail(), a.occurredAt().toString()))
+                        a.actor(),
+                        creator || !CREATOR_ONLY_DETAIL.contains(a.eventType())
+                                ? a.detail() : null,
+                        a.occurredAt().toString()))
                 .toList();
     }
 
