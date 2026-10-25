@@ -81,7 +81,7 @@ if ! curl -sf -m 5 "$BASE/api/health" > /dev/null 2>&1; then
 fi
 
 echo "=============== 1. the pages exist and are public ==============="
-for p in / /sign-in /sign-up /forgot-password /documents /document /send /account; do
+for p in / /sign-in /sign-up /forgot-password /documents /document /send /open /account; do
   printf "  GET %-18s -> %s\n" "$p" "$(code "$BASE$p")"
 done
 printf "  GET %-18s -> %s (public, no auth)\n" "/api/health" "$(code "$BASE/api/health")"
@@ -194,9 +194,27 @@ else
 fi
 
 echo
+echo "=============== 8b. the hand-off to the desktop (Phase F) ==============="
+curl -sS -o "$B" -H "Cookie: $JAR" "$BASE/web/api/app-info" \
+  -w "  GET /web/api/app-info -> %{http_code}\n"
+LINK=$(field downloadUrl "$B")
+echo "  install link    : ${LINK:-none configured (null, as shipped)}"
+# The sender is not a signer of this workflow, so the server refuses them a
+# launch link: there is no signing task of theirs to open. 403 is the answer
+# that proves the route is on the session chain and applying Phase B's rules.
+printf "  POST …/launch-codes as the sender -> %s (403: not a signer)\n" \
+  "$(code -X POST "$BASE/web/api/workflows/$WF/launch-codes" \
+      -H "X-XSRF-TOKEN: $XSRF" -H "Cookie: $JAR")"
+curl -sS -o "$B" -X POST "$BASE/web/api/workflows/$WF/launch-codes" \
+  -H "X-XSRF-TOKEN: $XSRF" -H "Cookie: $JAR" > /dev/null
+echo "  refusal         : $(field code "$B") — $(field message "$B")"
+
+echo
 echo "=============== 9. CSRF and the session are enforced ==============="
 printf "  POST cancel with no CSRF header   -> %s (403 expected)\n" \
   "$(code -X POST "$BASE/web/api/workflows/$WF/cancel" -H "Cookie: $JAR")"
+printf "  POST launch-codes, no CSRF header -> %s (403 expected)\n" \
+  "$(code -X POST "$BASE/web/api/workflows/$WF/launch-codes" -H "Cookie: $JAR")"
 printf "  GET  /web/api/auth/me with no cookie -> %s (401 expected)\n" \
   "$(code "$BASE/web/api/auth/me")"
 

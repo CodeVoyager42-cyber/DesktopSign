@@ -337,25 +337,66 @@ usually means the state moved while the page sat open — the slot signed, the
 workflow completed — and then the fresh answer is the only honest thing to
 show. The timeline picks up the new audit event from the same read.
 
-## 6. Planned, not built — Phase F
+## 5d. The hand-off, as built (Phase F)
 
-Recorded here so the shape is agreed before the screen exists. **This is not
-implemented.**
+The screen that opens the desktop application, and the only one in this
+website with a clock on it. All four points of the plan are there: *"Opening
+SignFlow…"* with the document name on arrival, the two-minute validity shown
+as a countdown, a fresh link rather than a replay when it runs out, and an
+install fallback on every state of the screen. What changed in the building
+is recorded below.
 
-### The "Sign" hand-off screen
+**The path is `/open?id=…`, not `/sign`** — although the button says *Sign it
+in SignFlow*. `/sign/{token}` is already the public, server-rendered
+invitation page, and a second meaning one segment from it is the kind of
+neighbourhood where a matcher written `/sign*` covers a page nobody meant it
+to. `/open` also describes what the screen does.
 
-The screen that opens the desktop application, and the only one with a clock
-on it:
+**The code is never in the page.** The server answers with a deep link
+carrying a single-use code; the page navigates to it by assigning
+`location.href` and keeps it in a ref, never in rendered state. An
+`<a href={deepLink}>` would have been the easy way and puts a credential in
+the DOM for anyone to copy out of a right-click menu.
 
-1. **"Opening SignFlow…"** with the document name, immediately on arrival.
-2. The launch code is **valid for two minutes** (Phase B), so the screen says
-   so and shows the time remaining rather than failing silently.
-3. **Retry** as the primary action once it has expired — a fresh code, not a
-   replay of the old one.
-4. **Install fallback** as a text button throughout: *"Nothing happened?
-   Install SignFlow"*, which is the existing download link.
+**It tries once, then offers a button.** Navigating to a custom scheme is
+privileged: browsers may ignore it when no click caused it, and some ask the
+reader to confirm. So the page attempts the hand-off on arrival — the reader
+did click something to get here — and leaves *"Open SignFlow again"* as the
+primary action rather than sitting on "Opening…" if the attempt was refused.
 
-The browser never becomes the signing environment: the certificate stays on
-the smart card and the desktop application does the signing. The hand-off
-screen's job is to say that clearly enough that nobody looks for an upload
-button.
+**The clock is read, not counted.** Every tick recomputes from the issue time
+rather than decrementing a number in state, so a tab that was asleep for a
+minute comes back with the right answer instead of a stale one. Tabular
+figures, so the digits do not jitter as they fall.
+
+**Retry is offered only where a retry could work.** `TOO_MANY_REQUESTS` (five
+codes a minute) and a network failure are worth another go. An unregistered
+card, somebody else's turn, a finished document: those are states, and a
+button that cannot change them is worse than no button. The refusal itself is
+the server's own sentence, as everywhere else.
+
+**The install fallback is a link only when the deployment has one.** It comes
+from `GET /web/api/app-info`, which serves the same `SIGNER_DOWNLOAD_URL` the
+invitation page has always rendered. It is unset by default — this project
+builds an installer with `scripts/package.sh` and hosts it nowhere — so the
+screen says *"SignFlow has to be installed on this computer to sign"* instead
+of offering a link that 404s. Inventing a download URL would have been
+inventing a fact.
+
+**What the first-time signer still has to do elsewhere.** A launch never
+enrols a certificate (Phase B review, H2), so the first time a person signs,
+their card has to be registered from the desktop application while signed in
+there — the server refuses the launch with `CERTIFICATE_NOT_BOUND` and says
+exactly that. Every workflow this website creates starts unbound, so this is
+the common path, not the edge case. It is why decision D5 keeps the desktop's
+own sign-in until the website is in production, and it is the next thing to
+solve in Phase F rather than something this screen can work around.
+
+## 6. Planned, not built
+
+The rest of Phase F: registering the `signflow://` scheme in the installer so
+an installed copy can receive these links at all (audit finding F2 — the
+packaged build registers nothing today), and then retiring the desktop's own
+sign-in, workflow wizard and start-up gate. Both are desktop and installer
+work rather than screens, and the second is explicitly gated on the website
+equivalents being verified in production first (decision D5).

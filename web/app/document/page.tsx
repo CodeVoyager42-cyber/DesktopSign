@@ -245,7 +245,20 @@ export default function Document() {
               // it, and the owner of a workflow they do not sign would be
               // told to go and sign it. The pending row already says what
               // is being waited for.
-              <p className="notice">Open SignFlow on your computer to sign this.</p>
+              <div className="notice">
+                <p>
+                  It is your turn. Signing happens in SignFlow on this
+                  computer, with your own card — this website never sees it.
+                </p>
+                <p className={styles.handoff}>
+                  <Link
+                    href={`/open?id=${encodeURIComponent(workflow.workflowId)}`}
+                    className="button"
+                  >
+                    Sign it in SignFlow
+                  </Link>
+                </p>
+              </div>
             ) : null}
 
             {finished ? (
