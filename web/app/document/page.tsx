@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppHeader, SiteFooter } from "../../components/SiteChrome";
 import {
   Badge,
@@ -10,9 +10,20 @@ import {
   useNote,
   useSession,
 } from "../../components/ui";
-import { api, type AuditEntry, type Workflow } from "../../lib/api";
-import { STATE_WORDS } from "../../lib/dashboard";
-import { buildTimeline, type TimelineRow } from "../../lib/timeline";
+import {
+  api,
+  type AuditEntry,
+  type InvitationStatus,
+  type Workflow,
+} from "../../lib/api";
+import { FINISHED, STATE_WORDS } from "../../lib/dashboard";
+import {
+  canResend,
+  canWithdraw,
+  slotNeedsAttention,
+  slotStory,
+} from "../../lib/send";
+import { at, buildTimeline, type TimelineRow } from "../../lib/timeline";
 import styles from "./document.module.css";
 
 /**
@@ -65,40 +76,94 @@ export default function Document() {
   const [id, setId] = useState<string | null | undefined>(undefined);
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [audit, setAudit] = useState<AuditEntry[] | null>(null);
+  const [slots, setSlots] = useState<InvitationStatus[] | null>(null);
   const [refused, setRefused] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
     setId(new URLSearchParams(window.location.search).get("id"));
   }, []);
 
+  // Actions re-read the screen afterwards, so the load is a callback rather
+  // than only an effect. One mounted flag for all of them: a reply that
+  // arrives after the reader has left should not be written anywhere.
+  const mounted = useRef(true);
+  useEffect(() => () => {
+    mounted.current = false;
+  }, []);
+
+  const load = useCallback(
+    (workflowId: string) =>
+      Promise.all([
+        api.workflow(workflowId),
+        api.audit(workflowId),
+        api.invitations(workflowId),
+      ]).then(([one, trail, invited]) => {
+        if (!mounted.current) return;
+        if (!one.ok || !one.body) {
+          setRefused(true);
+          return;
+        }
+        setWorkflow(one.body);
+        if (trail.ok) {
+          setAudit(trail.body ?? []);
+        } else {
+          // The document is readable but its history is not — the header can
+          // still be shown, and saying so beats an empty timeline that reads
+          // as "nothing happened".
+          setAudit([]);
+          say("The history of this document could not be loaded.", "bad");
+        }
+        if (invited.ok) {
+          setSlots(invited.body ?? []);
+        } else if (invited.code === "WORKFLOW_NOT_ACCESSIBLE") {
+          // Not a failure: managing invitations is the owner's, and a signer
+          // reading their own document is told so by this exact code. The
+          // panel is simply not theirs, and nothing is said about it.
+          setSlots(null);
+        } else {
+          setSlots(null);
+          say("Who was invited could not be loaded.", "bad");
+        }
+      }),
+    [say],
+  );
+
   useEffect(() => {
     if (!me || !id) return;
-    let live = true;
-    Promise.all([api.workflow(id), api.audit(id)]).then(([one, trail]) => {
-      if (!live) return;
-      if (!one.ok || !one.body) {
-        setRefused(true);
-        return;
-      }
-      setWorkflow(one.body);
-      if (trail.ok) {
-        setAudit(trail.body ?? []);
-      } else {
-        // The document is readable but its history is not — the header can
-        // still be shown, and saying so beats an empty timeline that reads
-        // as "nothing happened".
-        setAudit([]);
-        say("The history of this document could not be loaded.", "bad");
-      }
-    });
-    return () => {
-      live = false;
-    };
-  }, [me, id, say]);
+    load(id);
+  }, [me, id, load]);
 
   useEffect(() => {
     document.title = workflow ? `${workflow.documentName} — SignFlow` : "SignFlow";
   }, [workflow]);
+
+  /**
+   * One path for every action: do it, say what the server said, then re-read
+   * the whole screen.
+   *
+   * The re-read is not a courtesy. A refusal here usually means the state
+   * moved — the slot signed while the page sat open, the workflow completed —
+   * and in that case the fresh answer is the only honest thing to show. The
+   * timeline picks up the new audit event by the same read.
+   */
+  function run(
+    action: () => Promise<{ ok: boolean; message: string | null }>,
+    done: string,
+    failed: string,
+  ) {
+    if (!id) return;
+    setBusy(true);
+    setConfirming(false);
+    action().then((result) => {
+      if (!mounted.current) return;
+      say(result.ok ? done : (result.message ?? failed), result.ok ? "good" : "bad");
+      load(id).finally(() => {
+        if (mounted.current) setBusy(false);
+      });
+    });
+  }
 
   if (state !== "in" || !me) {
     return <SessionPending />;
@@ -146,6 +211,11 @@ export default function Document() {
   const recorded = rows.filter((row) => row.recorded);
   const finished = workflow?.status === "COMPLETED";
   const yourTurn = workflow?.currentSignerUserId === me.username;
+  // A successful read of the invitations is what tells this page the viewer
+  // created the workflow: the server grants that read to the owner alone, so
+  // it is the server's answer and not a guess from the data.
+  const owner = slots !== null;
+  const live = workflow !== null && !FINISHED.includes(workflow.status);
 
   return (
     <>
@@ -179,11 +249,98 @@ export default function Document() {
             ) : null}
 
             {finished ? (
-              <p className="more">
+              <p className={styles.download}>
                 <a href={api.downloadUrl(workflow.workflowId)} download>
                   Download the signed PDF <span aria-hidden="true">›</span>
                 </a>
               </p>
+            ) : null}
+
+            {/* The owner's panel. A signer sees none of it: the server
+                refuses them this read, which is what `owner` is. */}
+            {owner && slots ? (
+              <section>
+                <h2>Who was invited</h2>
+                {slots.length === 0 ? (
+                  <p className="muted">
+                    Nobody was invited by e-mail: every slot was assigned to an
+                    account that already existed.
+                  </p>
+                ) : null}
+                <ul className={styles.slots}>
+                  {slots.map((slot) => {
+                    // Both are read through `at`, which answers null for a
+                    // timestamp it cannot parse — so they are computed here
+                    // rather than interpolated, where a null would be shown
+                    // to the reader as the word "null".
+                    const expires =
+                      slot.status === "PENDING" && !slot.slotSigned && slot.expiresAt
+                        ? at(slot.expiresAt)
+                        : null;
+                    const opened = slot.acceptedAt ? at(slot.acceptedAt) : null;
+                    return (
+                    <li key={slot.signerOrder} className="card">
+                      <h3>
+                        Signer {slot.signerOrder}
+                        {slot.email ? ` · ${slot.email}` : ""}
+                      </h3>
+                      <p>
+                        {slotNeedsAttention(slot) ? (
+                          <Badge pending>{slotStory(slot)}</Badge>
+                        ) : (
+                          slotStory(slot)
+                        )}
+                        {expires ? ` · the link expires ${expires}` : ""}
+                        {opened ? ` · opened ${opened}` : ""}
+                      </p>
+                      {canResend(slot) || canWithdraw(slot) ? (
+                        <p className={styles.actions}>
+                          {canResend(slot) && slot.invitationId !== null ? (
+                            <button
+                              type="button"
+                              className="text-button"
+                              disabled={busy}
+                              onClick={() =>
+                                run(
+                                  () => api.resendInvitation(slot.invitationId as number),
+                                  "A new invitation is on its way. The previous link no longer works.",
+                                  "The invitation could not be sent again.",
+                                )
+                              }
+                            >
+                              Send it again
+                            </button>
+                          ) : null}
+                          {canWithdraw(slot) && slot.invitationId !== null ? (
+                            <button
+                              type="button"
+                              className="text-button"
+                              disabled={busy}
+                              onClick={() =>
+                                run(
+                                  () => api.revokeInvitation(slot.invitationId as number),
+                                  "The invitation is withdrawn. Its link no longer works.",
+                                  "The invitation could not be withdrawn.",
+                                )
+                              }
+                            >
+                              Withdraw it
+                            </button>
+                          ) : null}
+                        </p>
+                      ) : null}
+                    </li>
+                    );
+                  })}
+                </ul>
+                {slots.length > 0 ? (
+                  <p className="hint">
+                    Sending an invitation again replaces the previous link,
+                    which stops working at once. Withdrawing one leaves the
+                    slot unsigned and nobody invited to it.
+                  </p>
+                ) : null}
+              </section>
             ) : null}
 
             <h2>History</h2>
@@ -217,6 +374,57 @@ export default function Document() {
             ) : null}
           </>
         )}
+
+        {/* Cancelling ends the request for everyone and cannot be undone, so
+            it asks first and sits at the bottom, away from everything that is
+            merely useful. The server allows it to the creator or to whoever
+            is being waited for, and only while it is unfinished — the same
+            two conditions tested here, so a button is never shown that the
+            server would refuse. */}
+        {workflow && live && (owner || yourTurn) ? (
+          <section className={styles.stop}>
+            {confirming ? (
+              <>
+                <p>
+                  Cancel this signing request? Signatures already given stay in
+                  the record, nobody can sign it after this, and it cannot be
+                  undone.
+                </p>
+                <p className={styles.actions}>
+                  <button
+                    type="button"
+                    className="button"
+                    disabled={busy}
+                    onClick={() =>
+                      run(
+                        () => api.cancel(workflow.workflowId),
+                        "The signing request is cancelled.",
+                        "It could not be cancelled.",
+                      )
+                    }
+                  >
+                    Yes, cancel it
+                  </button>
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => setConfirming(false)}
+                  >
+                    Keep it
+                  </button>
+                </p>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => setConfirming(true)}
+              >
+                Cancel this signing request
+              </button>
+            )}
+          </section>
+        ) : null}
 
         <NoteRegion note={note} />
         <p className="links">

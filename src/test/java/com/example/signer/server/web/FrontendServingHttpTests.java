@@ -215,7 +215,7 @@ class FrontendServingHttpTests {
         // and this asserts the right one arrives.
         for (String path : new String[] {"/sign-in", "/sign-up", "/forgot-password",
                 "/change-password", "/account", "/documents", "/document",
-                "/verify-email", "/reset-password"}) {
+                "/send", "/verify-email", "/reset-password"}) {
             HttpResponse<String> page = get(path);
 
             assertThat(page.statusCode()).as(path).isEqualTo(200);

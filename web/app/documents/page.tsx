@@ -130,6 +130,15 @@ export default function Documents() {
       <AppHeader me={me} />
       <main id="main" className="column">
         <h1>Documents</h1>
+        {/* The one thing this screen is for other than reading: sending
+            something out. A primary action beside the heading, because a
+            dashboard whose only verbs are other people's reads as a
+            waiting room. */}
+        <p className={styles.send}>
+          <Link href="/send" className="button">
+            Send a document
+          </Link>
+        </p>
         {rows === null ? <p className="lede">Loading…</p> : null}
         {rows !== null && rows.length === 0 && !note ? (
           <p className="lede">
