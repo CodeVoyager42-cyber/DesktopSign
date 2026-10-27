@@ -21,7 +21,8 @@ of the system that can be checked.
 |---|---|
 | `static/index.html` + three hand-written modules | `web/`, built to `src/main/resources/static` |
 | One document building every view in the browser | One real document per route |
-| Tokens in `assets/app.css` | The same tokens in `web/app/globals.css` |
+| Tokens in `assets/app.css` | Tokens in `web/app/globals.css` — now **Tailwind v4 + shadcn/ui** variables, blue (`frontend-design.md` §0–§1) |
+| Hand-written classes and `*.module.css` per screen | Tailwind utilities and `web/components/ui/*` (copied in, ours to edit); the modules are deleted |
 | Inter referenced but **absent**, falling back to the platform font | Inter shipped in the build, served from this origin |
 | `script-src 'self'` | `script-src 'self'` **plus a hash per inline script** |
 
@@ -87,7 +88,7 @@ cd web
 npm install
 npm run sync      # next build, then copy out/ into the server's resources
 npm test          # the grouping logic, in Node's own test runner
-npm run dev       # a dev server on :3000 — see the caveat below
+npm run dev       # a dev server on :3000, proxying the API to :8080
 ```
 
 `npm run sync` **wipes** `src/main/resources/static` before copying, so a page
@@ -103,13 +104,48 @@ frontend that changes far less often than the server. If that trade ever
 stops making sense, `frontend-maven-plugin` is the replacement and this
 paragraph is the thing to delete.
 
-**`npm run dev` caveat.** The dev server is useful for working on layout and
-copy, but it is a different origin from the API, so the session cookie will
-not travel to it and anything behind sign-in will not work. For that, run
-`npm run sync` and restart the server. A dev-only rewrite proxy would fix it
-and is deliberately not configured: `output: "export"` does not support
-rewrites, so it would mean two config shapes and a dev build that differs
-from the real one.
+### Working on the website with `npm run dev`
+
+The dev server now works end to end, against the real API:
+
+```bash
+# window 1 — the API, the database and the dev mailbox
+run-server.cmd
+
+# window 2 — the website, with hot reload
+cd web && npm run dev     # http://localhost:3000
+```
+
+Sign in at <http://localhost:3000/sign-in> and every signed-in screen works.
+`next.config.ts` forwards `/web/api/:path*` and `/sign/:path*` from :3000 to
+`http://localhost:8080` (override with `SIGNFLOW_API_URL`), so the browser
+sees the page and the API on one origin — which is what the `__Host-` session
+cookie and the double-submit CSRF token both require. Without the proxy the
+cookie is never sent and everything behind sign-in fails.
+
+**`next dev` and `next build` are therefore two configuration shapes**, which
+is the cost of this and was the reason it had been refused before:
+`output: "export"` and `rewrites()` cannot both be set, because an export has
+no server to rewrite anything. The branch is one ternary on
+`process.env.NODE_ENV`, and the production side is byte-for-byte what it was —
+`npm run sync` runs `next build`, which takes the export branch.
+
+**What :3000 does not prove.** The real Content-Security-Policy, the
+`Referrer-Policy`, the hash-permitted inline scripts and the `PAGES` forwards
+are all applied by the Spring server and **none of them exist on :3000**. A
+CSP mistake is invisible there and obvious on :8080. So before committing a
+frontend change:
+
+```bash
+cd web && npm run sync          # next build + copy into the server's resources
+cd .. && ./mvnw package -DskipTests
+run-server.cmd                  # then open http://localhost:8080
+```
+
+and look at the browser console on every page you touched: no CSP violation,
+no 404 for a chunk. `mvn -Dtest=FrontendServingHttpTests,SecurityHeadersHttpTests test`
+checks the same ground mechanically — it recomputes every inline script's
+hash the way a browser does — but it cannot see a page render.
 
 ## 5. Routing
 

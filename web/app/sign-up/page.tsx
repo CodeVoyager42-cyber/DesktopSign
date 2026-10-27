@@ -1,10 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
-import { SiteFooter, SiteHeader } from "../../components/SiteChrome";
-import { Field, Links, NoteRegion, Sheet, useNote } from "../../components/ui";
-import { MIN_PASSWORD_LENGTH, api } from "../../lib/api";
+import { MailCheck } from "lucide-react";
+import { AuthShell } from "@/components/auth-shell";
+import { Links, TextLink } from "@/components/blocks";
+import { Busy, Field, NoteAlert, useNote } from "@/components/session";
+import { Button } from "@/components/ui/button";
+import { MIN_PASSWORD_LENGTH, api } from "@/lib/api";
 
 /**
  * Create an account.
@@ -22,6 +24,7 @@ export default function SignUp() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
+  const [resent, setResent] = useState(false);
 
   async function submit() {
     setBusy(true);
@@ -35,76 +38,110 @@ export default function SignUp() {
     say(result.message ?? "That did not work.", "bad");
   }
 
+  async function resend() {
+    setBusy(true);
+    await api.resendVerification(email);
+    setBusy(false);
+    // 202 either way here too, so this says what was done and claims
+    // nothing about whether an account exists.
+    setResent(true);
+  }
+
   if (sent) {
     return (
-      <>
-        <SiteHeader />
-        <main id="main" className="panel">
-          <h1>Check your e-mail</h1>
-          <p className="lede">
-            If that address can be used, a confirmation link is on its way to
-            it. The link works once and expires.
-          </p>
-          <div className="notice">
-            <p>
-              You can sign in before confirming, and look around — but
-              creating signing requests and signing documents both wait until
-              the address is confirmed.
+      <AuthShell
+        title="Check your email"
+        lede="If that address can be used, a link to confirm it is on its way. The link works once and then expires."
+        below={
+          <Links>
+            <TextLink href="/sign-in">Sign in</TextLink>
+            {/* The app can be installed while the confirmation email is in
+                flight: the two are independent, and doing them in parallel
+                is the shortest path to a first signature. */}
+            <TextLink href="/download">Get the app for Windows</TextLink>
+          </Links>
+        }
+      >
+        <div className="flex items-start gap-3 rounded-xl bg-muted p-4">
+          <MailCheck aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-primary" />
+          <div className="space-y-2 text-base">
+            <p className="font-medium">
+              Can&apos;t find it? Look in your Spam or All Mail folder.
+            </p>
+            <p className="text-muted-foreground">
+              You can sign in before confirming and look around. Sending a
+              document and signing one both wait until the address is
+              confirmed.
             </p>
           </div>
-          <Links>
-            <Link href="/sign-in">Sign in</Link>
-          </Links>
-        </main>
-        <SiteFooter />
-      </>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="w-full"
+          disabled={busy || resent}
+          onClick={resend}
+        >
+          {busy ? <Busy>Sending…</Busy> : resent ? "Link sent again" : "Send the link again"}
+        </Button>
+      </AuthShell>
     );
   }
 
   return (
-    <>
-      <SiteHeader />
-      <main id="main" className="panel">
-        <h1>Create an account</h1>
-        <p className="lede">
-          You need a smart card only when it is your turn to sign.
-        </p>
-        <Sheet onSubmit={submit} submitLabel="Create an account" busy={busy}>
-          <Field
-            label="E-mail address"
-            name="email"
-            type="email"
-            value={email}
-            onChange={setEmail}
-            autoComplete="email"
-            autoFocus
-          />
-          <Field
-            label="Your name"
-            name="displayName"
-            type="text"
-            value={displayName}
-            onChange={setDisplayName}
-            autoComplete="name"
-            hint="Shown to the people you ask to sign."
-          />
-          <Field
-            label="Password"
-            name="password"
-            type="password"
-            value={password}
-            onChange={setPassword}
-            autoComplete="new-password"
-            minLength={MIN_PASSWORD_LENGTH}
-            hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}
-          />
-        </Sheet>
-        <NoteRegion note={note} />
+    <AuthShell
+      title="Create your account"
+      lede="You need your smart card only when it is your turn to sign."
+      below={
         <Links>
-          <Link href="/sign-in">Already have an account? Sign in</Link>
+          <TextLink href="/sign-in">Already have an account? Sign in</TextLink>
         </Links>
-      </main>
-      <SiteFooter />
-    </>
+      }
+    >
+      <form
+        className="space-y-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <Field
+          label="Email address"
+          name="email"
+          type="email"
+          value={email}
+          onChange={setEmail}
+          autoComplete="email"
+          autoFocus
+          disabled={busy}
+        />
+        <Field
+          label="Your name"
+          name="displayName"
+          type="text"
+          value={displayName}
+          onChange={setDisplayName}
+          autoComplete="name"
+          hint="Shown to the people you ask to sign."
+          disabled={busy}
+        />
+        <Field
+          label="Password"
+          name="password"
+          type="password"
+          value={password}
+          onChange={setPassword}
+          autoComplete="new-password"
+          minLength={MIN_PASSWORD_LENGTH}
+          hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}
+          disabled={busy}
+        />
+        <Button type="submit" size="lg" className="w-full" disabled={busy}>
+          {busy ? <Busy>Creating your account…</Busy> : "Create account"}
+        </Button>
+      </form>
+      <NoteAlert note={note} />
+    </AuthShell>
   );
 }

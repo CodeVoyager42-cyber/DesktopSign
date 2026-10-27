@@ -17,118 +17,241 @@ enterprise signing products, but nothing is borrowed from anyone's identity:
 no imitation of a logo, a typeface licence, a violet brand colour, or
 anyone's copy.
 
+## 0. What it is built from
+
+**Tailwind CSS v4 and shadcn/ui** (Radix primitives, `lucide-react` icons),
+inside the existing Next.js static export. Tailwind v4 has no
+`tailwind.config.js`: the theme is declared in CSS, in `web/app/globals.css`,
+and `@tailwindcss/postcss` is the whole build setup
+(`web/postcss.config.mjs`).
+
+shadcn components are **copied into the repository** — `web/components/ui/*`
+are ours to edit, and four of them are edited (§3).
+
+### The dependencies, and three that were removed
+
+| Package | Why |
+|---|---|
+| `clsx` + `tailwind-merge` | the `cn` helper in `lib/utils.ts` |
+| `class-variance-authority` | the component variants |
+| `radix-ui` | the primitives under dialog, menu, tabs, select… |
+| `lucide-react` | icons, inline SVG, nothing fetched |
+| `tw-animate-css` | the dialog/sheet enter-and-exit animations |
+| `sonner` | toasts (component present; nothing raises one yet) |
+| `@fontsource-variable/inter` | the self-hosted font |
+
+- **`cn` removed.** `shadcn init` wrote `lib/utils.ts` as a one-line
+  re-export from its own `cn` package — shadcn's, MIT, zero dependencies, no
+  install hooks, a 612-byte wrapper around its bundled clsx + tailwind-merge
+  engine. Nothing wrong with it; it is not what the ecosystem is written
+  against, so `lib/utils.ts` is the standard `twMerge(clsx(inputs))` and the
+  package is gone. Note that **`npx shadcn add` reinstalls it** whenever it
+  generates a component, and rewrites the import — check after adding one.
+- **`shadcn` (the CLI) removed from dependencies**, where `init` had put it
+  at *runtime*. It was also the transitive source of a second `cn`. Use
+  `npx shadcn@latest add <component>`; its `tailwind.css` is vendored (below).
+- **`next-themes` removed.** `sonner.tsx` asked it which theme was active;
+  this site is light only, so the answer is pinned and the dependency is not
+  installed to answer a question with one possible answer.
+
+`@import "shadcn/tailwind.css"` is **vendored** into `globals.css`: 7 of its 9
+custom variants, by count of real uses (`data-open` 32, `data-closed` 30,
+`data-checked` 12, `data-active` 11, `data-disabled` 8, `data-horizontal` 3,
+`data-vertical` 2). Its `no-scrollbar`, `scroll-fade` and `shimmer` utilities
+and accordion keyframes are 0 uses and are not copied. If a newly added
+component uses `data-unchecked` or `data-selected`, Tailwind emits nothing and
+fails silently — copy that variant across.
+
+Under the Content-Security-Policy this website is served with — `default-src
+'none'`, `script-src 'self'` plus hashes, `style-src 'self' 'unsafe-inline'`,
+`img-src 'self'`, `font-src 'self'`, `connect-src 'self'` — none of this needs
+anything relaxed. Utilities compile to one stylesheet; Radix sets inline
+*styles*, which `style-src 'unsafe-inline'` already allows; lucide icons are
+inline `<svg>`, so no image is fetched at all.
+
 ## 1. Tokens
 
-All of these are CSS custom properties on `:root` in `web/app/globals.css`
-(they moved there unchanged when the website became a Next.js export —
-see `frontend-nextjs.md`). Light
-theme only, deliberately — the direction specifies a white background and a
-measured light palette, and inventing a dark theme would mean inventing
-contrast decisions nobody checked. `color-scheme` is pinned to `light` so
-form controls follow, and a dark theme waits to be directed rather than
-guessed.
+CSS custom properties on `:root` in `web/app/globals.css`, in the shape
+shadcn expects so every generated component picks them up. **Light only**,
+deliberately: a dark theme means contrast decisions nobody has checked.
+`color-scheme` is pinned to `light` so form controls follow.
+
+**No hex and no raw palette class (`text-blue-600`, `bg-gray-100`) exists
+outside this file.** One exception, and it is forced: `<meta
+name="theme-color">` in `layout.tsx`, because a browser paints its own chrome
+from that value before any stylesheet is parsed and so cannot read a
+variable.
 
 | Token | Value | Contrast | Used for |
 |---|---|---|---|
-| `--ink` | `#0F1B2D` | 16.9:1 on white | body text, headings |
-| `--ink-muted` | `#4A5567` | **7.3:1** on white | supporting text, labels |
-| `--accent` | `#0E7C66` | **5.1:1** on white, and white on it | the single primary action, links, focus ring |
-| `--accent-strong` | `#0A6453` | 6.9:1 | hover and active |
-| `--accent-tint` | `#E9F2F0` | ~9 % accent over white | badges, success messages |
-| `--band` | `#062A23` | near-black of the accent | the footer band |
-| `--surface` | `#FFFFFF` | — | sheets and cards |
-| `--surface-sunken` | `#F5F8F7` | — | the page behind them |
-| `--line` | `#DDE3E2` | — | every border, 1 px |
-| `--danger` | `#A3242A` | 6.5:1 | refusals |
-| `--warn` | `#7A5200` | 5.6:1 | "not confirmed yet" |
+| `--foreground` | `#0F172A` | **17.85:1** on white, 17.06 on muted | body text, headings |
+| `--muted-foreground` | `#475569` | **7.58:1** on white, 7.24 on muted | supporting text, hints |
+| `--primary` | `#1D4ED8` | **6.70:1** both ways with white | the one action per screen, links, icons |
+| `--primary-hover` | `#1E40AF` | 8.72:1 with white | hover and active |
+| `--ring` | `#3B82F6` | — | focus ring |
+| `--background`, `--card`, `--popover` | `#FFFFFF` | — | the page and its surfaces |
+| `--muted`, `--secondary` | `#F8FAFC` | — | quiet surfaces, the footer, table heads |
+| `--accent` | `#EFF6FF` | — | the blue tint: selected cards, icon circles, badges |
+| `--accent-foreground` | `#1D4ED8` | 6.16:1 on the tint | text and icons on the tint |
+| `--border`, `--input` | `#E2E8F0` | — | every border |
+| `--destructive` | `#B91C1C` | **6.47:1** on white, 5.45 on its tint | refusals, cancelling |
+| `--success` | `#15803D` | 5.02:1 on white | solid fills, icons |
+| `--success-strong` | `#166534` | **6.23:1** on a 10 % success tint | text on a success tint |
+| `--warning` | `#B45309` | 5.02:1 on white | solid fills, icons |
+| `--warning-strong` | `#92400E` | **6.20:1** on a 10 % warning tint | text on a warning tint |
 
-**Teal, not blue.** Both candidates measured the same (5.1:1), so the choice
-was identity: a product blue is what every other application in this space
-reaches for, and the teal is recognisably SignFlow's without being anyone
-else's.
+**Why `-strong` exists.** `#15803D` and `#B45309` are AA on white, but a
+status badge is text on *its own 10 % tint*, and there they measure 4.38 and
+4.39 — under 4.5. One step darker of the same hue clears it. The badge keeps
+the specified colour for its background and uses the `-strong` step for its
+text, so the palette is the one that was asked for and every pair still
+passes. Every number above was computed, not estimated.
 
-**Radius** is `8px` everywhere, with one exception: the left-bordered message
-strips are square on the border side, because a radius there reads as a
-detached chip rather than an annotation.
-
-**No shadows.** Separation is by tinted surface — a white sheet on
-`--surface-sunken`, with a 1 px `--line` — which stays honest at any zoom
-level and needs no dark-theme equivalent.
+**Radius** `0.75rem` (`--radius`); shadcn derives `sm`/`md`/`xl` from it.
+**Shadow** `shadow-sm` on cards, `shadow-md` on popovers and dialogs, nothing
+else. **Spacing** is Tailwind's 4 px rhythm — `gap-2/3/5/6`, `py-8 sm:py-10`
+for a page, `space-y-5` inside a card. **Containers**: `.container-page`
+(`max-w-6xl px-4 sm:px-6`) for lists and wide screens, `.container-narrow`
+(`max-w-xl`) for one form or one document. One gradient exists, `.band-soft`,
+behind the home hero and the account screens, fading to the page colour so it
+has no visible edge.
 
 ## 2. Type
 
 Inter, **self-hosted** (`font-src 'self'`; no font service is reachable under
-the policy, by design). The scale is 64 / 40 / 24 / 16 px:
+the policy, by design), from `@fontsource-variable/inter` (OFL-1.1), emitted
+under `/_next/static/media`. All seven subsets are kept, because the
+dashboard shows the names of the people you sign with and those are not
+always Latin.
 
-| Step | Size | Weight | Tracking | Used for |
-|---|---|---|---|---|
-| Hero | 64 px | 300 | −0.03em | reserved for a marketing page; unused so far |
-| Title | 40 px | 300 | −0.03em | one per screen, the `<h1>` |
-| Section | 24 px | 400 | −0.02em | `<h2>` |
-| Body | 16 px | 400 | 0 | everything else |
-| Button | 14 px | 600 | 0 | padding 12 × 16 |
+| Step | Size | Weight | Used for |
+|---|---|---|---|
+| display | 30→48 px (`text-3xl sm:text-5xl`) | 600 | the home headline only |
+| h1 | 24→30 px (`text-2xl sm:text-3xl`) | 600 | one per screen, via `PageHeader` |
+| h2 | 18 px (`text-lg`) | 600 | card titles, section headings |
+| h3 | 16 px (`text-base`) | 600 | a row's subject |
+| body | **16 px** (`text-base`) | 400 | everything a reader reads |
+| small | 14 px (`text-sm`) | 400 | hints, timestamps, meta |
 
-At ≤ 480 px the title drops to 28 px and the section to 20 px; nothing else
-changes.
+**16 px is the floor for anything a reader reads, inputs included**: below
+that, iOS Safari zooms when a field is focused, which on a form feels like
+the page jumping away. The preset shipped `md:text-sm` on inputs and the
+textarea; both were removed.
 
-> **The font ships in the build.** It comes from
-> `@fontsource-variable/inter` (OFL-1.1) and is emitted under
-> `/_next/static/media`, so it is served from this origin and `font-src
-> 'self'` permits it with no font service in the policy. All seven subsets
-> are kept, because the dashboard shows the names of the people you sign
-> with and those are not always Latin. Until the website became a Next.js
-> export this pointed `@font-face` at two files nobody had added, and the
-> stack quietly fell through to the platform font.
+## 3. Components
 
-## 3. Patterns
+From shadcn: `alert`, `alert-dialog`, `avatar`, `badge`, `breadcrumb`,
+`button`, `card`, `checkbox`, `dialog`, `dropdown-menu`, `input`, `label`,
+`progress`, `radio-group`, `select`, `separator`, `sheet`, `skeleton`,
+`sonner`, `table`, `tabs`, `textarea`, `tooltip`.
 
-- **One primary action per screen.** A filled `--accent` button, full width
-  inside the sheet. Anything else on the screen is a text button or a link.
-  This is why changing a password is its own page rather than a second form
-  on the account screen.
-- **Sheet** — a white panel with a hairline border holding one form. Max
-  width 29 rem, centred in a 1080 px content column.
-- **Card** — title, up to two lines of supporting text, and a `… ›` link.
-  The account screen is two of them; the dashboard will be many.
-- **Badge** — a pill for state: accent tint for *Confirmed*, warm tint for
-  *Not confirmed yet*.
-- **Message strip** — one `role="status"` region per screen with
-  `aria-live="polite"`, so a refusal or a confirmation is announced rather
-  than only coloured.
+Four are edited, and the edits are the accessibility ones:
 
-**Refusals never reveal whether an account exists.** This is a design
-constraint, not only a server one: sign-up, resend and reset-request all
-answer `202` whether or not anything happened, so the pages say *"if that
-address…"* and mean it, and one message covers a wrong password, an unknown
-account and a locked one. The temptation in UI work is to be more helpful
-than that; being more helpful here would undo the server's work.
+| Component | Change | Why |
+|---|---|---|
+| `button` | `default` 32 → **44 px**, `lg` → 48, `icon` → 44, label 16 px | 44 px is the smallest touch target that stops being a guess |
+| `button` | `hover:bg-primary/80` → `hover:bg-primary-hover` | fading on white *lightens*; a hover should darken |
+| `input` | 32 → **44 px**, `md:text-sm` removed | same target size; 16 px stops the iOS zoom |
+| `select`, `textarea` | trigger 32 → 44 px, textarea `min-h-24`, `md:text-sm` removed | same |
 
-## 4. Accessibility
+> `npx shadcn add` pulls in a component's dependencies and **overwrites them**
+> — adding `sheet` and `alert-dialog` rewrote `button.tsx` and reverted the
+> two edits above. Check `button.tsx` after any `add`.
 
-- **WCAG AA** on every pairing in the token table, including white on accent.
-- **Visible focus** — a 2 px `--accent` ring with a 1–2 px offset on inputs,
-  buttons and links. Nothing removes an outline anywhere.
-- **Keyboard** — real `<button>` and `<a>` elements only, labels bound with
-  `for`/`id`, `autofocus` on the first field of each screen, and submit on
-  Enter because every form is a real `<form>`.
-- **375 px** — a single column with 16 px gutters; no horizontal scroll.
-- `prefers-reduced-motion` is honoured (there is nothing animated yet, so
-  this is a guard against a later regression).
+### The shared blocks — `web/components/`
 
+- **`blocks.tsx`** — `PageHeader` (title, one line, primary action right on a
+  wide screen and underneath on a phone), `EmptyState` (icon, title,
+  sentence, one button), `SectionCard` (the one card shape every screen
+  uses), `ConfirmDialog` (an `AlertDialog`, used for both cancelling a
+  document and withdrawing an invitation), `Initials` (an `Avatar` fallback
+  from an address — no image is ever loaded; there is nowhere to load one
+  from under `img-src 'self'`), `Links` and `TextLink` (`Button variant=link`
+  + `next/link`).
+- **`chrome.tsx`** — `Brand`, `SiteHeader` (signed out), `AppHeader` (signed
+  in: Documents, **Send a document**, the account dropdown), a `Sheet` menu
+  under `sm`, `SiteFooter`, and `AppShell`, the bar-content-footer shape of
+  every signed-in screen.
+- **`session.tsx`** — `useSession` (the server is the authority; the cookie is
+  HttpOnly and unreadable here), `SessionPending` (a skeleton of the page, so
+  the layout does not jump), `useNote`/`NoteAlert` (one `role="status"` region
+  per screen, three variants each with its own icon), `Field` (label
+  **above**, `hint` and `error` both wired through `aria-describedby`, and
+  `aria-invalid` when there is an error), `Busy` (the in-button spinner).
+- **`status.tsx`** — `StatusBadge` and `SignerBadge`: state in **words,
+  colour and an icon**. The words come from `STATE_WORDS` in
+  `lib/dashboard.ts`, which stays the one place a server state becomes
+  English; these add only the icon and the tone.
+- **`auth-shell.tsx`** — the logo and centred card on the soft blue band that
+  every account screen sits in.
+
+**Every link and control in `app/` is a shadcn component**, with three
+deliberate exceptions, each a plain `<a>` inside `Button asChild`: the two
+`download` links (the browser must fetch them itself, with the session
+cookie — `next/link` would route instead) and the configured installer URL on
+`/open`. The skip link in `layout.tsx` is the fourth, and is meant to be a
+bare anchor.
+
+## 4. The simplicity rules
+
+1. **One main action per screen**, as one blue button. Everything else is an
+   outline button or a plain link.
+2. **Plain words.** "Document", "signer", "your card", "Sign now". Not
+   "workflow", "slot", "launch code", "certificate bound".
+3. **Labels above fields, always.** A placeholder is not a label: it
+   disappears exactly when somebody starts typing.
+4. **Errors say what happened and what to do** — next to the field through
+   `Field`'s `error`, or in an `Alert` — in the server's own words where the
+   server said anything. `429` becomes *"Too many attempts — please wait a
+   few minutes and try again."* on every screen that can provoke one.
+5. **Status is never colour alone**: words plus colour plus an icon.
+6. **Touch targets ≥ 44 px**, body text ≥ 16 px, a visible focus ring on
+   everything, and no horizontal scroll at 375 px.
+7. **Busy states disable the button and say what is happening** — "Sending…"
+   with a spinner — so nothing can be submitted twice.
+8. **Empty states say what to do next**, not just that there is nothing.
+9. **Motion is decoration**: `tw-animate-css` on dialogs and sheets, hover
+   transitions at 200 ms, and a `prefers-reduced-motion` block in
+   `globals.css` that reduces every animation and transition to nothing.
+
+**Refusals never reveal whether an account exists.** A design constraint
+rather than only a server one: sign-up, resend and reset-request answer `202`
+whether or not anything happened, so the screens say *"If that address…"* and
+mean it. One message covers a wrong password, an unknown account and a locked
+one. The temptation in UI work is to be more helpful than that; being more
+helpful here would undo the server's work.
+
+## 4a. Accessibility
+
+- **WCAG AA on every pairing in §1**, measured rather than assumed — the
+  lowest is 5.45:1, and that is a badge on its own tint.
+- **Visible focus** — a ring with an offset on buttons, inputs, links and
+  menu items. Nothing removes an outline.
+- **Keyboard** — real `<button>` and `<a>` underneath every component, labels
+  bound with `for`/`id`, Enter submits because every form is a real `<form>`,
+  and the Radix menu, tabs, radio group, dialog and sheet bring their own
+  focus trapping and arrow-key handling.
+- **The skip link** is the first focusable thing on every page and becomes
+  visible when focused.
+- **375 px** — one column, 16 px gutters. The dashboard switches from a table
+  to cards rather than scrolling sideways, and the header's links move into a
+  Sheet.
+- Icons are `aria-hidden`; nothing depends on one to be understood.
 ## 5. Screens that exist
 
 | Screen | Path | Notes |
 |---|---|---|
-| **The public page** | `/` | hero, proof strip, role tabs over feature cards, how it works, security, closing CTA |
-| **Documents** | `/documents` | three groups with counts; the wider column |
-| **One document** | `/document?id=…` | where it stands, what happened to it in order, and — for its owner — who was invited |
-| **Send a document** | `/send` | the file, the signers, the order; the only page that uploads |
+| **The public page** | `/` | headline, three steps, two buttons |
+| **Documents** | `/documents` | tabs: To sign (count) · Sent by me · Shared with me |
+| **One document** | `/document?id=…` | state, signers, the main action, and the history behind a disclosure |
+| **Send a document** | `/send` | a three-step wizard; the only page that uploads |
+| **Open in the app** | `/open?id=…` | the hand-off, with the two-minute clock |
 | Sign in | `/sign-in` | one message for every kind of refusal |
 | Create an account | `/sign-up` | 202 either way; the confirmation page is worded for both |
 | Forgotten password | `/forgot-password` | same |
 | Confirm address | `/verify-email?token=…` | acts on arrival, then reports |
 | Set a new password | `/reset-password?token=…` | refuses an absent token before asking for anything |
-| My account | `/account` | two cards, a state badge, sign out as a text button |
+| My account | `/account` | two `SectionCard`s and a state badge; signing out is in the header menu |
 | Change password | `/change-password` | its own screen; falls back to sign-in without a session |
 
 Every path is one line in `FrontendRoutingConfiguration.PAGES`, which
@@ -136,6 +259,20 @@ Every path is one line in `FrontendRoutingConfiguration.PAGES`, which
 refused — or permitted and never routed.
 
 ## 5a. The dashboard, as built
+
+> **Redesigned.** The three stacked groups below are now **tabs**: *To sign*
+> (with a count badge), *Sent by me*, and *Shared with me*. The third is not
+> in the brief and appears only when it has something in it — without it, a
+> document you are a signer of but did not send, and have already signed,
+> belongs to neither of the other two and would vanish from the website while
+> other people were still signing it. The grouping logic in
+> `lib/dashboard.ts` is untouched; *To sign* is its `mine`.
+>
+> **Two things a row cannot show**, because `Row` does not carry them and
+> `lib/*` was not to be changed: a **date**, and **who is next by name**.
+> `mergeRows` keeps neither (`Workflow` has no timestamp at all, and the
+> current signer's display name is in neither list). Adding them is a change
+> to `lib/dashboard.ts` and its tests — worth doing, and not done here.
 
 Three groups, each with its count in the heading and the action-required
 count in the tab title, so a request that arrived while the tab sat open is
@@ -258,6 +395,19 @@ cannot read, so a row appears without one instead of showing *Invalid Date*.
 
 ## 5c. Sending a document, as built
 
+> **Redesigned into three steps** — *Choose the PDF* (with a drag-and-drop
+> area), *Who needs to sign?*, *Review and send* — with a progress bar and a
+> step list above the card, and Back/Next between them. Nine fields at once
+> became one question at a time; what is sent, and every check in
+> `lib/send.ts`, is unchanged. Step 1 validates with a stand-in signer row so
+> it does not complain about a question the reader has not reached.
+>
+> **No name box per signer**, and that is the API rather than an omission: a
+> signer is an email address (which is invited) or an existing username. A
+> name field would be collected and thrown away. The brief asked for "name +
+> email rows"; this is the one part of it that cannot be built without a
+> server change.
+
 One screen to start a signing request, and the owner's half of the document
 screen to run it afterwards.
 
@@ -338,6 +488,13 @@ workflow completed — and then the fresh answer is the only honest thing to
 show. The timeline picks up the new audit event from the same read.
 
 ## 5d. The hand-off, as built (Phase F)
+
+> **Restyled only.** One centred card — *"Opening the SignFlow app… Insert
+> your smart card"*, the document's name, the countdown in tabular figures,
+> *"Didn't open? Try again"*, and the install fallback under a rule. Every
+> line of the logic is untouched, and deliberately: the code still never
+> enters the DOM (`location.href`, held in a ref), a code is never reused,
+> and the clock is still recomputed from the issue time.
 
 The screen that opens the desktop application, and the only one in this
 website with a clock on it. All four points of the plan are there: *"Opening

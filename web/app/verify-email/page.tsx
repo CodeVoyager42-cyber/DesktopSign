@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { SiteFooter, SiteHeader } from "../../components/SiteChrome";
-import { Links } from "../../components/ui";
-import { api } from "../../lib/api";
+import { CheckCircle2, CircleAlert, Loader2 } from "lucide-react";
+import { AuthShell } from "@/components/auth-shell";
+import { Links, TextLink } from "@/components/blocks";
+import { Button } from "@/components/ui/button";
+
+import { api } from "@/lib/api";
 
 /**
- * Confirm an e-mail address.
+ * Confirm an email address.
  *
  * This page acts on arrival and then reports, because the link has already
  * been clicked — asking the visitor to click a second button to do what they
@@ -36,56 +39,73 @@ export default function VerifyEmail() {
     });
   }, []);
 
+  if (state === "working") {
+    return (
+      <AuthShell title="Confirming your address">
+        <p
+          className="flex items-center gap-2 text-base text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 aria-hidden="true" className="size-5 animate-spin text-primary" />
+          One moment…
+        </p>
+      </AuthShell>
+    );
+  }
+
+  if (state === "done") {
+    return (
+      <AuthShell
+        title="Address confirmed"
+        lede="That is everything. You can send documents and sign them now."
+      >
+        <p className="flex items-center gap-2 text-base font-medium text-success">
+          <CheckCircle2 aria-hidden="true" className="size-5" />
+          Your email address is confirmed.
+        </p>
+        <Button asChild size="lg" className="w-full">
+          <Link href="/documents">Go to my documents</Link>
+        </Button>
+      </AuthShell>
+    );
+  }
+
+  if (state === "refused") {
+    return (
+      <AuthShell
+        title="That link is no longer usable"
+        lede="Confirmation links work once and then expire."
+        below={
+          <Links>
+            <TextLink href="/sign-in">Sign in</TextLink>
+          </Links>
+        }
+      >
+        <p className="flex items-start gap-2 text-base text-muted-foreground">
+          <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-warning" />
+          Sign in and ask for a new link from your account screen.
+        </p>
+        <Button asChild size="lg" className="w-full">
+          <Link href="/sign-in">Sign in</Link>
+        </Button>
+      </AuthShell>
+    );
+  }
+
   return (
-    <>
-      <SiteHeader />
-      <main id="main" className="panel">
-        {state === "working" ? (
-          <>
-            <h1>Confirming your address</h1>
-            <p className="note" role="status" aria-live="polite">
-              One moment…
-            </p>
-          </>
-        ) : null}
-
-        {state === "done" ? (
-          <>
-            <h1>Address confirmed</h1>
-            <p className="lede">
-              That is everything. You can create signing requests and sign
-              documents now.
-            </p>
-            <Links>
-              <Link href="/documents">Your documents</Link>
-            </Links>
-          </>
-        ) : null}
-
-        {state === "refused" ? (
-          <>
-            <h1>That link is no longer usable</h1>
-            <p className="lede">
-              Confirmation links work once and expire. Sign in and ask for a
-              new one from your account screen.
-            </p>
-            <Links>
-              <Link href="/sign-in">Sign in</Link>
-            </Links>
-          </>
-        ) : null}
-
-        {state === "missing" ? (
-          <>
-            <h1>That link is incomplete</h1>
-            <p className="lede">Open the link from the e-mail again.</p>
-            <Links>
-              <Link href="/sign-in">Sign in</Link>
-            </Links>
-          </>
-        ) : null}
-      </main>
-      <SiteFooter />
-    </>
+    <AuthShell
+      title="That link is incomplete"
+      lede="Open the link from the email again."
+      below={
+        <Links>
+          <TextLink href="/sign-in">Sign in</TextLink>
+        </Links>
+      }
+    >
+      <Button asChild size="lg" className="w-full">
+        <Link href="/sign-in">Sign in</Link>
+      </Button>
+    </AuthShell>
   );
 }

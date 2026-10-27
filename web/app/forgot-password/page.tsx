@@ -1,14 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
-import { SiteFooter, SiteHeader } from "../../components/SiteChrome";
-import { Field, Links, NoteRegion, Sheet, useNote } from "../../components/ui";
-import { api } from "../../lib/api";
+import { MailCheck } from "lucide-react";
+import { AuthShell } from "@/components/auth-shell";
+import { Links, TextLink } from "@/components/blocks";
+import { Busy, Field, NoteAlert, useNote } from "@/components/session";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 
 /**
  * Ask for a password-reset link. 202 either way, for the same reason sign-up
- * is — so the confirmation says "if that address…" and means it.
+ * is — so the confirmation says "if there is an account…" and means it.
  */
 export default function ForgotPassword() {
   const { note, say } = useNote();
@@ -26,50 +28,57 @@ export default function ForgotPassword() {
 
   if (sent) {
     return (
-      <>
-        <SiteHeader />
-        <main id="main" className="panel">
-          <h1>Check your e-mail</h1>
-          <p className="lede">
-            If there is an account for that address, a link to set a new
-            password is on its way to it. The link works once and expires in
-            an hour.
-          </p>
+      <AuthShell
+        title="Check your email"
+        lede="If there is an account for that address, a link to set a new password is on its way. It works once and expires in an hour."
+        below={
           <Links>
-            <Link href="/sign-in">Back to signing in</Link>
+            <TextLink href="/sign-in">Back to signing in</TextLink>
           </Links>
-        </main>
-        <SiteFooter />
-      </>
+        }
+      >
+        <div className="flex items-start gap-3 rounded-xl bg-muted p-4 text-base">
+          <MailCheck aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-primary" />
+          <p className="font-medium">
+            Can&apos;t find it? Look in your Spam or All Mail folder.
+          </p>
+        </div>
+      </AuthShell>
     );
   }
 
   return (
-    <>
-      <SiteHeader />
-      <main id="main" className="panel">
-        <h1>Forgotten password</h1>
-        <p className="lede">
-          Give the address on the account and we will send a link to set a new
-          password.
-        </p>
-        <Sheet onSubmit={submit} submitLabel="Send the link" busy={busy}>
-          <Field
-            label="E-mail address"
-            name="email"
-            type="email"
-            value={email}
-            onChange={setEmail}
-            autoComplete="email"
-            autoFocus
-          />
-        </Sheet>
-        <NoteRegion note={note} />
+    <AuthShell
+      title="Forgotten password"
+      lede="Give the address on the account and we will send a link to set a new one."
+      below={
         <Links>
-          <Link href="/sign-in">Back to signing in</Link>
+          <TextLink href="/sign-in">Back to signing in</TextLink>
         </Links>
-      </main>
-      <SiteFooter />
-    </>
+      }
+    >
+      <form
+        className="space-y-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <Field
+          label="Email address"
+          name="email"
+          type="email"
+          value={email}
+          onChange={setEmail}
+          autoComplete="email"
+          autoFocus
+          disabled={busy}
+        />
+        <Button type="submit" size="lg" className="w-full" disabled={busy}>
+          {busy ? <Busy>Sending…</Busy> : "Send the link"}
+        </Button>
+      </form>
+      <NoteAlert note={note} />
+    </AuthShell>
   );
 }

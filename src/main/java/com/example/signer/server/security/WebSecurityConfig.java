@@ -113,6 +113,7 @@ public class WebSecurityConfig {
             CsrfTokenRepository webCsrfTokenRepository,
             LoginRateLimitFilter loginRateLimit,
             SignUpThrottleFilter signUpThrottle,
+            DownloadRateLimitFilter downloadRateLimit,
             UserAccountService accounts,
             WebSessionProperties sessionProperties) throws Exception {
         http
@@ -153,6 +154,9 @@ public class WebSecurityConfig {
             // the shared limiter, so a sign-up flood is turned away without
             // spending the budget the other account routes share.
             .addFilterBefore(signUpThrottle, LoginRateLimitFilter.class)
+            // The same shared limiter the /downloads chain uses, so one
+            // budget covers both routes.
+            .addFilterBefore(downloadRateLimit, LoginRateLimitFilter.class)
             // Both of these run with the security context already loaded from
             // the session and before the URL rules. Chained explicitly rather
             // than anchored on the same filter twice, so their order is not
@@ -180,6 +184,12 @@ public class WebSecurityConfig {
                     .requestMatchers(post("/web/api/auth/resend-verification")).permitAll()
                     .requestMatchers(post("/web/api/auth/password-reset/request")).permitAll()
                     .requestMatchers(post("/web/api/auth/password-reset/confirm")).permitAll()
+                    // What there is to download, for the /download page.
+                    // Public because the page is: an invited signer has no
+                    // account yet and still needs the application. It says
+                    // only what a release is — name, size, checksum — and
+                    // is rate limited per address like the file itself.
+                    .requestMatchers(get("/web/api/download-info")).permitAll()
                     // Everything else the website offers needs a session.
                     .requestMatchers(path("/web/api/**")).hasAuthority(ROLE_WEB_USER)
                     // No website pages are served yet (Phase D), so nothing

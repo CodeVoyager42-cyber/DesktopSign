@@ -1,0 +1,224 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignFlow's WiX template for the MSI, passed to jpackage with
+  `--resource-dir packaging/windows`.
+
+  ============================ WHY THIS FILE EXISTS ============================
+
+  The installed application has to own the `signflow://` URL scheme, so that a
+  link on the website opens THIS copy of SignFlow at one signing task
+  (security Phase F; audit finding F2 — the packaged build used to register
+  nothing, so an installed-only machine could not receive a hand-off at all).
+
+  There are two places that registration could happen, and the installer is
+  the right one:
+
+  * The installer knows where it put the executable. It writes
+    `[INSTALLDIR]SignFlow.exe` — the real, final path — once, under the same
+    transaction that installs the files.
+  * The uninstaller undoes it. These keys are a component of the product, so
+    Windows removes them when the product is removed. An application that
+    writes the registry at first run has no equivalent moment to clean up:
+    uninstalling would leave a scheme handler pointing at a deleted
+    executable, and the next `signflow://` link would fail silently or, worse,
+    be claimed by whatever registers next.
+  * It needs no elevation. A per-user install writes under HKCU, which the
+    user already owns.
+  * An application that edits the registry every time it starts is indistinguishable
+    from one that is fighting another program for the association, and it has
+    to be trusted with a write it does not otherwise need.
+
+  `scripts/register-signflow-protocol.cmd` stays for development, where there
+  is no installer and the executable is a Gradle/Maven classpath launch.
+
+  ======================== HOW THIS FILE IS MAINTAINED ========================
+
+  jpackage's own `overrides.wxi` hook can only set WiX *variables*
+  (JpProductLanguage, JpInstallerVersion, JpAllowUpgrades, JpAllowDowngrades)
+  — it cannot add a registry component. So this is a full replacement of the
+  JDK's `main.wxs`, which means it has to track the JDK's copy.
+
+  `main.wxs.jdk-base` beside this file is the pristine template from the JDK
+  this was written against (**26.0.2**). `scripts/package.sh` extracts the
+  template from the JDK in use at build time and diffs it against that base;
+  if the JDK has changed its template, the build says so loudly rather than
+  silently shipping an installer built from a stale copy.
+
+  The only differences from the base are marked `SignFlow:` below.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+
+  <?ifdef JpIsSystemWide ?>
+    <?define JpInstallScope="perMachine"?>
+  <?else?>
+    <?define JpInstallScope="perUser"?>
+  <?endif?>
+
+  <?define JpProductLanguage=1033 ?>
+  <?define JpInstallerVersion=200 ?>
+  <?define JpCompressedMsi=yes ?>
+
+  <?include $(var.JpConfigDir)/overrides.wxi ?>
+
+  <?ifdef JpAllowUpgrades ?>
+    <?define JpUpgradeVersionOnlyDetectUpgrade="no"?>
+  <?else?>
+    <?define JpUpgradeVersionOnlyDetectUpgrade="yes"?>
+  <?endif?>
+  <?ifdef JpAllowDowngrades ?>
+    <?define JpUpgradeVersionOnlyDetectDowngrade="no"?>
+  <?else?>
+    <?define JpUpgradeVersionOnlyDetectDowngrade="yes"?>
+  <?endif?>
+
+  <Product
+    Id="$(var.JpProductCode)"
+    Name="$(var.JpAppName)"
+    Language="$(var.JpProductLanguage)"
+    Version="$(var.JpAppVersion)"
+    Manufacturer="$(var.JpAppVendor)"
+    UpgradeCode="$(var.JpProductUpgradeCode)">
+
+    <Package
+      Description="$(var.JpAppDescription)"
+      Manufacturer="$(var.JpAppVendor)"
+      InstallerVersion="$(var.JpInstallerVersion)"
+      Compressed="$(var.JpCompressedMsi)"
+      InstallScope="$(var.JpInstallScope)" Platform="x64"
+    />
+
+    <Media Id="1" Cabinet="Data.cab" EmbedCab="yes" />
+
+    <Upgrade Id="$(var.JpProductUpgradeCode)">
+      <UpgradeVersion
+        OnlyDetect="$(var.JpUpgradeVersionOnlyDetectUpgrade)"
+        Property="JP_UPGRADABLE_FOUND"
+        Maximum="$(var.JpAppVersion)"
+        MigrateFeatures="yes"
+        IncludeMaximum="$(var.JpUpgradeVersionOnlyDetectUpgrade)" />
+      <UpgradeVersion
+        OnlyDetect="$(var.JpUpgradeVersionOnlyDetectDowngrade)"
+        Property="JP_DOWNGRADABLE_FOUND"
+        Minimum="$(var.JpAppVersion)"
+        MigrateFeatures="yes"
+        IncludeMinimum="$(var.JpUpgradeVersionOnlyDetectDowngrade)" />
+    </Upgrade>
+
+    <?ifndef JpAllowUpgrades ?>
+    <CustomAction Id="JpDisallowUpgrade" Error="!(loc.DisallowUpgradeErrorMessage)" />
+    <?endif?>
+    <?ifndef JpAllowDowngrades ?>
+    <CustomAction Id="JpDisallowDowngrade" Error="!(loc.DowngradeErrorMessage)" />
+    <?endif?>
+
+    <Binary Id="JpCaDll" SourceFile="msica.dll"/>
+
+    <CustomAction Id="JpFindRelatedProducts" BinaryKey="JpCaDll" DllEntry="FindRelatedProductsEx" />
+
+    <!-- Standard required root -->
+    <Directory Id="TARGETDIR" Name="SourceDir"/>
+
+    <Feature Id="DefaultFeature" Title="!(loc.MainFeatureTitle)" Level="1">
+      <ComponentGroupRef Id="Shortcuts"/>
+      <ComponentGroupRef Id="Files"/>
+      <ComponentGroupRef Id="FileAssociations"/>
+      <ComponentGroupRef Id="FragmentOsCondition"/>
+      <!-- SignFlow: the `signflow://` scheme handler, defined below. -->
+      <ComponentGroupRef Id="SignFlowUrlProtocol"/>
+    </Feature>
+
+    <CustomAction Id="JpSetARPINSTALLLOCATION" Property="ARPINSTALLLOCATION" Value="[INSTALLDIR]" />
+    <CustomAction Id="JpSetARPCOMMENTS" Property="ARPCOMMENTS" Value="$(var.JpAppDescription)" />
+    <CustomAction Id="JpSetARPCONTACT" Property="ARPCONTACT" Value="$(var.JpAppVendor)" />
+    <CustomAction Id="JpSetARPSIZE" Property="ARPSIZE" Value="$(var.JpAppSizeKb)" />
+
+    <?ifdef JpHelpURL ?>
+      <CustomAction Id="JpSetARPHELPLINK" Property="ARPHELPLINK" Value="$(var.JpHelpURL)" />
+    <?endif?>
+
+    <?ifdef JpAboutURL ?>
+      <CustomAction Id="JpSetARPURLINFOABOUT" Property="ARPURLINFOABOUT" Value="$(var.JpAboutURL)" />
+    <?endif?>
+
+    <?ifdef JpUpdateURL ?>
+      <CustomAction Id="JpSetARPURLUPDATEINFO" Property="ARPURLUPDATEINFO" Value="$(var.JpUpdateURL)" />
+    <?endif?>
+
+    <?ifdef JpIcon ?>
+    <Property Id="ARPPRODUCTICON" Value="JpARPPRODUCTICON"/>
+    <Icon Id="JpARPPRODUCTICON" SourceFile="$(var.JpIcon)"/>
+    <?endif?>
+
+    <UIRef Id="JpUI"/>
+
+    <InstallExecuteSequence>
+      <Custom Action="JpSetARPINSTALLLOCATION" After="CostFinalize">Not Installed</Custom>
+      <Custom Action="JpSetARPCOMMENTS" After="CostFinalize">Not Installed</Custom>
+      <Custom Action="JpSetARPCONTACT" After="CostFinalize">Not Installed</Custom>
+      <Custom Action="JpSetARPSIZE" After="CostFinalize">Not Installed</Custom>
+      <?ifdef JpHelpURL ?>
+        <Custom Action="JpSetARPHELPLINK" After="CostFinalize">Not Installed</Custom>
+      <?endif?>
+      <?ifdef JpAboutURL ?>
+        <Custom Action="JpSetARPURLINFOABOUT" After="CostFinalize">Not Installed</Custom>
+      <?endif?>
+      <?ifdef JpUpdateURL ?>
+        <Custom Action="JpSetARPURLUPDATEINFO" After="CostFinalize">Not Installed</Custom>
+      <?endif?>
+
+      <?ifndef JpAllowUpgrades ?>
+      <Custom Action="JpDisallowUpgrade" After="JpFindRelatedProducts">JP_UPGRADABLE_FOUND</Custom>
+      <?endif?>
+      <?ifndef JpAllowDowngrades ?>
+      <Custom Action="JpDisallowDowngrade" After="JpFindRelatedProducts">JP_DOWNGRADABLE_FOUND</Custom>
+      <?endif?>
+      <LaunchConditions Before="AppSearch"/>
+      <RemoveExistingProducts Before="CostInitialize"/>
+      <Custom Action="JpFindRelatedProducts" After="FindRelatedProducts"/>
+    </InstallExecuteSequence>
+
+    <InstallUISequence>
+      <Custom Action="JpFindRelatedProducts" After="FindRelatedProducts"/>
+    </InstallUISequence>
+
+  </Product>
+
+  <!--
+    SignFlow: the `signflow://` scheme, as a component of the product.
+
+    `Root="HKMU"` is "machine or user": WiX resolves it to HKLM for a
+    per-machine install and HKCU for a per-user one, so the same template
+    serves both and a per-user install needs no elevation.
+
+    `ForceDeleteOnUninstall` is what makes the uninstaller tidy: the keys go
+    when the product goes, so no dead handler is left pointing at an
+    executable that is no longer there.
+
+    The command is the INSTALLED executable with the URL as a quoted
+    argument — `"...\SignFlow.exe" "%1"`. The quotes matter: without them a
+    URL containing a space would arrive as two arguments.
+  -->
+  <Fragment>
+    <ComponentGroup Id="SignFlowUrlProtocol" Directory="INSTALLDIR">
+      <Component Id="SignFlowUrlProtocolRegistry" Guid="*">
+        <RegistryKey Root="HKMU" Key="Software\Classes\signflow"
+                     ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+          <!-- The KeyPath of this component: a registry-only component needs
+               one named explicitly. -->
+          <RegistryValue Type="string" Value="URL:SignFlow Protocol" KeyPath="yes" />
+          <RegistryValue Name="URL Protocol" Type="string" Value="" />
+        </RegistryKey>
+        <RegistryKey Root="HKMU" Key="Software\Classes\signflow\DefaultIcon"
+                     ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+          <RegistryValue Type="string" Value="&quot;[INSTALLDIR]SignFlow.exe&quot;,0" />
+        </RegistryKey>
+        <RegistryKey Root="HKMU" Key="Software\Classes\signflow\shell\open\command"
+                     ForceCreateOnInstall="yes" ForceDeleteOnUninstall="yes">
+          <RegistryValue Type="string"
+                         Value="&quot;[INSTALLDIR]SignFlow.exe&quot; &quot;%1&quot;" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>
