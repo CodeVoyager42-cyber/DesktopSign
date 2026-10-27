@@ -68,7 +68,11 @@ if not defined JAVA_HOME goto :fromPath
 if exist "%JAVA_HOME%\bin\java.exe" set "JAVA_EXE=%JAVA_HOME%\bin\java.exe"
 if not defined JAVA_EXE goto :javaHomeUnusable
 call :checkJava 0
-exit /b %RC%
+if "%RC%"=="0" exit /b 0
+rem The pin exists but did not pass the 21+ check (checkJava printed why
+rem and cleared JAVA_EXE). Do what the header promises - keep searching
+rem the standard install roots rather than hard-failing on a bad pin.
+goto :fromRoots
 :javaHomeUnusable
 echo Note: JAVA_HOME is set to "%JAVA_HOME%", but it holds no bin\java.exe.
 echo Searching the standard locations instead ...
@@ -95,7 +99,12 @@ rem    never absolute per-machine paths.
 call :bestFromRoot "%ProgramFiles%\Java\jdk*"
 call :bestFromRoot "%ProgramFiles%\Eclipse Adoptium\jdk*"
 call :bestFromRoot "%ProgramFiles%\Microsoft\jdk*"
-if defined JAVA_EXE exit /b 0
+if defined JAVA_EXE (
+    rem A rejected java on PATH may have left RC=1 behind; the standard
+    rem install roots just supplied a working java.exe, so report success.
+    set "RC=0"
+    exit /b 0
+)
 
 echo Java (JDK 21+) was not found. The launchers need it to run the
 echo application from source - the installed application does not, it
