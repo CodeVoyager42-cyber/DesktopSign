@@ -106,6 +106,17 @@ server:
   # trusting only proxies on private/loopback addresses. Required so the
   # per-address sign-in limit sees real clients (security Phase 2, L2).
   forward-headers-strategy: ${SIGNER_FORWARD_HEADERS_STRATEGY:none}
+  tomcat:
+    # When an upload exceeds the multipart limits above, Tomcat aborts the
+    # multipart parse and the 413 ApiError is written. Until the remaining
+    # request bytes are consumed, Tomcat cannot send that response: at its
+    # default swallow budget (2 MB) it instead resets the connection, and
+    # the client sees a truncated exchange (JDK HttpClient:
+    # "chunked transfer encoding, state: READING_LENGTH") instead of the
+    # structured error. Sized to cover max-request-size (110 MiB) plus
+    # envelope headroom, in one round binary figure; bound it so a
+    # runaway client cannot stream unlimited garbage past the limit.
+    max-swallow-size: 134217728
 
 signature:
   remote-server:
