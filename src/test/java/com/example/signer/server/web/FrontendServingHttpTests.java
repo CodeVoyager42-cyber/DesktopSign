@@ -173,10 +173,20 @@ class FrontendServingHttpTests {
             String html = get(path).body();
 
             assertThat(html).as(path).contains("/_next/static/");
-            assertThat(html)
-                    .as(path + " must load nothing from another origin")
-                    .doesNotContain("http://")
-                    .doesNotContain("https://");
+
+            // Every absolute URL in the markup, one at a time, rather than a
+            // search for the characters "http": the icons are inline SVG and
+            // carry xmlns="http://www.w3.org/2000/svg", which is an XML
+            // namespace NAME — a browser never fetches it. Listing them makes
+            // the check say what it means (nothing is LOADED from elsewhere)
+            // and is stricter than the substring test it replaces, because a
+            // new absolute URL now has to be named here to pass.
+            Matcher absolute = Pattern.compile("https?://[^\"'\\s)<]+").matcher(html);
+            while (absolute.find()) {
+                assertThat(absolute.group())
+                        .as(path + " must load nothing from another origin")
+                        .isEqualTo("http://www.w3.org/2000/svg");
+            }
             assertThat(html)
                     .as(path + " must carry no inline event handler: a hash covers"
                             + " a <script> block, and nothing covers onclick=")
@@ -215,7 +225,7 @@ class FrontendServingHttpTests {
         // and this asserts the right one arrives.
         for (String path : new String[] {"/sign-in", "/sign-up", "/forgot-password",
                 "/change-password", "/account", "/documents", "/document",
-                "/send", "/open", "/verify-email", "/reset-password"}) {
+                "/send", "/open", "/download", "/verify-email", "/reset-password"}) {
             HttpResponse<String> page = get(path);
 
             assertThat(page.statusCode()).as(path).isEqualTo(200);

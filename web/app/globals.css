@@ -1,408 +1,290 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
 /*
- * SignFlow's design system, carried over from the hand-written stylesheet it
- * replaces (docs/frontend-design.md §1). The values are not re-decided here:
- * every contrast ratio in that document still describes these tokens.
+ * Vendored from `shadcn@4.22.1`, `dist/tailwind.css`.
  *
- * Light theme only, deliberately, and `color-scheme` is pinned so form
- * controls follow. A dark theme means contrast decisions nobody has checked,
- * and guessing them is worse than waiting to be asked.
+ * That file was imported from the `shadcn` package, which put a CLI — and a
+ * second copy of its `cn` helper — into this project's dependencies for the
+ * sake of 637 lines of CSS. The components generated into
+ * `components/ui/*` use exactly these seven custom variants, counted:
+ * `data-open` (32 uses), `data-closed` (30), `data-checked` (12),
+ * `data-active` (11), `data-disabled` (8), `data-horizontal` (3),
+ * `data-vertical` (2). Nothing here uses the rest of that file — the
+ * `no-scrollbar`, `scroll-fade` and `shimmer` utilities and the accordion
+ * keyframes are all 0 uses — so they are not copied.
+ *
+ * These exist because Radix reports state as `data-state="open"` and newer
+ * primitives as `data-open`; each variant matches both spellings, which is
+ * why the components can be written once against either.
+ *
+ * If you add a component with `npx shadcn@latest add` and it uses a variant
+ * that is not here — `data-unchecked` and `data-selected` are the two that
+ * were left out — Tailwind will not error. It will quietly emit nothing for
+ * that class and the component will look subtly wrong. Copy the missing
+ * variant from the package's `dist/tailwind.css` into this block.
  */
+/*
+ * The accordion's keyframes, also from `shadcn@4.22.1`'s `tailwind.css`.
+ *
+ * These were left out of the first pass because nothing used an accordion —
+ * and then `/download`'s troubleshooting section did, which is exactly the
+ * silent failure the note above warns about: the panel opened and closed
+ * with no animation and no error anywhere. Copied across when the component
+ * arrived.
+ */
+@theme inline {
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(
+        --radix-accordion-content-height,
+        var(--accordion-panel-height, auto)
+      );
+    }
+  }
 
+  @keyframes accordion-up {
+    from {
+      height: var(
+        --radix-accordion-content-height,
+        var(--accordion-panel-height, auto)
+      );
+    }
+    to {
+      height: 0;
+    }
+  }
+}
+
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-checked {
+  &:where([data-state="checked"]),
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-active {
+  &:where([data-state="active"]),
+  &:where([data-active]:not([data-active="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
+  }
+}
+
+/* shadcn components carry `dark:` classes. Nothing ever adds the `.dark`
+   class, so they never match — this website is light only, deliberately: a
+   dark theme means contrast decisions nobody has checked. The variant stays
+   declared so the generated components remain valid as written. */
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: var(--font-sans);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    /* Two states the stock palette has no name for and this product shows on
+       every screen: finished, and needs attention. `-strong` is the same hue
+       one step darker, for TEXT on a 10 % tint of itself — see §1 of
+       docs/frontend-design.md for why both exist. */
+    --color-success: var(--success);
+    --color-success-strong: var(--success-strong);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-strong: var(--warning-strong);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-primary-hover: var(--primary-hover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+ * The whole palette. Blue and white, light only.
+ *
+ * Every pair was measured, and the numbers are in docs/frontend-design.md §1.
+ * Nothing outside this block may contain a hex colour or a raw palette class
+ * like `text-blue-600`: a second place to change a colour is how a design
+ * system stops being one.
+ */
 :root {
-  color-scheme: light;
+    color-scheme: light;
 
-  --ink: #0f1b2d;
-  --ink-muted: #4a5567;
-  --accent: #0e7c66;
-  --accent-strong: #0a6453;
-  --accent-tint: #e9f2f0;
-  --band: #062a23;
-  --surface: #ffffff;
-  --surface-sunken: #f5f8f7;
-  --line: #dde3e2;
-  --danger: #a3242a;
-  --danger-tint: #fdf1f1;
-  --warn: #7a5200;
-  --warn-tint: #fdf6e7;
+    /* "Inter Variable" is the family @fontsource-variable/inter registers.
+       The platform stack behind it is what shows if the font file ever fails
+       to load, which is a slightly looser page and nothing worse. */
+    --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont,
+        "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
-  --radius: 8px;
-  --measure: 1080px;
-  --measure-wide: 1200px;
+    --background: #ffffff;
+    --foreground: #0f172a;            /* 17.85:1 on white */
 
-  --t-hero: clamp(2.5rem, 6vw, 4rem);
-  --t-title: 2.5rem;
-  --t-section: 1.5rem;
+    --card: #ffffff;
+    --card-foreground: #0f172a;
+    --popover: #ffffff;
+    --popover-foreground: #0f172a;
 
-  /* "Inter Variable" is the family @fontsource-variable/inter registers. The
-     platform stack behind it is what shows if the font file ever fails to
-     load, which is a slightly looser page and nothing worse. */
-  --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --primary: #1d4ed8;               /* 6.70:1 both ways with white */
+    --primary-foreground: #ffffff;
+    --primary-hover: #1e40af;         /* white on it: 8.72:1 */
+
+    /* The quiet surface and the quiet button: near-white, not blue, so a
+       tinted panel does not compete with a blue badge sitting on it. */
+    --secondary: #f8fafc;
+    --secondary-foreground: #0f172a;  /* 17.06:1 */
+    --muted: #f8fafc;
+    --muted-foreground: #475569;      /* 7.58:1 on white, 7.24:1 on muted */
+
+    /* The blue tint, for anything that should read as "this is the product's
+       colour": selected cards, badges, the icon circles. */
+    --accent: #eff6ff;
+    --accent-foreground: #1d4ed8;     /* 6.16:1 on the tint */
+
+    --destructive: #b91c1c;           /* 6.47:1 on white, 5.45:1 on its tint */
+    --destructive-foreground: #ffffff;
+    --success: #15803d;               /* 5.02:1 on white */
+    --success-strong: #166534;        /* 6.23:1 on a 10 % success tint */
+    --success-foreground: #ffffff;
+    --warning: #b45309;               /* 5.02:1 on white */
+    --warning-strong: #92400e;        /* 6.20:1 on a 10 % warning tint */
+    --warning-foreground: #ffffff;
+
+    --border: #e2e8f0;
+    --input: #e2e8f0;
+    --ring: #3b82f6;
+
+    --radius: 0.75rem;
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+    }
+
+    html {
+        @apply font-sans;
+        -webkit-text-size-adjust: 100%;
+    }
+
+    /*
+     * One type scale, declared here so no page invents a size.
+     *
+     * display 36/48 · h1 24/30 · h2 18 · h3 16 · body 16 · small 14
+     *
+     * 16 px is the floor for anything a reader reads, inputs included: below
+     * that, iOS Safari zooms when a field is focused, which on a form feels
+     * like the page jumping away.
+     */
+    h1 {
+        @apply text-2xl font-semibold tracking-tight text-foreground sm:text-3xl;
+    }
+
+    h2 {
+        @apply text-lg font-semibold tracking-tight text-foreground;
+    }
+
+    h3 {
+        @apply text-base font-semibold text-foreground;
+    }
+
+    /* A focus ring that is always visible, never only a colour change. */
+    :focus-visible {
+        @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+    }
+
+    /* Motion is decoration here: transitions are ≤200ms and anything that
+       moves can be turned off by the reader's own setting. */
+    @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+            scroll-behavior: auto !important;
+        }
+    }
 }
 
-html {
-  -webkit-text-size-adjust: 100%;
-}
+@layer components {
+    /* The page container: one width, one gutter, used by every screen. */
+    .container-page {
+        @apply mx-auto w-full max-w-6xl px-4 sm:px-6;
+    }
 
-body {
-  margin: 0;
-  background: var(--surface);
-  color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: 1rem;
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
+    /* The narrow column a single form or one document sits in. */
+    .container-narrow {
+        @apply mx-auto w-full max-w-xl px-4 sm:px-6;
+    }
 
-main {
-  flex: 1;
-}
-
-h1,
-h2,
-h3 {
-  margin: 0;
-  letter-spacing: -0.02em;
-}
-
-p {
-  margin: 0 0 1rem;
-}
-
-a {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 500;
-}
-
-a:hover {
-  color: var(--accent-strong);
-  text-decoration: underline;
-}
-
-/* Nothing removes an outline anywhere: the ring is the only thing a keyboard
-   user has to go on (docs/frontend-design.md §4). */
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
-
-.muted {
-  color: var(--ink-muted);
-}
-
-/* A skip link, visible the moment it is focused. DocuSign's page has one and
-   it is the right pattern: the mega-menu is a long way to tab through. */
-.skip {
-  position: absolute;
-  left: -9999px;
-  top: 0;
-  z-index: 100;
-  background: var(--surface);
-  color: var(--accent);
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 0 0 var(--radius) 0;
-}
-
-.skip:focus {
-  left: 0;
-}
-
-/* ------------------------------- layout -------------------------------- */
-
-.wrap {
-  width: 100%;
-  max-width: var(--measure-wide);
-  margin: 0 auto;
-  padding: 0 1.5rem;
-}
-
-.column {
-  width: 100%;
-  max-width: var(--measure);
-  margin: 0 auto;
-  padding: 3.5rem 1.5rem 4rem;
-}
-
-/* The narrow column every form sits in. */
-.panel {
-  width: 100%;
-  max-width: 29rem;
-  margin: 0 auto;
-  padding: 3.5rem 1.5rem 4rem;
-}
-
-.panel h1,
-.column h1 {
-  font-size: var(--t-title);
-  font-weight: 300;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-  margin: 0 0 0.75rem;
-}
-
-h2 {
-  font-size: var(--t-section);
-  font-weight: 400;
-  margin: 2.5rem 0 0.75rem;
-}
-
-.lede {
-  color: var(--ink-muted);
-  margin-bottom: 2rem;
-}
-
-/* ------------------------------ surfaces ------------------------------- */
-
-.sheet {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 1.75rem;
-}
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 1.25rem 1.5rem;
-  margin: 0 0 1rem;
-}
-
-.card h3 {
-  font-size: 1rem;
-  font-weight: 600;
-  margin: 0 0 0.25rem;
-  letter-spacing: -0.01em;
-}
-
-.card p {
-  margin: 0 0 0.25rem;
-  color: var(--ink-muted);
-  font-size: 0.9375rem;
-}
-
-.card .more {
-  margin-top: 0.75rem;
-  display: inline-block;
-}
-
-/* ------------------------------- controls ------------------------------ */
-
-.button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  font: inherit;
-  font-size: 0.875rem;
-  font-weight: 600;
-  padding: 0.75rem 1.25rem;
-  border-radius: var(--radius);
-  border: 1px solid transparent;
-  background: var(--accent);
-  color: #fff;
-  cursor: pointer;
-  text-decoration: none;
-}
-
-.button:hover {
-  background: var(--accent-strong);
-  color: #fff;
-  text-decoration: none;
-}
-
-.button[disabled] {
-  opacity: 0.6;
-  cursor: progress;
-}
-
-.button.block {
-  width: 100%;
-}
-
-.button.ghost {
-  background: transparent;
-  color: var(--accent);
-  border-color: var(--line);
-}
-
-.button.ghost:hover {
-  background: var(--accent-tint);
-  color: var(--accent-strong);
-}
-
-.text-button {
-  font: inherit;
-  font-size: 0.9375rem;
-  font-weight: 500;
-  color: var(--accent);
-  background: none;
-  border: 0;
-  padding: 0;
-  cursor: pointer;
-}
-
-.text-button:hover {
-  color: var(--accent-strong);
-  text-decoration: underline;
-}
-
-.field {
-  display: grid;
-  gap: 0.375rem;
-  margin: 0 0 1.25rem;
-}
-
-label {
-  font-size: 0.875rem;
-  font-weight: 500;
-}
-
-input {
-  font: inherit;
-  width: 100%;
-  padding: 0.6875rem 0.75rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--ink);
-}
-
-input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  border-color: var(--accent);
-}
-
-.hint {
-  font-size: 0.8125rem;
-  color: var(--ink-muted);
-  margin: -0.875rem 0 1.25rem;
-}
-
-.links {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.625rem;
-  margin: 1.5rem 0 0;
-  font-size: 0.9375rem;
-}
-
-.links .sep {
-  color: var(--line);
-}
-
-/* ------------------------------ messages ------------------------------- */
-
-/* One region per screen, announced when its text changes rather than only
-   coloured. The square left edge is deliberate: a radius there reads as a
-   detached chip instead of an annotation. */
-.note {
-  min-height: 1.5rem;
-  margin: 1.25rem 0 0;
-  font-size: 0.9375rem;
-  color: var(--ink-muted);
-  border-left: 3px solid transparent;
-  padding-left: 0.75rem;
-}
-
-.note:empty {
-  min-height: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.note.bad {
-  color: var(--danger);
-  background: var(--danger-tint);
-  border-left-color: var(--danger);
-  padding: 0.625rem 0.75rem;
-  border-radius: 0 var(--radius) var(--radius) 0;
-}
-
-.note.good {
-  color: var(--accent-strong);
-  background: var(--accent-tint);
-  border-left-color: var(--accent);
-  padding: 0.625rem 0.75rem;
-  border-radius: 0 var(--radius) var(--radius) 0;
-}
-
-.badge {
-  display: inline-block;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 0.1875rem 0.5rem;
-  border-radius: 999px;
-  background: var(--accent-tint);
-  color: var(--accent-strong);
-}
-
-.badge.pending {
-  background: var(--warn-tint);
-  color: var(--warn);
-}
-
-.notice {
-  background: var(--surface-sunken);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 1rem 1.25rem;
-}
-
-.notice p:last-child {
-  margin-bottom: 0;
-}
-
-@media (max-width: 30rem) {
-  .column,
-  .panel {
-    padding: 2rem 1rem 3rem;
-  }
-
-  .panel h1,
-  .column h1 {
-    font-size: 1.75rem;
-  }
-
-  h2 {
-    font-size: 1.25rem;
-    margin-top: 2rem;
-  }
-
-  .sheet {
-    padding: 1.25rem;
-  }
-
-  .card {
-    padding: 1rem 1.125rem;
-  }
-
-  .wrap {
-    padding: 0 1rem;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    transition: none !important;
-    animation: none !important;
-    scroll-behavior: auto !important;
-  }
+    /* The soft blue band behind the home hero and the account screens. The
+       only gradient in the website, and it fades to the page colour so
+       nothing has a visible edge. */
+    .band-soft {
+        background-image: linear-gradient(
+            180deg,
+            var(--accent) 0%,
+            color-mix(in oklch, var(--accent) 40%, var(--background)) 55%,
+            var(--background) 100%
+        );
+    }
 }

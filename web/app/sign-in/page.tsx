@@ -1,10 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
-import { SiteFooter, SiteHeader } from "../../components/SiteChrome";
-import { Field, Links, NoteRegion, Separator, Sheet, useNote } from "../../components/ui";
-import { api } from "../../lib/api";
+import { AuthShell } from "@/components/auth-shell";
+import { Links, TextLink } from "@/components/blocks";
+import { Busy, Field, NoteAlert, useNote } from "@/components/session";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 
 /**
  * Sign in. One message for every kind of refusal — a wrong password, an
@@ -34,38 +35,47 @@ export default function SignIn() {
   }
 
   return (
-    <>
-      <SiteHeader />
-      <main id="main" className="panel">
-        <h1>Sign in</h1>
-        <p className="lede">With your e-mail address or your username.</p>
-        <Sheet onSubmit={submit} submitLabel="Sign in" busy={busy}>
-          <Field
-            label="E-mail or username"
-            name="username"
-            type="text"
-            value={username}
-            onChange={setUsername}
-            autoComplete="username"
-            autoFocus
-          />
-          <Field
-            label="Password"
-            name="password"
-            type="password"
-            value={password}
-            onChange={setPassword}
-            autoComplete="current-password"
-          />
-        </Sheet>
-        <NoteRegion note={note} />
+    <AuthShell
+      title="Sign in"
+      lede="With your email address or your username."
+      below={
         <Links>
-          <Link href="/forgot-password">Forgotten your password?</Link>
-          <Separator />
-          <Link href="/sign-up">Create an account</Link>
+          <TextLink href="/forgot-password">Forgotten your password?</TextLink>
+          <TextLink href="/sign-up">Create an account</TextLink>
         </Links>
-      </main>
-      <SiteFooter />
-    </>
+      }
+    >
+      <form
+        className="space-y-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <Field
+          label="Email or username"
+          name="username"
+          type="text"
+          value={username}
+          onChange={setUsername}
+          autoComplete="username"
+          autoFocus
+          disabled={busy}
+        />
+        <Field
+          label="Password"
+          name="password"
+          type="password"
+          value={password}
+          onChange={setPassword}
+          autoComplete="current-password"
+          disabled={busy}
+        />
+        <Button type="submit" size="lg" className="w-full" disabled={busy}>
+          {busy ? <Busy>Signing in…</Busy> : "Sign in"}
+        </Button>
+      </form>
+      <NoteAlert note={note} />
+    </AuthShell>
   );
 }

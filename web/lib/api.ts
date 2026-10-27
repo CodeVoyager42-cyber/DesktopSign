@@ -162,6 +162,28 @@ export interface AppInfo {
   downloadUrl: string | null;
 }
 
+/**
+ * GET /web/api/download-info — what there is to download, if anything.
+ *
+ * Public, so the page works for somebody who was invited to sign and has no
+ * account yet. `available` is the only thing to branch on: `url` may be this
+ * server's own `/downloads/<file>` or an external link configured for the
+ * deployment, and `sizeBytes`/`sha256` are absent for the latter because the
+ * server cannot know them about a file it does not hold.
+ */
+export interface DownloadInfo {
+  appName: string;
+  version: string | null;
+  fileName: string | null;
+  sizeBytes: number;
+  sha256: string | null;
+  url: string | null;
+  portableUrl: string | null;
+  portableFileName: string | null;
+  portableSizeBytes: number;
+  available: boolean;
+}
+
 /** GET /web/api/workflows/{id}/audit */
 export interface AuditEntry {
   sequence: number;
@@ -380,6 +402,12 @@ export const api = {
 
   /** Where to get the desktop application, when this deployment says. */
   appInfo: () => get<AppInfo>("/web/api/app-info"),
+
+  /**
+   * What there is to download. The one call on this website that needs no
+   * session, because the page it feeds needs none either.
+   */
+  downloadInfo: () => get<DownloadInfo>("/web/api/download-info"),
 
   /**
    * The finished document. A plain URL rather than a fetch: this is a

@@ -28,6 +28,8 @@ import org.springframework.security.web.servlet.util.matcher.PathPatternRequestM
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
+import java.time.Duration;
+
 
 /**
  * Spring Security for the coordination server (security Phase 2).
@@ -109,6 +111,15 @@ public class SecurityConfig {
             // website's own page rather than the container's.
             getOrHead("/404.html"),
             websitePages(),
+            // The desktop installer (Phase F). Public with no sign-in, and
+            // deliberately: somebody invited to sign has no account yet, and
+            // cannot be asked to make one before installing the application
+            // that does the signing. There is nothing here to protect — it
+            // is the same file for everyone — so what bounds it is a per
+            // address rate limit (DownloadRateLimitFilter), not a token.
+            // Every path decision is DownloadCatalog's, which admits only
+            // allow-listed names directly inside the configured directory.
+            getOrHead("/downloads/**"),
             // Spring's error dispatch, so a failure reports its real status.
             path("/error"));
 
@@ -134,6 +145,21 @@ public class SecurityConfig {
     }
 
     /**
+     * The download limiter, a SHARED singleton for the same reason the
+     * sign-in one is: its two routes are on different chains —
+     * {@code /downloads/**} here and {@code /web/api/download-info} on the
+     * website's chain — and two instances would mean two budgets, so
+     * alternating between them would buy twice the requests.
+     */
+    @Bean
+    DownloadRateLimitFilter downloadRateLimitFilter(
+            @Value("${signature.remote-server.download.rate-limit:60}") int rateLimit,
+            @Value("${signature.remote-server.download.rate-window:PT1M}") Duration rateWindow,
+            RateLimitStore rateLimitStore) {
+        return new DownloadRateLimitFilter(rateLimit, rateWindow, rateLimitStore);
+    }
+
+    /**
      * The bearer chain. Ordered AFTER the website chain
      * ({@link WebSecurityConfig}) because this one matches any request: Spring
      * Security refuses a configuration where a catch-all chain is not last.
@@ -144,7 +170,8 @@ public class SecurityConfig {
             UserAccountService accounts, AccessTokenDenyList deniedTokens,
             ObjectProvider<InvitationService> invitations,
             ObjectProvider<LaunchCodeService> launches,
-            LoginRateLimitFilter loginRateLimitFilter)
+            LoginRateLimitFilter loginRateLimitFilter,
+            DownloadRateLimitFilter downloadRateLimitFilter)
             throws Exception {
         http
             // Risk L9 (and C7/D10): no Referer carrying a one-time token out
@@ -168,6 +195,10 @@ public class SecurityConfig {
                             .decoder(jwtService.decoder())
                             .jwtAuthenticationConverter(new TokenAuthenticationConverter())))
             .addFilterBefore(loginRateLimitFilter,
+                    BearerTokenAuthenticationFilter.class)
+            // Before the bearer filter for the same reason the sign-in
+            // limiter is: a refusal must cost nothing beyond the count.
+            .addFilterBefore(downloadRateLimitFilter,
                     BearerTokenAuthenticationFilter.class)
             .addFilterAfter(new AuthenticatedRequestFilter(accounts, deniedTokens,
                             invitations, launches),

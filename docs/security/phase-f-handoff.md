@@ -95,12 +95,27 @@ as designed, and it means the website cannot yet carry a signer end to end.
 Closing it is a product decision about where a certificate is first
 registered, not a bug to fix in a page.
 
-**The installer registers nothing** (audit finding F2). `scripts/package.sh`
-and jpackage produce a build that has never claimed the `signflow://` scheme,
-so on a machine where only the installed copy exists, these links open
-nothing. `scripts/register-signflow-protocol.cmd` does it for development,
-per-user under `HKCU`. Until the installer does the same, the hand-off works
-only where that script has been run.
+**Finding F2 — the installer registers the scheme now. Written, not yet
+built.** `packaging/windows/main.wxs` is a customised jpackage WiX template
+that adds the `signflow://` keys pointing at the installed `SignFlow.exe`
+with `"%1"`, as a component of the product so the uninstaller removes them
+again; `scripts/package.sh` passes it with `--resource-dir` and installs
+per-user (`--win-per-user-install`), so the keys land in `HKCU` and nothing
+needs elevation. The reasoning for putting it in the installer rather than
+in the application's first run is in that file's own comment and in
+`../desktop-download.md` §3.
+
+> **The MSI has not been built.** WiX 3.x is not installed on the machine
+> this was written on, so the template, the flags and the checksum step are
+> **unexercised** — reviewed, parsed (`bash -n`), and diffed against the
+> JDK's base template (87 lines added, none removed), but never run through
+> `candle.exe`. The first real build is the test of this, and it is the one
+> thing between F2 and done. `package.sh` also now diffs the JDK's own
+> template against `packaging/windows/main.wxs.jdk-base` and warns if a JDK
+> upgrade has moved it underneath us.
+
+`scripts/register-signflow-protocol.cmd` stays for development, where there
+is no installer.
 
 **Retiring the desktop's sign-in, wizard and start-up gate** stays last, and
 gated: decision D5 keeps them until the website is in production, and the two

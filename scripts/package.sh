@@ -3,21 +3,43 @@
 # Package SignFlow as a self-contained desktop application.
 #
 # Produces:
-#   build/dist/SignFlow-<version>-windows.zip   portable build (app-image + bundled JRE)
-#   build/dist/*.msi                            installer — only when WiX 3.x is installed
-#   build/jpackage/SignFlow/                    raw app-image (SignFlow.exe inside)
+#   build/dist/SignFlow-<version>.msi              the installer — the Windows
+#                                                  deliverable (needs WiX 3.x)
+#   build/dist/SignFlow-<version>.msi.sha256       its checksum
+#   build/dist/SignFlow-<version>-windows.zip      portable build, no installer
+#   build/dist/SignFlow-<version>-windows.zip.sha256
+#   build/jpackage/SignFlow/                       raw app-image (SignFlow.exe)
+#
+# The MSI is the thing to publish: it is a per-user install (no administrator
+# rights), it registers the `signflow://` scheme at the installed executable
+# so a link on the website can open this copy, and its uninstaller removes
+# that registration again. See packaging/windows/main.wxs for why the
+# installer does that rather than the application at first run.
+#
+# The portable zip stays for anyone who cannot run an installer. It registers
+# nothing, so `signflow://` links will not reach it.
+#
+# THE MSI IS NOT CODE-SIGNED. Windows SmartScreen will warn about it until a
+# code-signing certificate is bought and wired in here. Do not try to work
+# around the warning; document it (docs/desktop-download.md) and let the
+# reader click through "More info → Run anyway".
 #
 # Usage:
 #   scripts/package.sh                build the Spring Boot jar, then package
 #   scripts/package.sh --skip-build   reuse an existing target/*.jar
 #
-# Requires: JDK 21+ with jpackage (JAVA_HOME or on PATH). WiX 3.x for MSI.
+# Requires: JDK 21+ with jpackage (JAVA_HOME or on PATH). WiX 3.x for the MSI.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # run from the project root
 
 APP_NAME=SignFlow
 APP_VERSION=0.1.0
 JAR="target/pdf-signer-desktop-${APP_VERSION}-SNAPSHOT.jar"
+
+# The MSI's UpgradeCode. It must NEVER change: Windows uses it to recognise
+# that a new MSI is an upgrade of the installed product rather than a second
+# copy of it. Changing this would leave users with two SignFlows.
+UPGRADE_UUID="61FE853E-0C89-44B7-850C-46E57F4E3309"
 
 if [[ "${1:-}" != "--skip-build" ]]; then
     echo "== Building Spring Boot jar =="
@@ -74,6 +96,39 @@ echo "== Icons =="
 # docs/icon-source.png (no-op content-wise when the source is unchanged).
 "$JAVA_HOME/bin/java" tools/BuildIcon.java
 
+# ---------------------------------------------------------------------------
+# Is our WiX template still the JDK's template plus our additions?
+#
+# packaging/windows/main.wxs REPLACES the one inside jdk.jpackage, because
+# jpackage's overrides.wxi hook can only set WiX variables and cannot add a
+# registry component. That means a JDK upgrade can change the template under
+# us, and the only symptom would be an installer built from a stale copy —
+# so the drift is checked here instead of discovered later.
+# ---------------------------------------------------------------------------
+echo "== WiX template drift check =="
+JMOD="$JAVA_HOME/jmods/jdk.jpackage.jmod"
+TEMPLATE_IN_JDK="classes/jdk/jpackage/internal/resources/main.wxs"
+if [[ -f "$JMOD" ]]; then
+    rm -rf build/jdk-wxs && mkdir -p build/jdk-wxs
+    (cd build/jdk-wxs && "$JAVA_HOME/bin/jar" --extract --file "$JMOD" "$TEMPLATE_IN_JDK" 2>/dev/null) || true
+    if [[ -f "build/jdk-wxs/$TEMPLATE_IN_JDK" ]]; then
+        if diff -q "build/jdk-wxs/$TEMPLATE_IN_JDK" packaging/windows/main.wxs.jdk-base >/dev/null 2>&1; then
+            echo "  ok — this JDK's main.wxs matches packaging/windows/main.wxs.jdk-base"
+        else
+            echo "  !! WARNING: this JDK ships a DIFFERENT main.wxs than the one" >&2
+            echo "     packaging/windows/main.wxs was derived from." >&2
+            echo "     Re-diff it:" >&2
+            echo "       diff build/jdk-wxs/$TEMPLATE_IN_JDK packaging/windows/main.wxs.jdk-base" >&2
+            echo "     then port the changes into packaging/windows/main.wxs and" >&2
+            echo "     refresh the base copy. Continuing with our template." >&2
+        fi
+    else
+        echo "  (could not extract the JDK's template; skipping the check)"
+    fi
+else
+    echo "  (no jmods in this JDK; skipping the check)"
+fi
+
 echo "== jpackage app-image =="
 "$JPACKAGE" \
     --type app-image \
@@ -90,7 +145,7 @@ echo "== jpackage app-image =="
 echo "== Portable zip =="
 "$JAVA_HOME/bin/jar" --create --file "build/dist/${APP_NAME}-${APP_VERSION}-windows.zip" -C build/jpackage "$APP_NAME"
 
-echo "== MSI (optional, needs WiX 3.x) =="
+echo "== MSI (needs WiX 3.x) =="
 # Find candle.exe: on PATH, or in a Chocolatey/standard install dir. The WiX
 # toolset installs to "WiX Toolset v3.14" (versioned dir), so a fixed path
 # check misses it (verified on a GitHub windows-latest runner).
@@ -100,21 +155,58 @@ if ! command -v candle >/dev/null 2>&1; then
     done
 fi
 if command -v candle >/dev/null 2>&1; then
+    # --win-per-user-install: installs under the user's own AppData, so no
+    #   administrator rights are needed and the `signflow://` keys land in
+    #   HKCU, which the user already owns.
+    # --resource-dir: our main.wxs, which adds the scheme registration.
+    # --win-upgrade-uuid: fixed, so a later MSI upgrades rather than
+    #   installing a second copy.
     "$JPACKAGE" \
         --type msi \
         --name "$APP_NAME" \
         --app-version "$APP_VERSION" \
         --vendor "SignFlow" \
+        --description "Sign PDF documents with the certificate on your smart card" \
         --add-modules "$JLINK_MODULES" \
         --input build/jpkg-input \
         --main-jar "$(basename "$JAR")" \
         --icon build/SignFlow.ico \
+        --resource-dir packaging/windows \
+        --win-per-user-install \
+        --win-menu \
+        --win-menu-group "SignFlow" \
+        --win-shortcut \
+        --win-upgrade-uuid "$UPGRADE_UUID" \
         $(for opt in "${JAVA_OPTS[@]}"; do echo --java-options "\"$opt\""; done) \
         --dest build/dist
     echo "MSI built."
 else
-    echo "WiX not found (candle.exe) — MSI skipped. Zip + app-image are ready in build/dist."
+    echo "WiX not found (candle.exe) — MSI SKIPPED." >&2
+    echo "The MSI is the Windows deliverable: it is what registers signflow://" >&2
+    echo "and what the website offers for download. Install WiX 3.x and re-run." >&2
+    echo "The portable zip and app-image are ready in build/dist." >&2
 fi
+
+# ---------------------------------------------------------------------------
+# Checksums, so somebody who downloaded the file can tell whether they got
+# the file. One per artefact, in the format `sha256sum` writes and PowerShell
+# can be compared against:
+#   Get-FileHash .\SignFlow-0.1.0.msi -Algorithm SHA256
+# ---------------------------------------------------------------------------
+echo "== Checksums =="
+shopt -s nullglob
+for artefact in build/dist/*.msi build/dist/*.zip; do
+    base="$(basename "$artefact")"
+    if command -v sha256sum >/dev/null 2>&1; then
+        (cd build/dist && sha256sum "$base" > "$base.sha256")
+    else
+        # Git Bash always has one of these; certutil is the fallback.
+        hash="$(certutil -hashfile "$(cygpath -w "$artefact")" SHA256 | sed -n '2p' | tr -d ' \r')"
+        printf '%s  %s\n' "$hash" "$base" > "$artefact.sha256"
+    fi
+    echo "  $(cat "$artefact.sha256")"
+done
+shopt -u nullglob
 
 echo "== Done =="
 ls -la build/dist/
