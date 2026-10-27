@@ -206,6 +206,15 @@ class DevRuntimeBehaviorTests {
                 "set \"ProgramFiles=" + programFiles + "\""));
         if (javaHome != null) {
             lines.add("set \"JAVA_HOME=" + javaHome + "\"");
+        } else {
+            // Actively CLEAR the inherited value. Merely not setting it lets
+            // the child cmd.exe inherit JAVA_HOME from the Maven process -
+            // on a CI runner that is the runner's real JDK (C:\hostedtoolcache\...),
+            // which then wins the script's #1 priority slot and defeats the
+            // scenario ("outdatedPathJavaFallsBackToInstallRoots" chose the
+            // runner's JDK; "noJavaFoundFailsCleanly" returned success).
+            // "set JAVA_HOME=" is cmd's way to unset a variable.
+            lines.add("set \"JAVA_HOME=\"");
         }
         lines.addAll(List.of(
                 "call \"" + devRuntime + "\" \"" + projRoot + "\"",
