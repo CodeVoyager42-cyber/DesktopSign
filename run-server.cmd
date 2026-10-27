@@ -17,14 +17,15 @@ rem  The server must stay open while using Remote workflow in the
 rem  desktop app. Stop with Ctrl+C or close the window.
 rem ============================================================
 setlocal
-rem JAVA_HOME when it is set, otherwise the JDK this machine was set up with.
-rem Set JAVA_HOME to pick a different JDK (21 is the version the build targets).
-if defined JAVA_HOME (
-    set "JAVA=%JAVA_HOME%\bin\java.exe"
-) else (
-    set "JAVA=C:\Users\Mnl\.jdks\openjdk-26.0.2\bin\java.exe"
+rem Java + jar discovery lives in one shared place (JAVA_HOME, PATH,
+rem standard install roots) - see scripts\dev-runtime.cmd. The version
+rem the build targets is 21+; set JAVA_HOME to pin a specific JDK.
+call "%~dp0scripts\dev-runtime.cmd" "%~dp0"
+if errorlevel 1 (
+    echo.
+    pause
+    exit /b 1
 )
-set JAR=%~dp0target\pdf-signer-desktop-0.1.0-SNAPSHOT.jar
 set SIGNER_SERVER_STORAGE=%USERPROFILE%\signer-server-data
 rem Database: these are defaults. Set SIGNER_DB_* before starting this
 rem script (e.g. a test database) and they are kept as they are.
@@ -83,10 +84,9 @@ goto :eof
 :secretsLoaded
 set "__sf="
 
-if exist "%JAR%" goto haveJar
-echo The application jar was not found:
-echo   %JAR%
-echo Build it first:  set JAVA_HOME=C:\Users\Mnl\.jdks\openjdk-26.0.2
+if exist "%APP_JAR%" goto haveJar
+echo The application jar was not found under "%~dp0target".
+echo Build it first (use any JDK 21+ for the build, e.g. set JAVA_HOME):
 echo                  mvnw.cmd package -DskipTests
 echo Stop any running server first - Windows locks the jar.
 pause
@@ -151,9 +151,9 @@ echo.
 :baseUrlDone
 echo Keep this window open. Stop with Ctrl+C.
 echo.
-"%JAVA%" -Dloader.main=com.example.signer.server.WorkflowServerApplication ^
+"%JAVA_EXE%" -Dloader.main=com.example.signer.server.WorkflowServerApplication ^
     -Djavax.net.ssl.trustStoreType=WINDOWS-ROOT ^
-    -cp "%JAR%" org.springframework.boot.loader.launch.PropertiesLauncher ^
+    -cp "%APP_JAR%" org.springframework.boot.loader.launch.PropertiesLauncher ^
     --spring.profiles.active=server,dev --server.port=8080
 
 rem The window would close instantly on a startup crash - keep it open

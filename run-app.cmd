@@ -6,27 +6,20 @@ rem  If the app is already running, this brings its window to
 rem  the front instead of starting a second copy.
 rem ============================================================
 setlocal
-rem JAVA_HOME when it is set, otherwise the JDK this machine was set up with.
-rem Set JAVA_HOME to pick a different JDK (21 is the version the build targets).
-if defined JAVA_HOME (
-    set "JAVA=%JAVA_HOME%\bin\java.exe"
-) else (
-    set "JAVA=C:\Users\Mnl\.jdks\openjdk-26.0.2\bin\java.exe"
-)
-set JAR=%~dp0target\pdf-signer-desktop-0.1.0-SNAPSHOT.jar
-
-if not exist "%JAVA%" (
-    echo Java was not found:
-    echo   %JAVA%
-    echo Set JAVA_HOME to a JDK 21 installation and run this again.
+rem Java + jar discovery lives in one shared place (JAVA_HOME, PATH,
+rem standard install roots) - see scripts\dev-runtime.cmd. The version
+rem the build targets is 21+; set JAVA_HOME to pin a specific JDK.
+call "%~dp0scripts\dev-runtime.cmd" "%~dp0"
+if errorlevel 1 (
+    echo.
     pause
     exit /b 1
 )
 
-if not exist "%JAR%" (
-    echo The application jar was not found:
-    echo   %JAR%
+if "%APP_JAR%"=="" (
+    echo The application jar was not found under "%~dp0target".
     echo Run:  mvnw.cmd package -DskipTests
+    echo.
     pause
     exit /b 1
 )
@@ -42,8 +35,8 @@ if /i "%SIGNATURE_PKCS11_ENABLED%"=="true" (
 )
 if not defined SIGNFLOW_DEV set SIGNFLOW_DEV=1
 if "%SIGNFLOW_DEV%"=="1" (
-    "%JAVA%" %JAVA_OPTS% -jar "%JAR%" --spring.profiles.active=dev
+    "%JAVA_EXE%" %JAVA_OPTS% -jar "%APP_JAR%" --spring.profiles.active=dev
 ) else (
-    "%JAVA%" %JAVA_OPTS% -jar "%JAR%"
+    "%JAVA_EXE%" %JAVA_OPTS% -jar "%APP_JAR%"
 )
 endlocal
