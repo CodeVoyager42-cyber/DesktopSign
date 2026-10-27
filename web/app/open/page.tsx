@@ -2,44 +2,42 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppHeader, SiteFooter } from "../../components/SiteChrome";
-import { NoteRegion, SessionPending, useNote, useSession } from "../../components/ui";
-import { api, type AppInfo, type Workflow } from "../../lib/api";
+import { CreditCard, Download, ExternalLink, Loader2, TimerOff } from "lucide-react";
+import { Links, PageHeader, SectionCard, TextLink } from "@/components/blocks";
+import { AppShell } from "@/components/chrome";
+import {
+  NoteAlert,
+  SessionPending,
+  useNote,
+  useSession,
+} from "@/components/session";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { api, type AppInfo, type Workflow } from "@/lib/api";
 import {
   clock,
   refusalWords,
   secondsLeft,
   worthRetrying,
   type Phase,
-} from "../../lib/handoff";
-import styles from "./open.module.css";
+} from "@/lib/handoff";
+import { cn } from "@/lib/utils";
 
 /**
- * The hand-off: the screen that opens SignFlow on this computer, at this one
- * signing task (`docs/frontend-design.md` §6).
+ * The hand-off: the screen that opens the SignFlow app on this computer, at
+ * this one document.
  *
- * <b>The browser never becomes the signing environment.</b> The certificate
- * stays on the smart card and the desktop application does the signing. This
- * screen's whole job is to say that clearly enough that nobody looks for an
- * upload button — which is why it names the document, says what is about to
- * happen, and offers nothing that looks like signing.
+ * <b>The logic here is unchanged and must stay that way.</b> The code is
+ * never put in the DOM — the page navigates by assigning `location.href` and
+ * holds the link in a ref — and no code is ever reused: when the clock runs
+ * out the screen asks for a new one. An `<a href={deepLink}>` would put a
+ * credential where a right-click can copy it. Only the look is new.
  *
- * <b>The code is never shown.</b> The server answers with a deep link
- * carrying a single-use code, and the page navigates to it rather than
- * rendering it as a link: an `<a href>` would put a credential in the DOM for
- * anyone to copy, and the one thing Phase B asks of this screen is that the
- * code goes to the application and nowhere else. It is also why there is a
- * clock — the code is valid for two minutes, and after that only a fresh one
- * will do, never a replay of the old one.
- *
- * <b>Why a button as well as the automatic attempt.</b> Navigating to a
- * custom scheme is a privileged thing to do: browsers may ignore it when it
- * was not caused by a click, and some ask the reader to confirm. So the page
- * tries once on arrival (the reader did click something to get here) and
- * leaves a primary action that tries again, rather than sitting on "Opening…"
- * forever if the automatic attempt was refused.
+ * It tries once on arrival (the reader clicked something to get here) and
+ * then offers a button, because navigating to a custom scheme is privileged:
+ * a browser may ignore it when no click caused it.
  */
-export default function Sign() {
+export default function Open() {
   const { me, state } = useSession();
   const { note, say } = useNote();
   const [id, setId] = useState<string | null | undefined>(undefined);
@@ -63,7 +61,6 @@ export default function Sign() {
     setId(new URLSearchParams(window.location.search).get("id"));
   }, []);
 
-  /** Asks for a code and hands it to the application. */
   const open = useCallback((workflowId: string) => {
     setPhase("asking");
     api.launchCode(workflowId).then((result) => {
@@ -78,15 +75,9 @@ export default function Sign() {
       setLeft(lifetime);
       setPhase("opening");
       try {
-        // The navigation that starts the application. Assigning location is
-        // deliberate: it carries the code without ever putting it in the
-        // page, and a failed scheme navigation leaves the page as it is.
         window.location.href = result.body.deepLink;
       } catch {
-        say(
-          "This browser would not open SignFlow by itself. Use the button below.",
-          "info",
-        );
+        say("This browser would not open the app by itself. Use the button below.");
       }
     });
   }, [say]);
@@ -94,10 +85,7 @@ export default function Sign() {
   useEffect(() => {
     if (!me || !id) return;
     api.workflow(id).then((result) => {
-      if (!mounted.current) return;
-      if (result.ok && result.body) {
-        setWorkflow(result.body);
-      }
+      if (mounted.current && result.ok && result.body) setWorkflow(result.body);
     });
     api.appInfo().then((result) => {
       if (mounted.current && result.ok && result.body) setApp(result.body);
@@ -105,9 +93,9 @@ export default function Sign() {
     open(id);
   }, [me, id, open]);
 
-  // One tick a second while a code is live, and the clock is read from the
-  // issue time rather than counted down in state: a tab that was asleep for
-  // a minute comes back with the right answer instead of a stale one.
+  // One tick a second while a code is live, read from the issue time rather
+  // than counted down in state: a tab that was asleep for a minute comes
+  // back with the right answer instead of a stale one.
   useEffect(() => {
     if (phase !== "opening") return;
     const tick = setInterval(() => {
@@ -133,107 +121,145 @@ export default function Sign() {
 
   if (id === null) {
     return (
-      <>
-        <AppHeader me={me} />
-        <main id="main" className="panel">
-          <h1>That link is incomplete</h1>
-          <p className="lede">It does not say which document to sign.</p>
-          <p className="links">
-            <Link href="/documents">Your documents</Link>
-          </p>
-        </main>
-        <SiteFooter />
-      </>
+      <AppShell me={me} narrow>
+        <PageHeader
+          title="That link is incomplete"
+          description="It does not say which document to sign."
+        />
+        <SectionCard>
+          <Button asChild size="lg" className="w-full">
+            <Link href="/documents">My documents</Link>
+          </Button>
+        </SectionCard>
+      </AppShell>
     );
   }
 
-  const name = workflow?.documentName;
   const appName = app?.appName ?? "SignFlow";
+  const working = phase === "asking" || phase === "opening";
 
   return (
-    <>
-      <AppHeader me={me} />
-      <main id="main" className="panel">
-        {phase === "asking" ? <h1>Opening {appName}…</h1> : null}
-        {phase === "opening" ? <h1>Opening {appName}…</h1> : null}
-        {phase === "expired" ? <h1>The link timed out</h1> : null}
-        {phase === "refused" ? <h1>This cannot be opened for signing</h1> : null}
+    <AppShell me={me} narrow>
+      <SectionCard className="text-center">
+        <div
+          className={cn(
+            "mx-auto flex size-14 items-center justify-center rounded-full",
+            phase === "refused" && "bg-warning/10",
+            phase === "expired" && "bg-muted",
+            working && "bg-accent",
+          )}
+        >
+          {working ? (
+            <Loader2 aria-hidden="true" className="size-7 animate-spin text-primary" />
+          ) : phase === "expired" ? (
+            <TimerOff aria-hidden="true" className="size-7 text-muted-foreground" />
+          ) : (
+            <CreditCard aria-hidden="true" className="size-7 text-warning-strong" />
+          )}
+        </div>
 
-        {name ? (
-          <p className="lede">
-            {phase === "refused" ? name : <>You are signing <strong>{name}</strong>.</>}
-          </p>
-        ) : null}
+        <div className="space-y-2">
+          <h1 className="text-2xl">
+            {working ? `Opening the ${appName} app…` : null}
+            {phase === "expired" ? "The signing link timed out" : null}
+            {phase === "refused" ? "This cannot be opened for signing" : null}
+          </h1>
+          {working ? (
+            <p className="text-base text-muted-foreground">
+              Insert your smart card.
+            </p>
+          ) : null}
+          {workflow ? (
+            <p className="break-words text-base font-medium">
+              {workflow.documentName}
+            </p>
+          ) : null}
+        </div>
 
         {phase === "opening" ? (
           <>
-            <p className={styles.clock} role="status" aria-live="polite">
-              <span className={styles.remaining}>{clock(left)}</span> left to use
-              this link
+            <p role="status" aria-live="polite" className="text-base text-muted-foreground">
+              <span className="mr-2 text-2xl font-semibold tabular-nums text-foreground">
+                {clock(left)}
+              </span>
+              left to use this link
             </p>
-            <p className="hint">
-              {appName} should be asking for your card. Signing happens there,
-              on this computer — the certificate never leaves your card, and
-              this website never sees it.
+            <p className="text-base text-muted-foreground">
+              Signing happens in the app, on this computer — the certificate
+              never leaves your card, and this website never sees it.
             </p>
-            <button type="button" className="button block" onClick={() => open(id!)}>
-              Open {appName} again
-            </button>
+            <Button type="button" size="lg" className="w-full" onClick={() => open(id!)}>
+              Didn&apos;t open? Try again
+            </Button>
           </>
         ) : null}
 
         {phase === "expired" ? (
           <>
-            <p className="lede">
-              A signing link is good for two minutes, so this one is no longer
-              usable. The next one is new — never the same link again.
+            <p className="text-base text-muted-foreground">
+              A signing link is good for two minutes. The next one is new —
+              never the same link again.
             </p>
-            <button type="button" className="button block" onClick={() => open(id!)}>
+            <Button type="button" size="lg" className="w-full" onClick={() => open(id!)}>
               Get a new link
-            </button>
+            </Button>
           </>
         ) : null}
 
         {phase === "refused" ? (
           <>
-            <p className="note bad" role="status">
-              {refusalWords(refusal.message)}
-            </p>
+            <Alert variant="destructive" className="text-left shadow-sm">
+              <CreditCard aria-hidden="true" />
+              <AlertTitle>What to do</AlertTitle>
+              <AlertDescription className="text-base">
+                {refusal.code === "TOO_MANY_REQUESTS"
+                  ? "Too many attempts — please wait a few minutes and try again."
+                  : refusalWords(refusal.message)}
+              </AlertDescription>
+            </Alert>
             {worthRetrying(refusal.code) ? (
-              <button type="button" className="button block" onClick={() => open(id!)}>
+              <Button type="button" size="lg" className="w-full" onClick={() => open(id!)}>
                 Try again
-              </button>
+              </Button>
             ) : null}
           </>
         ) : null}
 
-        {/* The fallback, available throughout: the commonest reason nothing
-            happens is that the application is not installed on this
-            computer. A link only when the deployment has one to give —
-            inventing a download URL would be worse than saying nothing. */}
-        <p className={styles.fallback}>
-          Nothing happened?{" "}
-          {app?.downloadUrl ? (
-            <a href={app.downloadUrl}>Install {appName}</a>
-          ) : (
-            <span className="muted">
-              {appName} has to be installed on this computer to sign.
-            </span>
-          )}
-        </p>
+        <NoteAlert note={note} />
 
-        <NoteRegion note={note} />
-        <p className="links">
-          <Link href={`/document?id=${encodeURIComponent(id ?? "")}`}>
-            This document
-          </Link>
-          <span className="sep" aria-hidden="true">
-            ·
-          </span>
-          <Link href="/documents">Documents</Link>
-        </p>
-      </main>
-      <SiteFooter />
-    </>
+        <div className="border-t border-border pt-4">
+          <p className="text-base text-muted-foreground">Nothing happened?</p>
+          {/* The download page, always — it explains the install, the
+              SmartScreen warning and the card reader, which a bare link to a
+              file does not. It is public, so it works even for somebody who
+              arrived here from an invitation and has no account. */}
+          <Button asChild variant="outline" className="mt-3">
+            <Link href="/download">
+              <Download aria-hidden="true" />
+              Get the {appName} app
+            </Link>
+          </Button>
+          {app?.downloadUrl ? (
+            <p className="mt-3 text-sm">
+              <Button asChild variant="link" className="h-auto px-0 text-sm">
+                {/* An absolute, configured URL: a real anchor, not a route. */}
+                <a href={app.downloadUrl}>
+                  Or download the installer directly
+                  <ExternalLink aria-hidden="true" />
+                </a>
+              </Button>
+            </p>
+          ) : null}
+        </div>
+      </SectionCard>
+
+      <div className="mt-6">
+        <Links>
+          <TextLink href={`/document?id=${encodeURIComponent(id ?? "")}`}>
+            Back to the document
+          </TextLink>
+        </Links>
+      </div>
+    </AppShell>
   );
 }

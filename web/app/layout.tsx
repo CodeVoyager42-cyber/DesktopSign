@@ -7,9 +7,10 @@ import type { Metadata } from "next";
 // here). `@fontsource-variable/inter` ships the .woff2 files in the package,
 // under the same OFL-1.1 licence, so the build is offline and reproducible.
 //
-// This also closes the gap the hand-written stylesheet left behind: it
-// pointed @font-face at two files nobody had added, and quietly fell back to
-// the platform font.
+// `shadcn init` added a `next/font/google` Geist import here and it was
+// removed again for exactly that reason: the generator cannot know that this
+// deployment forbids a build-time fetch. Inter is wired to Tailwind's
+// `--font-sans` in globals.css instead, so `font-sans` means Inter.
 import "@fontsource-variable/inter";
 import "./globals.css";
 
@@ -30,10 +31,19 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <meta name="theme-color" content="#0e7c66" />
+        {/* The one literal colour outside globals.css, and it has to be: a
+            browser paints its own chrome from this value before any
+            stylesheet is parsed, so it cannot reference a CSS variable. It is
+            `--primary`; change both together. */}
+        <meta name="theme-color" content="#1d4ed8" />
       </head>
-      <body>
-        <a className="skip" href="#main">
+      <body className="min-h-dvh bg-background font-sans text-base text-foreground antialiased">
+        {/* Visible as soon as it is focused: the first thing a keyboard
+            reader meets on every page. */}
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+        >
           Skip to main content
         </a>
         {children}

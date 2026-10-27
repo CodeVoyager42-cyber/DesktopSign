@@ -2,17 +2,19 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { AppHeader, SiteFooter } from "../../components/SiteChrome";
+import { CheckCircle2, KeyRound } from "lucide-react";
+import { Links, PageHeader, SectionCard, TextLink } from "@/components/blocks";
+import { AppShell } from "@/components/chrome";
 import {
+  Busy,
   Field,
-  Links,
-  NoteRegion,
+  NoteAlert,
   SessionPending,
-  Sheet,
   useNote,
   useSession,
-} from "../../components/ui";
-import { MIN_PASSWORD_LENGTH, api } from "../../lib/api";
+} from "@/components/session";
+import { Button } from "@/components/ui/button";
+import { MIN_PASSWORD_LENGTH, api } from "@/lib/api";
 
 /**
  * Change the password of the signed-in account. A screen of its own rather
@@ -27,10 +29,6 @@ export default function ChangePassword() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
 
-  if (state !== "in" || !me) {
-    return <SessionPending />;
-  }
-
   async function submit() {
     setBusy(true);
     say("Changing your password…");
@@ -40,59 +38,84 @@ export default function ChangePassword() {
       setDone(true);
       return;
     }
-    say(result.message ?? "That did not work.", "bad");
+    say(
+      result.status === 429
+        ? "Too many attempts — please wait a few minutes and try again."
+        : (result.message ?? "That did not work."),
+      "bad",
+    );
+  }
+
+  if (state !== "in" || !me) {
+    return <SessionPending />;
+  }
+
+  if (done) {
+    return (
+      <AppShell me={me} narrow>
+        <PageHeader title="Password changed" />
+        <SectionCard>
+          <p className="flex items-start gap-2 text-base">
+            <CheckCircle2
+              aria-hidden="true"
+              className="mt-0.5 size-5 shrink-0 text-success"
+            />
+            Every other session has been signed out, here and in the SignFlow
+            app, and you have been emailed to say it happened. This one stays
+            signed in.
+          </p>
+          <Button asChild size="lg" className="w-full">
+            <Link href="/account">Back to my account</Link>
+          </Button>
+        </SectionCard>
+      </AppShell>
+    );
   }
 
   return (
-    <>
-      <AppHeader me={me} />
-      <main id="main" className="panel">
-        {done ? (
-          <>
-            <h1>Password changed</h1>
-            <p className="lede">
-              Every other session has been signed out, and you have been
-              e-mailed to say it happened. This one stays signed in.
-            </p>
-            <Links>
-              <Link href="/account">Back to your account</Link>
-            </Links>
-          </>
-        ) : (
-          <>
-            <h1>Change password</h1>
-            <p className="lede">
-              At least {MIN_PASSWORD_LENGTH} characters. You stay signed in
-              here; everywhere else is signed out.
-            </p>
-            <Sheet onSubmit={submit} submitLabel="Change password" busy={busy}>
-              <Field
-                label="Current password"
-                name="currentPassword"
-                type="password"
-                value={current}
-                onChange={setCurrent}
-                autoComplete="current-password"
-                autoFocus
-              />
-              <Field
-                label="New password"
-                name="newPassword"
-                type="password"
-                value={next}
-                onChange={setNext}
-                autoComplete="new-password"
-                minLength={MIN_PASSWORD_LENGTH}
-              />
-            </Sheet>
-            <NoteRegion note={note} />
-            <Links>
-              <Link href="/account">Cancel</Link>
-            </Links>
-          </>
-        )}
-      </main>
-      <SiteFooter />
-    </>
+    <AppShell me={me} narrow>
+      <PageHeader
+        title="Change password"
+        description="You stay signed in here. Everywhere else is signed out."
+      />
+      <SectionCard title="New password" icon={KeyRound}>
+        <form
+          className="space-y-5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submit();
+          }}
+        >
+          <Field
+            label="Current password"
+            name="currentPassword"
+            type="password"
+            value={current}
+            onChange={setCurrent}
+            autoComplete="current-password"
+            autoFocus
+            disabled={busy}
+          />
+          <Field
+            label="New password"
+            name="newPassword"
+            type="password"
+            value={next}
+            onChange={setNext}
+            autoComplete="new-password"
+            minLength={MIN_PASSWORD_LENGTH}
+            hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}
+            disabled={busy}
+          />
+          <Button type="submit" size="lg" className="w-full" disabled={busy}>
+            {busy ? <Busy>Changing…</Busy> : "Change password"}
+          </Button>
+        </form>
+        <NoteAlert note={note} />
+        <Links>
+          <TextLink href="/account">Cancel</TextLink>
+        </Links>
+      </SectionCard>
+    </AppShell>
   );
 }

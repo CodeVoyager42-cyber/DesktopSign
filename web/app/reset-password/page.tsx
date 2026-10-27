@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { SiteFooter, SiteHeader } from "../../components/SiteChrome";
-import { Field, Links, NoteRegion, Sheet, useNote } from "../../components/ui";
-import { MIN_PASSWORD_LENGTH, api } from "../../lib/api";
+import { AuthShell } from "@/components/auth-shell";
+import { Links, TextLink } from "@/components/blocks";
+import { Busy, Field, NoteAlert, useNote } from "@/components/session";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { MIN_PASSWORD_LENGTH, api } from "@/lib/api";
 
 /**
- * Set a new password from an e-mailed link.
+ * Set a new password from an emailed link.
  *
  * The token is read from the query string in the browser rather than through
  * `useSearchParams`, which in a static export would need a Suspense boundary
@@ -42,78 +45,72 @@ export default function ResetPassword() {
 
   if (token === null) {
     return (
-      <>
-        <SiteHeader />
-        <main id="main" className="panel">
-          <p className="muted">Checking the link…</p>
-        </main>
-        <SiteFooter />
-      </>
+      <AuthShell title="Checking the link…">
+        <Skeleton className="h-11 w-full" />
+      </AuthShell>
     );
   }
 
   if (token === "") {
     return (
-      <>
-        <SiteHeader />
-        <main id="main" className="panel">
-          <h1>That link is incomplete</h1>
-          <p className="lede">
-            Open the link from the e-mail again, or ask for a new one.
-          </p>
+      <AuthShell
+        title="That link is incomplete"
+        lede="Open the link from the email again, or ask for a new one."
+        below={
           <Links>
-            <Link href="/forgot-password">Ask for a new link</Link>
+            <TextLink href="/forgot-password">Ask for a new link</TextLink>
           </Links>
-        </main>
-        <SiteFooter />
-      </>
+        }
+      >
+        <Button asChild size="lg" className="w-full">
+          <Link href="/forgot-password">Ask for a new link</Link>
+        </Button>
+      </AuthShell>
     );
   }
 
   if (done) {
     return (
-      <>
-        <SiteHeader />
-        <main id="main" className="panel">
-          <h1>Password set</h1>
-          <p className="lede">
-            Every session of this account has been signed out, on the website
-            and in the desktop application. Sign in with the new password.
-          </p>
-          <Links>
-            <Link href="/sign-in">Sign in</Link>
-          </Links>
-        </main>
-        <SiteFooter />
-      </>
+      <AuthShell
+        title="Password set"
+        lede="Every session of this account has been signed out, here and in the SignFlow app. Sign in with the new password."
+      >
+        <Button asChild size="lg" className="w-full">
+          <Link href="/sign-in">Sign in</Link>
+        </Button>
+      </AuthShell>
     );
   }
 
   return (
-    <>
-      <SiteHeader />
-      <main id="main" className="panel">
-        <h1>Set a new password</h1>
-        <p className="lede">
-          This link works once. Signing in again afterwards uses the new
-          password everywhere.
-        </p>
-        <Sheet onSubmit={submit} submitLabel="Set the password" busy={busy}>
-          <Field
-            label="New password"
-            name="newPassword"
-            type="password"
-            value={password}
-            onChange={setPassword}
-            autoComplete="new-password"
-            autoFocus
-            minLength={MIN_PASSWORD_LENGTH}
-            hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}
-          />
-        </Sheet>
-        <NoteRegion note={note} />
-      </main>
-      <SiteFooter />
-    </>
+    <AuthShell
+      title="Set a new password"
+      lede="This link works once. Afterwards the new password works everywhere."
+    >
+      <form
+        className="space-y-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <Field
+          label="New password"
+          name="newPassword"
+          type="password"
+          value={password}
+          onChange={setPassword}
+          autoComplete="new-password"
+          autoFocus
+          minLength={MIN_PASSWORD_LENGTH}
+          hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}
+          disabled={busy}
+        />
+        <Button type="submit" size="lg" className="w-full" disabled={busy}>
+          {busy ? <Busy>Saving…</Busy> : "Set the password"}
+        </Button>
+      </form>
+      <NoteAlert note={note} />
+    </AuthShell>
   );
 }

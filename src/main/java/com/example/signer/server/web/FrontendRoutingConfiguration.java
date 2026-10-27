@@ -123,6 +123,17 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String OPEN_PAGE = "/open";
 
     /**
+     * Where to get the desktop application (Phase F, finding F2).
+     *
+     * <p>Public, and the only signed-in-looking page that is: an invited
+     * signer has no account yet and cannot be asked to make one before
+     * installing the application that signs. The page itself reveals nothing
+     * — a version, a size and a checksum — and the file it links to is
+     * public for the same reason.
+     */
+    public static final String DOWNLOAD_PAGE = "/download";
+
+    /**
      * Every path forwarded to the website. {@code SecurityConfig.PUBLIC}
      * reads this array, so adding a page is one line here and nothing else —
      * which also means the two lists cannot disagree about what is reachable.
@@ -130,7 +141,7 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String[] PAGES = {
         VERIFY_EMAIL_PAGE, RESET_PASSWORD_PAGE,
         SIGN_IN_PAGE, SIGN_UP_PAGE, FORGOT_PASSWORD_PAGE, CHANGE_PASSWORD_PAGE,
-        ACCOUNT_PAGE, DOCUMENTS_PAGE, DOCUMENT_PAGE, SEND_PAGE, OPEN_PAGE,
+        ACCOUNT_PAGE, DOCUMENTS_PAGE, DOCUMENT_PAGE, SEND_PAGE, OPEN_PAGE, DOWNLOAD_PAGE,
     };
 
     /**

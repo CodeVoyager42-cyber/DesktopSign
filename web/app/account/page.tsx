@@ -2,101 +2,102 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { AppHeader, SiteFooter } from "../../components/SiteChrome";
+import { CheckCircle2, ChevronRight, CircleAlert, KeyRound, Mail } from "lucide-react";
+import { PageHeader, SectionCard } from "@/components/blocks";
+import { AppShell } from "@/components/chrome";
 import {
-  Badge,
-  Links,
-  NoteRegion,
-  Separator,
+  Busy,
+  NoteAlert,
   SessionPending,
   useNote,
   useSession,
-} from "../../components/ui";
-import { api } from "../../lib/api";
+} from "@/components/session";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 
-/** The account screen: the address and its state, the password, and signing out. */
+/** The account screen: the address and its state, and the password. */
 export default function Account() {
   const { me, state } = useSession();
   const { note, say } = useNote();
   const [busy, setBusy] = useState(false);
 
+  async function resend(email: string) {
+    setBusy(true);
+    say("Sending…");
+    const result = await api.resendVerification(email);
+    setBusy(false);
+    say(
+      result.status === 429
+        ? "Too many attempts — please wait a few minutes and try again."
+        : // 202 either way, so the wording cannot claim an address exists.
+          "If that address still needs confirming, another link is on its way.",
+      result.status === 429 ? "bad" : "info",
+    );
+  }
+
   if (state !== "in" || !me) {
     return <SessionPending />;
   }
 
-  async function resend() {
-    setBusy(true);
-    say("Sending…");
-    await api.resendVerification(me!.email ?? "");
-    setBusy(false);
-    // 202 either way, so the wording cannot claim an address exists.
-    say(
-      "If that address still needs confirming, another link is on its way.",
-      "info",
-    );
-  }
-
-  async function signOut() {
-    await api.signOut();
-    window.location.assign("/sign-in");
-  }
-
   return (
-    <>
-      <AppHeader me={me} />
-      <main id="main" className="panel">
-        <h1>{me.username}</h1>
-        <p className="lede">{me.email ?? "No e-mail address on file."}</p>
+    <AppShell me={me} narrow>
+      <PageHeader title="Your account" description={me.username} />
 
-        <article className="card">
-          <h3>E-mail address</h3>
-          <p>{me.email ?? ""}</p>
+      <div className="space-y-6">
+        <SectionCard
+          title="Email address"
+          description={me.email ?? "No email address on file."}
+          icon={Mail}
+        >
           {me.emailVerified ? (
-            <Badge>Confirmed</Badge>
+            <Badge
+              variant="secondary"
+              className="gap-1.5 rounded-full border-transparent bg-success/10 px-2.5 py-1 text-sm font-medium text-success-strong"
+            >
+              <CheckCircle2 aria-hidden="true" className="size-4" />
+              Confirmed
+            </Badge>
           ) : (
             <>
-              <Badge pending>Not confirmed yet</Badge>
-              <p>
-                You can sign in and look around, but not create signing
-                requests or sign documents until it is confirmed.
+              <Badge
+                variant="secondary"
+                className="gap-1.5 rounded-full border-transparent bg-warning/10 px-2.5 py-1 text-sm font-medium text-warning-strong"
+              >
+                <CircleAlert aria-hidden="true" className="size-4" />
+                Not confirmed yet
+              </Badge>
+              <p className="text-base text-muted-foreground">
+                You can look around, but sending a document and signing one
+                both wait until this address is confirmed.
               </p>
-              <p className="more">
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={resend}
-                  disabled={busy}
-                >
-                  Send the confirmation link again
-                </button>
-              </p>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => resend(me.email ?? "")}
+              >
+                {busy ? <Busy>Sending…</Busy> : "Send the confirmation link again"}
+              </Button>
             </>
           )}
-        </article>
+        </SectionCard>
 
-        <article className="card">
-          <h3>Password</h3>
-          <p>
-            Changing it signs out every other session, on the website and in
-            the desktop application, and e-mails you to say it happened.
-          </p>
-          <p className="more">
+        <SectionCard
+          title="Password"
+          description="Changing it signs out every other session, here and in the SignFlow app, and emails you to say it happened."
+          icon={KeyRound}
+        >
+          <Button asChild variant="outline">
             <Link href="/change-password">
-              Change password <span aria-hidden="true">›</span>
+              Change password
+              <ChevronRight aria-hidden="true" />
             </Link>
-          </p>
-        </article>
+          </Button>
+        </SectionCard>
 
-        <NoteRegion note={note} />
-        <Links>
-          <Link href="/documents">Documents</Link>
-          <Separator />
-          <button type="button" className="text-button" onClick={signOut}>
-            Sign out
-          </button>
-        </Links>
-      </main>
-      <SiteFooter />
-    </>
+        <NoteAlert note={note} />
+      </div>
+    </AppShell>
   );
 }
