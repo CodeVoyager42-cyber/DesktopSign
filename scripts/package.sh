@@ -33,8 +33,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."   # run from the project root
 
 APP_NAME=SignFlow
-APP_VERSION=0.1.0
-JAR="target/pdf-signer-desktop-${APP_VERSION}-SNAPSHOT.jar"
+# The version comes from the built jar (the pom's <version>), so a bump in
+# pom.xml flows through without editing this script.
 
 # The MSI's UpgradeCode. It must NEVER change: Windows uses it to recognise
 # that a new MSI is an upgrade of the installed product rather than a second
@@ -45,16 +45,58 @@ if [[ "${1:-}" != "--skip-build" ]]; then
     echo "== Building Spring Boot jar =="
     ./mvnw -B -q -DskipTests package
 fi
-if [[ ! -f "$JAR" ]]; then
-    echo "ERROR: $JAR not found. Run without --skip-build." >&2
+
+# Pick the newest built jar (any version, no hardcoded 0.1.0 here):
+shopt -s nullglob
+jars=(target/pdf-signer-desktop-*.jar)
+shopt -u nullglob
+if (( ${#jars[@]} == 0 )); then
+    echo "ERROR: no target/pdf-signer-desktop-*.jar. Run without --skip-build." >&2
     exit 1
 fi
+JAR="${jars[0]}"
+for j in "${jars[@]}"; do
+    if [[ "$j" -nt "$JAR" ]]; then JAR="$j"; fi
+done
+APP_VERSION="$(basename "$JAR" .jar)"
+APP_VERSION="${APP_VERSION#pdf-signer-desktop-}"
+if [[ -z "$APP_VERSION" ]]; then
+    echo "ERROR: could not read the version from the jar name '$JAR'." >&2
+    exit 1
+fi
+# jpackage validates --app-version as a numeric dotted version (it refuses
+# suffixes), so "0.1.0-SNAPSHOT" is cut to "0.1.0" for the Windows product
+# version. Full-length artefact names keep ... -SNAPSHOT too - use
+# INSTALL_VERSION (the number part) for the published file names instead.
+INSTALL_VERSION="${APP_VERSION%%-*}"
+echo "== Version $APP_VERSION (installer product version $INSTALL_VERSION) =="
 
 if [[ -z "${JAVA_HOME:-}" ]]; then
-    JAVA_HOME="$(cd "$(dirname "$(command -v java)")/.." && pwd)"
+    # `command -v java` is NOT a reliable JDK root: the Oracle updater's
+    # "Common Files\Oracle\Java\javapath" directory holds java.exe but no
+    # jpackage, and a build JDK can live in none of those well-known roots.
+    # So: prefer a jpackage found on PATH, then the standard install roots
+    # (the same roots scripts\dev-runtime.cmd scans for the launchers),
+    # newest version wins. jpackage below still verifies the result.
+    if JPKG_BIN="$(command -v jpackage 2>/dev/null)"; then
+        JAVA_HOME="$(cd "$(dirname "$JPKG_BIN")/.." && pwd)"
+    else
+        shopt -s nullglob
+        with_jpackage=()
+        for d in "/c/Program Files/Java/"jdk* "/c/Program Files/Eclipse Adoptium/"jdk* \
+                 "/c/Program Files/Microsoft/"jdk* "/c/Amazon Corretto/"jdk*; do
+            if [[ -x "$d/bin/jpackage.exe" || -x "$d/bin/jpackage" ]]; then
+                with_jpackage+=("$d")
+            fi
+        done
+        shopt -u nullglob
+        if (( ${#with_jpackage[@]} > 0 )); then
+            JAVA_HOME="$(printf '%s\n' "${with_jpackage[@]}" | sort -V | tail -n 1)"
+        fi
+    fi
 fi
 JPACKAGE="$JAVA_HOME/bin/jpackage"
-[[ -x "$JPACKAGE" || -x "$JPACKAGE.exe" ]] || { echo "ERROR: jpackage not found in \$JAVA_HOME/bin" >&2; exit 1; }
+[[ -x "$JPACKAGE" || -x "$JPACKAGE.exe" ]] || { echo "ERROR: jpackage not found in \$JAVA_HOME/bin (set JAVA_HOME to a JDK 21+ with jpackage)" >&2; exit 1; }
 
 # Modules for the bundled jlink runtime. NOTE: jpackage's --add-modules
 # REPLACES its default root set (verified empirically: listing only
@@ -133,7 +175,7 @@ echo "== jpackage app-image =="
 "$JPACKAGE" \
     --type app-image \
     --name "$APP_NAME" \
-    --app-version "$APP_VERSION" \
+    --app-version "$INSTALL_VERSION" \
     --vendor "SignFlow" \
     --add-modules "$JLINK_MODULES" \
     --input build/jpkg-input \
@@ -143,7 +185,7 @@ echo "== jpackage app-image =="
     --dest build/jpackage
 
 echo "== Portable zip =="
-"$JAVA_HOME/bin/jar" --create --file "build/dist/${APP_NAME}-${APP_VERSION}-windows.zip" -C build/jpackage "$APP_NAME"
+"$JAVA_HOME/bin/jar" --create --file "build/dist/${APP_NAME}-${INSTALL_VERSION}-windows.zip" -C build/jpackage "$APP_NAME"
 
 echo "== MSI (needs WiX 3.x) =="
 # Find candle.exe: on PATH, or in a Chocolatey/standard install dir. The WiX
@@ -164,7 +206,7 @@ if command -v candle >/dev/null 2>&1; then
     "$JPACKAGE" \
         --type msi \
         --name "$APP_NAME" \
-        --app-version "$APP_VERSION" \
+        --app-version "$INSTALL_VERSION" \
         --vendor "SignFlow" \
         --description "Sign PDF documents with the certificate on your smart card" \
         --add-modules "$JLINK_MODULES" \
@@ -191,7 +233,7 @@ fi
 # Checksums, so somebody who downloaded the file can tell whether they got
 # the file. One per artefact, in the format `sha256sum` writes and PowerShell
 # can be compared against:
-#   Get-FileHash .\SignFlow-0.1.0.msi -Algorithm SHA256
+#   Get-FileHash .\SignFlow-<version>.msi -Algorithm SHA256
 # ---------------------------------------------------------------------------
 echo "== Checksums =="
 shopt -s nullglob
