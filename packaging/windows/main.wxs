@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   SignFlow's WiX template for the MSI, passed to jpackage with
-  `--resource-dir packaging/windows`.
+  its resource-dir option (packaging/windows).
 
   ============================ WHY THIS FILE EXISTS ============================
 
