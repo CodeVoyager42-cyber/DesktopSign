@@ -171,7 +171,7 @@ class GitHubReleaseMirrorTests {
                 reply(exchange, json.getBytes(StandardCharsets.UTF_8));
                 return;
             }
-            if (path.equals("/releases/assets/77")) {
+            if (path.equals("/repos/acme/signflow/releases/assets/77")) {
                 this.assetRequests.incrementAndGet();
                 reply(exchange, bytes);
                 return;

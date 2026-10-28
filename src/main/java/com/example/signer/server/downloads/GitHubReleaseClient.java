@@ -221,7 +221,8 @@ public class GitHubReleaseClient {
         if (!this.enabled() || asset.id() < 0 || !SHA256_HEX.matcher(asset.sha256()).matches()) {
             return false;
         }
-        URI uri = URI.create(this.apiBase + "/releases/assets/" + asset.id());
+        URI uri = URI.create(this.apiBase + "/repos/" + this.repository
+                + "/releases/assets/" + asset.id());
         HttpRequest request = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(120))
                 .header("Accept", OCTET_STREAM)
