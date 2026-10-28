@@ -1,11 +1,20 @@
 @echo off
 rem ============================================================
-rem  Registers the signflow:// URL protocol for the CURRENT
-rem  Windows user (HKCU - no admin rights needed). After this,
-rem  clicking an emailed signflow://invitation/... link opens
-rem  the SignFlow desktop app with the invitation pre-loaded.
-rem  If SignFlow is already running, the link is forwarded to
-rem  the running window instead.
+rem  DEV-ONLY: registers the signflow:// URL protocol against a
+rem  jar built from this source checkout, so deep links can be
+rem  tested without packaging the app.
+rem
+rem  A PACKAGED install does NOT need this and does not use it:
+rem  the MSI owns the scheme (packaging/windows/main.wxs writes
+rem  the keys under the same transaction that installs the files,
+rem  and the uninstaller removes them again). The application
+rem  never writes these keys at run time.
+rem
+rem  Registers for the CURRENT Windows user (HKCU - no admin
+rem  rights needed). After this, clicking an emailed
+rem  signflow://invitation/... link opens this checkout's jar with
+rem  the invitation pre-loaded. If SignFlow is already running,
+rem  the link is forwarded to the running window instead.
 rem
 rem  Undo at any time:  unregister-signflow-protocol.cmd
 rem ============================================================

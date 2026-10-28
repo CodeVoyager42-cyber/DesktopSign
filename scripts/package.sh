@@ -8,6 +8,9 @@
 #   build/dist/SignFlow-<version>.msi.sha256       its checksum
 #   build/dist/SignFlow-<version>-windows.zip      portable build, no installer
 #   build/dist/SignFlow-<version>-windows.zip.sha256
+#   build/dist/release-manifest.json               build provenance (name,
+#                                                  version, gitCommit, builtAt,
+#                                                  artifacts[] with checksums)
 #   build/jpackage/SignFlow/                       raw app-image (SignFlow.exe)
 #
 # The MSI is the thing to publish: it is a per-user install (no administrator
@@ -257,6 +260,45 @@ for artefact in build/dist/*.msi build/dist/*.zip; do
     echo "  $(cat "$artefact.sha256")"
 done
 shopt -u nullglob
+
+# ---------------------------------------------------------------------------
+# Release manifest: machine-readable build provenance, so a published asset
+# can be traced back to the commit and the build that produced it. Built from
+# the .sha256 files written just above rather than re-hashing, so the manifest
+# and the checksum files can never disagree.
+# ---------------------------------------------------------------------------
+echo "== Release manifest =="
+GIT_COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+shopt -s nullglob
+{
+    echo "{"
+    echo "  \"name\": \"$APP_NAME\","
+    echo "  \"version\": \"$INSTALL_VERSION\","
+    echo "  \"buildVersion\": \"$APP_VERSION\","
+    echo "  \"architecture\": \"x64\","
+    echo "  \"platform\": \"windows\","
+    echo "  \"gitCommit\": \"$GIT_COMMIT\","
+    echo "  \"builtAt\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+    echo "  \"artifacts\": ["
+    first=true
+    for artefact in build/dist/*.msi build/dist/*.zip; do
+        base="$(basename "$artefact")"
+        [[ -f "$artefact.sha256" ]] || continue
+        sum="$(awk '{print $1; exit}' "$artefact.sha256")"
+        size="$(stat -c%s "$artefact" 2>/dev/null || stat -f%z "$artefact")"
+        $first || echo "    },"
+        first=false
+        echo "    {"
+        echo "      \"file\": \"$base\","
+        echo "      \"sha256\": \"$sum\","
+        echo "      \"bytes\": $size"
+    done
+    $first || echo "    }"
+    echo "  ]"
+    echo "}"
+} > build/dist/release-manifest.json
+shopt -u nullglob
+echo "  wrote build/dist/release-manifest.json"
 
 echo "== Done =="
 ls -la build/dist/
