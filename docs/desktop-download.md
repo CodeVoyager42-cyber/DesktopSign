@@ -25,10 +25,29 @@ Produces, in `build/dist/`:
 | `SignFlow-<version>.msi.sha256` | its checksum, as `sha256sum` writes one |
 | `SignFlow-<version>-windows.zip` | a portable build for anyone who cannot run an installer |
 | `SignFlow-<version>-windows.zip.sha256` | its checksum |
+| `release-manifest.json` | build provenance: version, commit, build time, every artefact with its checksum and size |
 
 Requires a JDK with `jpackage` (21+) and **WiX 3.x** for the MSI. Without WiX
 the script says so and stops at the zip — which is a worse deliverable,
 because it registers nothing (§3).
+
+### Why per-user, not per-machine
+
+jpackage builds a per-machine MSI by default: it installs into `Program
+Files` and needs administrator rights. That was tried and rejected. A silent
+per-machine install cannot show the UAC prompt it depends on, so it fails
+with *"forbidden by system policy"* (error 1625) — and the failed attempt
+left **256 orphaned files** under `Program Files`, because Windows
+Installer's own rollback also needed elevation it did not have.
+
+`--win-per-user-install` installs into the user's own profile instead. It
+needs no elevation at any step — install, launch and uninstall each complete
+from a non-elevated shell — and it still gets a Start Menu entry
+(`--win-menu`, which was missing at first: without it the MSI installed with
+no way to launch what it had just installed). The trade-off is that a machine
+administrator does not see it under *installed for all users*, which does not
+matter for how this is distributed: an individual signer downloads it, IT
+does not push it.
 
 ### The MSI is not code-signed
 
@@ -167,6 +186,43 @@ the pristine copy from the JDK it was written against (26.0.2), and
 `package.sh` diffs the JDK in use against it at build time and warns loudly
 if they differ. Our file is that base plus 87 lines and minus nothing.
 
+### What a `signflow://` link may contain
+
+`signflow://invitation/<token>` — **the token is the entire payload**, and it
+is validated in `InvitationLinks` against `[A-Za-z0-9_-]{32,}` before
+anything else looks at it; a link that does not match is treated as absent
+rather than partially parsed. The token is opaque, single-use, server-issued
+and time-limited. It is never a file path, never a credential, and never
+something that grants access by itself: the app redeems it against the
+coordination server (`GET /api/invitations/{token}`, which is where expiry,
+revocation and already-used are decided). A link is never trusted because of
+the scheme it arrived on. Malformed, expired, revoked and already-used tokens
+all end at a readable notice, never a raw exception.
+
+### When a copy is already running
+
+`SingleInstanceGuard` keeps one SignFlow running at a time and hands a second
+launch's link to the copy already up. The channel is deliberately **not a
+loopback port**: binding `127.0.0.1` authenticates nobody, so any local
+process could have received a forwarded token (security Phase B, finding
+**F1**). It is a **Unix-domain socket** in a per-user run directory
+(`%LOCALAPPDATA%\SignFlow\run`, or `~/.signflow/run`) whose owner and
+permissions are set and then read back and checked, rather than assumed.
+
+Both ends prove they know a per-run secret before anything is sent: the
+second copy makes the running copy answer an HMAC challenge over a fresh
+nonce and sends nothing until that proof checks out, and its own message is
+signed over the running copy's nonce in turn — so neither forgery nor replay
+works. If any of that cannot be established the design **fails closed**:
+nothing is forwarded, no listener starts, and the app either runs on its own
+or says SignFlow is already running. A copy that is starting or busy is
+waited for (8 seconds) and then reported, never killed — it may be in the
+middle of signing.
+
+**This is not server mode.** Desktop mode's Spring context is
+`WebApplicationType.NONE` always; the guard is a socket opened for this one
+purpose, not a side effect of enabling the `server` profile.
+
 ## 4. Pointing SignFlow at your card
 
 SignFlow signs through **PKCS#11**: it talks to the driver your card's issuer
@@ -222,3 +278,77 @@ portable zip beside it, the version line, the same checksum verification and
 smartcard guidance folded away, and a link to `/download` for everything
 else. It replaced the old "you need the app" alert, which could only point
 at a page instead of at the file.
+
+## 7. Code signing
+
+**Not done here**, and nothing in this repository claims otherwise: there is
+no code-signing certificate. That is what the SmartScreen warning in §1 is,
+and the first run of an unrecognised binary also costs a one-time antivirus
+behavioural scan (around 40 seconds, observed — not a fault in the app).
+
+With a certificate from a CA, signing is a step after `scripts/package.sh`
+and before the checksums, because the signature changes the bytes being
+hashed:
+
+```powershell
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+    /a "build\jpackage\SignFlow\SignFlow.exe"
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+    /a "build\dist\SignFlow-<version>.msi"
+```
+
+Sign both: the MSI carries its own signature, separate from the executable
+inside it. Then re-run the checksum step, so the `.sha256` files and
+`release-manifest.json` describe the signed bytes.
+
+## 8. What uninstalling removes
+
+Uninstalling the per-user MSI (Settings → Apps, or `msiexec /x`) removes what
+the installer placed under the user's profile **and the `signflow://` keys**,
+because those keys are a component of the product (§3). Nothing is left
+pointing at an executable that is no longer there.
+
+It deliberately does not touch anything the installer did not create: the
+documents that were signed, or `~/.signflow/` — the dev-only mock-token
+keystore, which a packaged build never has in the first place.
+
+## 9. Verified, and not verified
+
+Exercised on a real Windows machine and confirmed by looking at process
+state, logs or registry contents, rather than reasoned about:
+
+- per-user MSI silent install (`msiexec /i ... /qn`) from a **non-elevated**
+  shell, exit code 0; Start Menu shortcut present; silent uninstall likewise;
+- `signflow://` resolving to the installed `SignFlow.exe` after an install,
+  and the keys gone again after an uninstall;
+- the already-running hand-off: a second `signflow://` launch while the first
+  was up forwarded the token, log-confirmed;
+- a missing or misconfigured PKCS#11 library stopping start-up with the
+  intended dialog rather than crashing or hanging;
+- desktop mode running with `WebApplicationType.NONE` — launching the app
+  starts no HTTP server.
+
+Not verified here, and not to be assumed:
+
+- real PKCS#11 hardware — only the missing/misconfigured-library path was
+  exercised, never a card that actually signs;
+- code signing — no certificate available (§7);
+- a genuinely separate second machine for the hand-off: two processes on one
+  machine exercise the same lock and the same loopback path, but that is not
+  the same test;
+- upgrade in place — installing a newer MSI over an existing per-user
+  install. Only clean install and uninstall were run.
+
+## 10. Release checklist
+
+1. `mvnw.cmd verify` — the suite green before anything is packaged.
+2. `scripts/package.sh` — the MSI, the zip, a `.sha256` beside each, and
+   `release-manifest.json`.
+3. Optional, and only with your own certificate: sign the `.exe` and the
+   `.msi` (§7), then re-run the checksum step so the hashes match the signed
+   bytes.
+4. Tag `vX.Y.Z` and push. `.github/workflows/release.yml` builds, tests,
+   packages, and attaches the zip, the MSI, the checksums and the manifest to
+   the GitHub Release.
+5. Nothing to copy by hand afterwards: a deployment holding a GitHub token
+   mirrors the new release on demand (§2a).
