@@ -2,8 +2,12 @@ package com.example.signer.config;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.mock.env.MockEnvironment;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -34,6 +38,40 @@ class ProductionSafetyValidatorTests {
         assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("No signing token is configured");
+    }
+
+    /** The end-user path: no PKCS11_LIBRARY, but the Gemalto/eBarid driver is installed. */
+    @Test
+    void productionDesktopPassesWhenTheGemaltoDriverIsAutoDetected(@TempDir Path system32) throws Exception {
+        Files.writeString(system32.resolve("eTPKCS11.dll"), "fake driver");
+        MockEnvironment env = env("desktop");
+        env.setProperty("signature.pkcs11.enabled", "true");
+        env.setProperty("signature.remote.base-url", "https://signflow.example.com");
+        env.setProperty("signature.pkcs11.auto-detect-dirs", system32.toString());
+        assertThatCode(() -> ProductionSafetyValidator.validate(env)).doesNotThrowAnyException();
+    }
+
+    /** Same, but the driver directory has nothing: the problem says what to do. */
+    @Test
+    void productionDesktopWithoutTheKnownDriversExplainsTheAutoDetection(@TempDir Path system32) {
+        MockEnvironment env = env("desktop");
+        env.setProperty("signature.pkcs11.enabled", "true");
+        env.setProperty("signature.remote.base-url", "https://signflow.example.com");
+        env.setProperty("signature.pkcs11.auto-detect-dirs", system32.toString());
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                .hasMessageContaining("none was auto-detected")
+                .hasMessageContaining("eTPKCS11.dll");
+    }
+
+    /** A configured but nonexistent library path keeps its explicit problem. */
+    @Test
+    void productionDesktopWithANonexistentConfiguredLibraryFails() {
+        MockEnvironment env = env("desktop");
+        env.setProperty("signature.pkcs11.enabled", "true");
+        env.setProperty("signature.pkcs11.library", "C:\\no\\such\\driver.dll");
+        env.setProperty("signature.remote.base-url", "https://signflow.example.com");
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                .hasMessageContaining("does not exist");
     }
 
     @Test

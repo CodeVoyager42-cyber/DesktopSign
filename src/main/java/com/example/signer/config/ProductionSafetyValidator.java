@@ -117,13 +117,24 @@ public class ProductionSafetyValidator {
 
     private static void checkDesktop(Environment env, List<String> problems) {
         boolean pkcs11 = Boolean.parseBoolean(env.getProperty("signature.pkcs11.enabled", "false"));
-        String library = env.getProperty("signature.pkcs11.library", "").trim();
+        // A blank PKCS11_LIBRARY is not an instant problem: the known
+        // Gemalto/eBarid drivers may be present in the standard locations.
+        // The resolver is the single source of truth and is the same one the
+        // signing-token provider uses at signing time.
+        String library = Pkcs11LibraryResolver.resolve(
+                env.getProperty("signature.pkcs11.library", ""),
+                scanDirs(env));
         if (!pkcs11) {
             problems.add("No signing token is configured: set SIGNATURE_PKCS11_ENABLED=true"
                     + " and PKCS11_LIBRARY to the PKCS#11 library of your smartcard/USB"
                     + " token (the development mock token is never used in production).");
         } else if (library.isEmpty()) {
-            problems.add("SIGNATURE_PKCS11_ENABLED=true but PKCS11_LIBRARY is not set.");
+            problems.add("SIGNATURE_PKCS11_ENABLED=true but no PKCS#11 library is"
+                    + " configured and none was auto-detected. Set PKCS11_LIBRARY to the"
+                    + " PKCS#11 library of your smartcard/USB token, or install the"
+                    + " Gemalto/eBarid Sign middleware (it puts eTPKCS11.dll or gclib.dll"
+                    + " into " + Pkcs11LibraryResolver.SYSTEM32 + ", which SignFlow"
+                    + " searches automatically).");
         } else if ((library.contains("/") || library.contains("\\"))
                 && !Files.exists(Path.of(library))) {
             problems.add("The PKCS#11 library does not exist: " + library);
@@ -133,6 +144,18 @@ public class ProductionSafetyValidator {
             problems.add("The coordination server URL must use https:// (got " + remote
                     + "). Passwords, tokens and documents never travel over plain HTTP.");
         }
+    }
+
+    /** Scan roots for the auto-detection: the {@code auto-detect-dirs} config, default System32. */
+    private static List<String> scanDirs(Environment env) {
+        String raw = env.getProperty("signature.pkcs11.auto-detect-dirs", "");
+        if (raw.isBlank()) {
+            return List.of(Pkcs11LibraryResolver.SYSTEM32);
+        }
+        return java.util.Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
     }
 
     private static void checkServer(Environment env, List<String> problems) {
