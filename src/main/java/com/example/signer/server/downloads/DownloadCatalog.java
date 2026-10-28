@@ -85,6 +85,14 @@ public class DownloadCatalog {
     private static final Pattern VERSION_IN_NAME =
             Pattern.compile("SignFlow-(.+?)(?:-windows)?\\.(?:msi|zip)");
 
+    /**
+     * Whether a name may be asked for at all — the same gate
+     * {@link #resolve} applies, exposed for the mirror, which checks it
+     * before a GitHub fetch is ever considered for a name.
+     */
+    static boolean isAllowed(String fileName) {
+        return fileName != null && ALLOWED.matcher(fileName).matches();
+    }
     /** A published artefact and what a page needs to say about it. */
     public record Artefact(String fileName, long sizeBytes, String version, String sha256) {
     }
@@ -142,6 +150,15 @@ public class DownloadCatalog {
     /** The application's own name, for the page's wording. */
     public String appName() {
         return this.appName;
+    }
+
+    /**
+     * The validated download directory, when there is one — the same place
+     * the mirror writes into and this catalog reads from, shared here so
+     * the two can never be pointing at different folders.
+     */
+    public Optional<Path> directory() {
+        return Optional.ofNullable(this.directory);
     }
 
     /** The external link, when one is configured and there are no local files. */

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { fileSize, groupedChecksum, versionLabel } from "./download.ts";
+import {
+  fileSize,
+  groupedChecksum,
+  releaseDate,
+  verifyCommand,
+  versionLabel,
+} from "./download.ts";
 
 /**
  * The download page's three formatters.
@@ -52,4 +58,22 @@ test("an uppercase checksum is normalised, and a malformed one is left alone", (
   // Not 64 hex characters: shown as it came rather than silently hidden.
   assert.equal(groupedChecksum("not-a-hash"), "not-a-hash");
   assert.equal(groupedChecksum(null), "");
+});
+
+test("a publish date is the day, in UTC, or nothing", () => {
+  assert.equal(releaseDate("2026-10-28T13:53:14Z"), "2026-10-28");
+  // An hour either side of midnight stays the day it was published.
+  assert.equal(releaseDate("2026-10-28T23:59:00Z"), "2026-10-28");
+  assert.equal(releaseDate("not a date"), "");
+  assert.equal(releaseDate(null), "");
+  assert.equal(releaseDate(undefined), "");
+});
+
+test("the verification command carries the real file name", () => {
+  assert.equal(
+    verifyCommand("SignFlow-0.2.1.msi"),
+    "Get-FileHash -Algorithm SHA256 .\\SignFlow-0.2.1.msi",
+  );
+  assert.equal(verifyCommand(null), "");
+  assert.equal(verifyCommand("   "), "");
 });

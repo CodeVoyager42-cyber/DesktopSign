@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Download, FileText, PenLine, Send } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EmptyState, PageHeader } from "@/components/blocks";
 import { AppShell } from "@/components/chrome";
+import { DownloadRelease } from "@/components/download-release";
 import {
   NoteAlert,
   SessionPending,
@@ -233,22 +233,6 @@ export default function Documents() {
           </TabsList>
 
           <TabsContent value="to-sign" className="mt-5 space-y-4">
-            {/* Only where it is relevant: somebody with something to sign
-                needs the app on this computer, and this is the moment they
-                find that out. */}
-            {mine.length ? (
-              <Alert className="shadow-sm">
-                <Download aria-hidden="true" />
-                <AlertDescription className="flex flex-col gap-2 text-base sm:flex-row sm:items-center sm:justify-between">
-                  <span>
-                    To sign you need the SignFlow app on this computer.
-                  </span>
-                  <Button asChild variant="outline" className="shrink-0">
-                    <Link href="/download">Download</Link>
-                  </Button>
-                </AlertDescription>
-              </Alert>
-            ) : null}
             <Group
               rows={mine}
               empty={
@@ -289,6 +273,13 @@ export default function Documents() {
           ) : null}
         </Tabs>
       )}
+
+      {/* The download section, for every reader: somebody who has something
+          to sign needs the app now, and somebody who does not may still want
+          it installed before that moment comes. */}
+      <div className="mt-6">
+        <DownloadRelease />
+      </div>
 
       <div className="mt-6">
         <NoteAlert note={note} />

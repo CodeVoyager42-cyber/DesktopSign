@@ -197,6 +197,24 @@ signature:
       rate-limit: ${SIGNER_DOWNLOAD_RATE_LIMIT:60}
       rate-window: ${SIGNER_DOWNLOAD_RATE_WINDOW:PT1M}
 
+      # Publishing from GitHub on demand. When the token is set, the latest
+      # release of the source repository is mirrored into `dir` the first
+      # time somebody asks for one of its files: the bytes are verified
+      # against the checksum GitHub publishes for each asset before they
+      # reach the folder. Release metadata is read once an hour at most.
+      #
+      # The token needs only read access to the repository — a fine-grained
+      # personal access token with "Contents: Read" is enough — and arrives
+      # by environment variable, never in this file. Unset (the default)
+      # turns the whole feature off, and the download folder remains the
+      # only source; `api-base-url` and `cache-ttl` exist so tests and
+      # self-hosted proxies can point elsewhere.
+      github:
+        token: ${GITHUB_API_TOKEN:}
+        repository: ${GITHUB_RELEASE_REPOSITORY:CodeVoyager42-cyber/DesktopSign}
+        api-base-url: ${GITHUB_API_BASE_URL:https://api.github.com}
+        cache-ttl: ${GITHUB_RELEASE_CACHE_TTL:PT1H}
+
     # ── Invitations (Phase 4) ────────────────────────────────────────────
     invitation:
       # How long an invitation link stays valid.

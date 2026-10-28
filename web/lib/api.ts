@@ -184,6 +184,37 @@ export interface DownloadInfo {
   available: boolean;
 }
 
+/** One released artefact, as the dashboard's download section reads it. */
+export interface ReleaseAsset {
+  fileName: string;
+  sizeBytes: number;
+  sha256: string | null;
+  /**
+   * Where this server serves it from, or null when there is nothing to
+   * click: a button is only ever rendered for a URL the server keeps.
+   */
+  url: string | null;
+  /** The `.sha256` beside it on this server, when there is one. */
+  checksumUrl: string | null;
+}
+
+/**
+ * GET /web/api/latest-release — the newest release of the source repository,
+ * behind the session. While GitHub answers, it is the truth about the
+ * version, the sizes and the checksums; without it the server's own folder
+ * is, exactly as `download-info` has always described it. `available` is
+ * the one field to branch on.
+ */
+export interface LatestRelease {
+  appName: string;
+  tag: string | null;
+  version: string | null;
+  publishedAt: string | null;
+  installer: ReleaseAsset | null;
+  portable: ReleaseAsset | null;
+  available: boolean;
+}
+
 /** GET /web/api/workflows/{id}/audit */
 export interface AuditEntry {
   sequence: number;
@@ -408,6 +439,14 @@ export const api = {
    * session, because the page it feeds needs none either.
    */
   downloadInfo: () => get<DownloadInfo>("/web/api/download-info"),
+
+  /**
+   * The newest release, as the source repository publishes it. Behind the
+   * session like everything else on the dashboard: the server asks GitHub
+   * for the account of everybody reading, at most once an hour, and the
+   * download itself comes from this origin either way.
+   */
+  latestRelease: () => get<LatestRelease>("/web/api/latest-release"),
 
   /**
    * The finished document. A plain URL rather than a fetch: this is a
