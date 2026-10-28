@@ -67,7 +67,14 @@ signature:
     # mock token exists only in the 'dev' profile — never as a fallback.
     enabled: ${SIGNATURE_PKCS11_ENABLED:false}
     # Path configured via environment for the target platform (dll / so / dylib).
+    # Left unset, the known Gemalto/eBarid Sign drivers are auto-detected in
+    # the standard Windows driver directory (see auto-detect-dirs), so the
+    # installed application works for signers without any configuration.
     library: ${PKCS11_LIBRARY:}
+    # Where to scan for the known driver files (eTPKCS11.dll, gclib.dll) when
+    # no explicit library is configured. A comma-separated list for tests and
+    # non-standard installs; the default is the Windows driver directory.
+    auto-detect-dirs: ${PKCS11_AUTO_DETECT_DIRS:C:\Windows\System32}
     slot-list-index: ${PKCS11_SLOT_INDEX:0}
 
   remote:

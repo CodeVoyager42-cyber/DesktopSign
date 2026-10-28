@@ -2,6 +2,8 @@ package com.example.signer.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.List;
+
 /**
  * Binding for the external {@code signature.pkcs11.*} configuration block.
  *
@@ -15,6 +17,11 @@ public class Pkcs11Properties {
     private boolean enabled;
     private String library = "";
     private int slotListIndex;
+    /**
+     * Where to look for the Gemalto/eBarid driver when {@link #library} is
+     * not configured (see {@code Pkcs11LibraryResolver}).
+     */
+    private List<String> autoDetectDirs = List.of(Pkcs11LibraryResolver.SYSTEM32);
 
     public boolean isEnabled() {
         return enabled;
@@ -38,5 +45,13 @@ public class Pkcs11Properties {
 
     public void setSlotListIndex(int slotListIndex) {
         this.slotListIndex = slotListIndex;
+    }
+
+    public List<String> getAutoDetectDirs() {
+        return autoDetectDirs;
+    }
+
+    public void setAutoDetectDirs(List<String> autoDetectDirs) {
+        this.autoDetectDirs = autoDetectDirs;
     }
 }
