@@ -13,7 +13,7 @@
 
     <groupId>com.example</groupId>
     <artifactId>pdf-signer-desktop</artifactId>
-    <version>0.2.0-SNAPSHOT</version>
+    <version>0.2.1-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>pdf-signer-desktop</name>
     <description>
