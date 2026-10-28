@@ -2,6 +2,7 @@ package com.example.signer.config;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.mock.env.MockEnvironment;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -106,6 +107,58 @@ class ProductionSafetyValidatorTests {
         System.setProperty("signflow.packaged", "true");
         assertThatThrownBy(() -> ProductionSafetyValidator.validate(env("desktop", "dev")))
                 .hasMessageContaining("cannot be used by an installed SignFlow build");
+    }
+
+    /** An operator CAN opt a packaged build into dev mode, explicitly. */
+    @Test
+    void theExplicitOverrideLetsAPackagedBuildRunDevMode() {
+        System.setProperty("signflow.packaged", "true");
+        MockEnvironment env = env("desktop", "dev");
+        env.setProperty("ALLOW_DEV_PROFILE", "true");
+        assertThatCode(() -> ProductionSafetyValidator.validate(env))
+                .doesNotThrowAnyException();
+
+        // Also honoured as a system property (-DALLOW_DEV_PROFILE=true): a
+        // real (not mock) Environment sees system properties in its source
+        // chain, exactly like the packaged build's startup will.
+        System.setProperty("ALLOW_DEV_PROFILE", "true");
+        try {
+            StandardEnvironment sysEnv = new StandardEnvironment();
+            sysEnv.setActiveProfiles("desktop", "dev");
+            assertThatCode(() -> ProductionSafetyValidator.validate(sysEnv))
+                    .doesNotThrowAnyException();
+        } finally {
+            System.clearProperty("ALLOW_DEV_PROFILE");
+        }
+    }
+
+    /** Even the real Environment chain stays blocked without the opt-in. */
+    @Test
+    void aRealEnvironmentStaysBlockedWithoutTheOverride() {
+        System.setProperty("signflow.packaged", "true");
+        try {
+            StandardEnvironment sysEnv = new StandardEnvironment();
+            sysEnv.setActiveProfiles("desktop", "dev");
+            assertThatThrownBy(() -> ProductionSafetyValidator.validate(sysEnv))
+                    .hasMessageContaining("installed SignFlow build");
+        } finally {
+            System.clearProperty("signflow.packaged");
+        }
+    }
+
+    /** The opt-in must be explicit: anything else keeps the packaged build blocked. */
+    @Test
+    void theOverrideDoesNotFireUnlessItIsExactlyTrue() {
+        System.setProperty("signflow.packaged", "true");
+        for (String value : new String[] {null, "", "false", "TRUE ", "1", "yes", "maybe"}) {
+            MockEnvironment env = env("desktop", "dev");
+            if (value != null) {
+                env.setProperty("ALLOW_DEV_PROFILE", value);
+            }
+            assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                    .as("ALLOW_DEV_PROFILE=<%s>", value)
+                    .hasMessageContaining("installed SignFlow build");
+        }
     }
 
     @Test
