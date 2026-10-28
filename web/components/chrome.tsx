@@ -206,7 +206,7 @@ export function AppHeader({ me }: { me: Profile | null }) {
         </Button>
         <Button asChild variant="ghost" className="hidden sm:inline-flex">
           <Link href="/documents">Documents</Link>
-        </Button>)
+        </Button>
         <Button asChild className="hidden sm:inline-flex">
           <Link href="/send">
             <Send aria-hidden="true" />
