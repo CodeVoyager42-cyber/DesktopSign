@@ -119,6 +119,14 @@ JAVA_OPTS=(
     "--add-modules=jdk.crypto.cryptoki"
     "--enable-native-access=ALL-UNNAMED"
     "-Dsignflow.packaged=true"
+    # The packaged desktop always wants the real token: end users install
+    # the MSI (or run the portable zip) and plug in their eBarid Sign token
+    # with no configuration. The Gemalto/eBarid driver is auto-detected in
+    # the standard Windows location (see signature.pkcs11.auto-detect-dirs),
+    # so both ends of the check - enabled AND library - hold by themselves.
+    # The coordination server, which shares this artifact but is never
+    # packaged, runs from source without these options.
+    "-Dsignature.pkcs11.enabled=true"
     "-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT"
 )
 JAVA_MAJOR="$("$JAVA_HOME/bin/java" -XshowSettings:properties -version 2>&1 | awk -F'= ' '/java.specification.version/ {print $2; exit}')"

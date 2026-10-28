@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.example.signer.config.Pkcs11LibraryResolver;
+
 /**
  * Finds a real PKCS#11 hardware token through the {@code SunPKCS11} provider.
  *
@@ -51,10 +53,16 @@ public class Pkcs11SigningTokenProvider implements SigningTokenProvider {
 
     @Override
     public synchronized Optional<SigningToken> findAvailable() {
-        String library = properties.getLibrary();
+        // Blank config falls through to the Gemalto/eBarid auto-detection
+        // (same resolver the startup safety check uses), so an installed
+        // build with the vendor driver in System32 works with no setup.
+        String library = Pkcs11LibraryResolver.resolve(
+                properties.getLibrary(), properties.getAutoDetectDirs());
         if (library.isBlank()) {
             throw new TokenException(ErrorCode.PKCS11_LIBRARY_NOT_FOUND,
-                    "signature.pkcs11.enabled is true but signature.pkcs11.library is not set");
+                    "signature.pkcs11.enabled is true but no PKCS#11 library is"
+                            + " configured or auto-detected (no eTPKCS11.dll or gclib.dll"
+                            + " in " + properties.getAutoDetectDirs() + ")");
         }
         if (isConfiguredPath(library) && !Files.exists(Path.of(library))) {
             throw new TokenException(ErrorCode.PKCS11_LIBRARY_NOT_FOUND,
