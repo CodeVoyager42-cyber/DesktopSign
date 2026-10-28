@@ -139,12 +139,23 @@ class UploadLimitHttpTests {
                         json.getBytes(StandardCharsets.UTF_8)),
                 filePart(boundary, "file", fileName, pdf),
                 ("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
-        return http.send(HttpRequest.newBuilder(URI.create(base() + "/api/workflows"))
-                        .header("Authorization", "Bearer " + bearer("alice"))
-                        .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                        .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                        .build(),
-                HttpResponse.BodyHandlers.ofString());
+        HttpRequest request = HttpRequest.newBuilder(URI.create(base() + "/api/workflows"))
+                .header("Authorization", "Bearer " + bearer("alice"))
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                .build();
+        // When the server rejects an oversized upload, it can respond before
+        // the client finishes streaming the multi-MB request body; depending
+        // on OS/JDK timing that sometimes corrupts the client's read of the
+        // response rather than the request itself (observed as a chunked-
+        // transfer-decoder IOException, not a wrong status code or body) -
+        // a one-time retry sidesteps that connection-level race without
+        // masking an actual behavioral failure.
+        try {
+            return http.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (java.io.IOException raceCondition) {
+            return http.send(request, HttpResponse.BodyHandlers.ofString());
+        }
     }
 
     private String bearer(String user) throws Exception {

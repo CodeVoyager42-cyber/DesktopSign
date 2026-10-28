@@ -43,6 +43,7 @@ jobs:
             build/dist/SignFlow-*-windows.zip
             build/dist/*.msi
             build/dist/*.sha256
+            build/dist/release-manifest.json
           if-no-files-found: error
 
       - name: Attach zip to the release
@@ -53,4 +54,5 @@ jobs:
             build/dist/SignFlow-*-windows.zip
             build/dist/*.msi
             build/dist/*.sha256
+            build/dist/release-manifest.json
           generate_release_notes: true

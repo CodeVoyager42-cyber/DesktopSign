@@ -68,15 +68,28 @@ alice/bob/charlie with bcrypt passwords (dev flag only).
 
 ### Clicking the link instead of pasting it
 
-`signflow://` is registered per-user by `scripts\register-signflow-protocol.cmd`
-(under `HKCU\Software\Classes\signflow`, no admin rights; undo with
-`scripts\unregister-signflow-protocol.cmd`). After that, clicking an emailed
-`signflow://invitation/<token>` link opens the desktop app with the
-invitation dialog pre-filled. If the app is already running, the second
-launch hands the token to the running instance (local activation port
-61234) and the dialog opens on top of the current screen. Re-run the
-register script after changing the JDK path or rebuilding to a new jar
-location.
+A **packaged install** (the MSI built by `scripts/package.sh`) gets
+`signflow://` from the **installer**, not from the application:
+`packaging/windows/main.wxs` declares the keys under
+`Software\Classes\signflow` as a component of the product, so they are
+written in the same transaction that installs the files and removed again
+when the product is uninstalled. A per-user install lands them in HKCU, which
+needs no admin rights. The application never writes these keys at run time —
+see the comment at the top of `main.wxs` for why that is the installer's job.
+
+**Running from source** (`mvnw javafx:run`, `run-app.cmd`) has no installer,
+so register the scheme by hand with `scripts\register-signflow-protocol.cmd`
+(also HKCU, no admin rights; undo with
+`scripts\unregister-signflow-protocol.cmd`). That script points the key at
+this checkout's jar and starts it in the `dev` profile, so re-run it after
+rebuilding to a new jar location.
+
+Either way, clicking an emailed `signflow://invitation/<token>` link opens
+the desktop app with the invitation dialog pre-filled. If the app is
+already running, the second launch hands the token to the running instance
+over the authenticated local channel (a per-user Unix-domain socket, not a
+loopback port -- see docs/desktop-download.md §3) and the dialog opens on top
+of the current screen.
 
 ## How to test Alice → Bob → Charlie signing
 

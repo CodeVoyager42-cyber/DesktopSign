@@ -9,6 +9,7 @@ import java.net.URLEncoder;
 import java.net.UnknownHostException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.nio.channels.ClosedChannelException;
 import com.example.signer.exception.ErrorCode;
 import com.example.signer.exception.SignerException;
 import com.example.signer.server.api.ApiContracts.ApiError;
@@ -1193,7 +1194,12 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
                     "The coordination server address" + where
                             + " could not be resolved.", e);
         }
-        if (hasCause(e, ConnectException.class)) {
+        // ClosedChannelException is checked alongside ConnectException: a
+        // connect attempt that races a closed port can surface as that alone,
+        // with no ConnectException anywhere in the chain, and it means the
+        // same thing a signer cares about: the server could not be reached.
+        if (hasCause(e, ConnectException.class)
+                || hasCause(e, ClosedChannelException.class)) {
             return new SignerException(ErrorCode.WORKFLOW_INVALID,
                     "Could not connect to the coordination server" + where
                             + ". Make sure it is running, then try again.", e);
