@@ -69,3 +69,36 @@ export function groupedChecksum(sha256: string | null | undefined): string {
   }
   return (clean.match(/.{1,8}/g) ?? []).join(" ");
 }
+
+/**
+ * The day a release was published, as a reader reads a date: `2026-10-28`.
+ *
+ * UTC on purpose, so the page cannot disagree with itself about which day
+ * it is, and nothing rather than a wrong date for a value that is not one —
+ * the server sends null when GitHub did not say.
+ */
+export function releaseDate(publishedAt: string | null | undefined): string {
+  if (!publishedAt) {
+    return "";
+  }
+  const date = new Date(publishedAt);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * The exact PowerShell line for the file the reader received.
+ *
+ * The public download page shows a generic `.\{file}` because it cannot
+ * know the name at authoring time; this component can, and a command with
+ * the real name in it is one less thing to get wrong. Empty for nothing to
+ * name, like every formatter here.
+ */
+export function verifyCommand(fileName: string | null | undefined): string {
+  if (!fileName || fileName.trim() === "") {
+    return "";
+  }
+  return `Get-FileHash -Algorithm SHA256 .\\${fileName.trim()}`;
+}
