@@ -43,6 +43,62 @@ wants to verify what they downloaded can.
 
 ## 2. Publish it
 
+There are now two ways a release reaches a deployment's download folder.
+
+### 2a. Automatically, from GitHub (the mirror)
+
+When the server has a GitHub token, the latest release of the source
+repository is published **on demand**: the first request for a file the
+folder does not hold — `GET /downloads/SignFlow-0.2.1.msi`, say — fetches the
+matching release asset from GitHub, verifies its bytes against the SHA-256
+digest GitHub publishes for each asset, and only then moves it into
+`SIGNER_DOWNLOAD_DIR`. From then on the file is served like any other, and
+the checksum `.sha256` beside it is written out of the verified digest.
+
+```bat
+set GITHUB_API_TOKEN=github_pat_...
+```
+
+The token needs only **read access to the repository** — a fine-grained
+personal access token with *Contents: Read* is enough, and it is read from
+the environment, never from a file in the repository. Without a token the
+whole feature is off and §2b is the only way. The other settings are
+env-overridable but rarely need it:
+
+| Variable | Default | What it is |
+|---|---|---|
+| `GITHUB_API_TOKEN` | *(unset)* | fine-grained PAT with Contents: Read; unset disables mirroring |
+| `GITHUB_RELEASE_REPOSITORY` | `CodeVoyager42-cyber/DesktopSign` | the source repository |
+| `GITHUB_API_BASE_URL` | `https://api.github.com` | where the API lives (tests, proxies) |
+| `GITHUB_RELEASE_CACHE_TTL` | `PT1H` | how long release metadata is remembered |
+
+The deliberate properties of the mirror:
+
+- **At most one GitHub request an hour**, however many people read the
+  pages — release metadata is cached in the server's heap for
+  `GITHUB_RELEASE_CACHE_TTL`. A failing GitHub is shielded further by a
+  60-second cooldown, and the last known release keeps being served while
+  the source is down.
+- **Existing files win.** A file the folder already holds is never
+  re-fetched or overwritten; the mirror only fills gaps. An operator who
+  copied a release in themselves (§2b) keeps their copy.
+- **Nothing unverifiable is published.** An asset without a well-formed
+  `digest` is never mirrored; bytes that fail the digest or the declared
+  size never reach the folder (they are streamed to a `.part-` scratch file
+  the allow-list cannot serve, verified, then moved in).
+- **A HEAD request never triggers a fetch** — an uptime monitor asking
+  whether the installer exists is not asking for it to be created.
+- The token never leaves the server process: it goes to `api.github.com`
+  only, and is stripped before following GitHub's redirect to the
+  user-content host that serves the bytes.
+
+The dashboard's download section reads the newest release from
+`GET /web/api/latest-release` (behind the session, like the rest of
+`/web/api`), so once a release is published on GitHub it appears on the
+dashboard without any operator action.
+
+### 2b. Manually, as before
+
 ```bash
 # Wherever SIGNER_DOWNLOAD_DIR points — OUTSIDE the jar and the repository
 copy build\dist\SignFlow-0.1.0.msi          D:\signflow-downloads\
@@ -152,9 +208,17 @@ TLS certificate is trusted through the Windows certificate store
 ## 6. The page a reader sees
 
 `/download` — public, linked from the header, the footer, the mobile menu,
-the "To sign" tab when something is waiting, the hand-off screen's fallback,
-and the sign-up confirmation. It shows the version and size, the three
-install steps, what the machine needs, the SmartScreen warning in plain
-words, the checksum with a copy button and the PowerShell command to compare
-it, and a troubleshooting section. When nothing is published it says so and
-points at the administrator, which is the truth rather than a broken button.
+the hand-off screen's fallback, and the sign-up confirmation. It shows the
+version and size, the three install steps, what the machine needs, the
+SmartScreen warning in plain words, the checksum with a copy button and the
+PowerShell command to compare it, and a troubleshooting section. When nothing
+is published it says so and points at the administrator, which is the truth
+rather than a broken button.
+
+The signed-in dashboard carries the same offer as a **"Get the SignFlow
+app"** card: the newest release fetched live from
+`GET /web/api/latest-release`, the MSI as the prominent button and the
+portable zip beside it, the version line, the same checksum verification and
+smartcard guidance folded away, and a link to `/download` for everything
+else. It replaced the old "you need the app" alert, which could only point
+at a page instead of at the file.
