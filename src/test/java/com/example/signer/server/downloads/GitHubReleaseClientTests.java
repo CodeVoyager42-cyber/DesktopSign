@@ -139,7 +139,10 @@ class GitHubReleaseClientTests {
         String digest = sha256(bytes);
         String base = serve(exchange -> {
             String path = exchange.getRequestURI().getPath();
-            if (path.equals("/releases/assets/77")) {
+            // The endpoint is /repos/{owner}/{repo}/releases/assets/{id} — the
+            // repo path is part of the contract, and a request without it must
+            // fail here rather than silently in production.
+            if (path.equals("/repos/acme/signflow/releases/assets/77")) {
                 seen(exchange);
                 // GitHub's own shape: a signed link on the user-content
                 // host, absolute, needing no credential.
