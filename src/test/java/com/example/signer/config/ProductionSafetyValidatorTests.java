@@ -22,6 +22,7 @@ class ProductionSafetyValidatorTests {
     @AfterEach
     void clearPackagedFlag() {
         System.clearProperty("signflow.packaged");
+        System.clearProperty("signflow.local-build");
     }
 
     private static MockEnvironment env(String... profiles) {
@@ -203,6 +204,107 @@ class ProductionSafetyValidatorTests {
         sysEnv.setActiveProfiles("desktop", "dev");
         assertThatThrownBy(() -> ProductionSafetyValidator.validate(sysEnv))
                 .hasMessageContaining("installed SignFlow build");
+    }
+
+    /* ---- the address a packaged build was built for --------------------- */
+
+    /**
+     * An installed build has to point at a server other people can reach.
+     * scripts/package.sh refuses to produce one without an address; this is
+     * the same rule at the other end, for an app-image assembled by some
+     * other route.
+     */
+    @Test
+    void aPackagedBuildWithNoServerAddressRefusesToStart() {
+        System.setProperty("signflow.packaged", "true");
+        MockEnvironment env = env("desktop");
+        env.setProperty("signature.pkcs11.enabled", "true");
+        env.setProperty("signature.pkcs11.library", "eTPKCS11.dll");
+
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("packaged SignFlow build with no coordination"
+                        + " server address")
+                .hasMessageContaining("SIGNFLOW_SERVER_URL");
+    }
+
+    /** The default localhost address is exactly the useless installer. */
+    @Test
+    void aPackagedBuildPointedAtThisMachineRefusesToStart() {
+        System.setProperty("signflow.packaged", "true");
+        MockEnvironment env = env("desktop");
+        env.setProperty("signature.pkcs11.enabled", "true");
+        env.setProperty("signature.pkcs11.library", "eTPKCS11.dll");
+        env.setProperty("signature.remote.base-url", "http://localhost:8080");
+
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                .hasMessageContaining("which is this machine")
+                .hasMessageContaining("cannot reach it");
+    }
+
+    /**
+     * scripts/package.sh --local marks a build that was deliberately pointed
+     * here. It excuses the loopback address and nothing else: the dev profile
+     * stays refused (see noOverrideLetsAPackagedBuildRunDevMode).
+     */
+    @Test
+    void aLocalBuildMayPointAtThisMachine() {
+        System.setProperty("signflow.packaged", "true");
+        System.setProperty("signflow.local-build", "true");
+        MockEnvironment env = env("desktop");
+        env.setProperty("signature.pkcs11.enabled", "true");
+        env.setProperty("signature.pkcs11.library", "eTPKCS11.dll");
+        env.setProperty("signature.remote.base-url", "http://localhost:8080");
+
+        assertThatCode(() -> ProductionSafetyValidator.validate(env))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void aPackagedBuildWithARealHttpsServerStarts() {
+        System.setProperty("signflow.packaged", "true");
+        MockEnvironment env = env("desktop");
+        env.setProperty("signature.pkcs11.enabled", "true");
+        env.setProperty("signature.pkcs11.library", "eTPKCS11.dll");
+        env.setProperty("signature.remote.base-url", "https://signflow.example.com");
+
+        assertThatCode(() -> ProductionSafetyValidator.validate(env))
+                .doesNotThrowAnyException();
+    }
+
+    /** Running from source is not held to the packaged-build rule. */
+    @Test
+    void anUnpackagedBuildMayPointAtThisMachine() {
+        MockEnvironment env = env("desktop");
+        env.setProperty("signature.pkcs11.enabled", "true");
+        env.setProperty("signature.pkcs11.library", "eTPKCS11.dll");
+        env.setProperty("signature.remote.base-url", "http://localhost:8080");
+
+        assertThatCode(() -> ProductionSafetyValidator.validate(env))
+                .doesNotThrowAnyException();
+    }
+
+    /**
+     * The shape of the address is judged by the same rules the build applies
+     * (ServerUrlRules), so a path or a trailing slash is caught here too
+     * rather than producing a wrong URL at the far end.
+     */
+    @Test
+    void anAddressWithAPathOrATrailingSlashIsRefused() {
+        MockEnvironment withPath = env("desktop");
+        withPath.setProperty("signature.pkcs11.enabled", "true");
+        withPath.setProperty("signature.pkcs11.library", "eTPKCS11.dll");
+        withPath.setProperty("signature.remote.base-url", "https://signflow.example.com/api");
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(withPath))
+                .hasMessageContaining("coordination server URL is unusable")
+                .hasMessageContaining("no path");
+
+        MockEnvironment trailing = env("desktop");
+        trailing.setProperty("signature.pkcs11.enabled", "true");
+        trailing.setProperty("signature.pkcs11.library", "eTPKCS11.dll");
+        trailing.setProperty("signature.remote.base-url", "https://signflow.example.com/");
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(trailing))
+                .hasMessageContaining("trailing slash");
     }
 
     @Test

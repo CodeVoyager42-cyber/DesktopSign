@@ -28,8 +28,15 @@
 # reader click through "More info → Run anyway".
 #
 # Usage:
-#   scripts/package.sh                build the Spring Boot jar, then package
-#   scripts/package.sh --skip-build   reuse an existing target/*.jar
+#   SIGNFLOW_SERVER_URL=https://signflow.example.com scripts/package.sh
+#   scripts/package.sh --server-url https://signflow.example.com
+#   scripts/package.sh --skip-build          reuse an existing target/*.jar
+#   scripts/package.sh --local --server-url http://localhost:8080
+#
+# The coordination server address is REQUIRED (--server-url or
+# SIGNFLOW_SERVER_URL): it is compiled into the launcher, so an installer
+# built without one would reach nothing on anybody else's machine. --local
+# lifts that for local testing and allows http:// and a loopback host.
 #
 # Requires: JDK 21+ with jpackage (JAVA_HOME or on PATH). WiX 3.x for the MSI.
 set -euo pipefail
@@ -44,7 +51,114 @@ APP_NAME=SignFlow
 # copy of it. Changing this would leave users with two SignFlows.
 UPGRADE_UUID="61FE853E-0C89-44B7-850C-46E57F4E3309"
 
-if [[ "${1:-}" != "--skip-build" ]]; then
+# ---------------------------------------------------------------------------
+# Arguments and the coordination server address.
+#
+# The address is baked into the launcher, so it is a BUILD-TIME decision and
+# the build refuses to guess it. An installer carrying the default
+# http://localhost:8080 would start, look healthy, and reach nothing on every
+# machine but the one that built it - the kind of failure that is discovered
+# by a signer, not by whoever shipped it. So: no address, no installer.
+#
+# These checks mirror ServerUrlRules.java, which applies the same rules to the
+# IT override at start-up. Change one, change the other.
+# ---------------------------------------------------------------------------
+SKIP_BUILD=false
+LOCAL_BUILD=false
+SERVER_URL="${SIGNFLOW_SERVER_URL:-}"
+
+usage() {
+    cat >&2 <<USAGE
+Usage: scripts/package.sh [--server-url <url>] [--local] [--skip-build]
+
+  --server-url <url>  Coordination server the installer will talk to, e.g.
+                      https://signflow.example.com. Also read from the
+                      SIGNFLOW_SERVER_URL environment variable.
+                      Required: https://, a host, an optional port, and
+                      nothing else - no path, no query, no trailing slash.
+  --local             Build for this machine: allows http:// and a loopback
+                      address, for local testing only. Such a build is marked
+                      (signflow.local-build) and is not something to publish.
+  --skip-build        Reuse an existing target/*.jar instead of rebuilding.
+USAGE
+}
+
+while (( $# > 0 )); do
+    case "$1" in
+        --skip-build) SKIP_BUILD=true; shift ;;
+        --local)      LOCAL_BUILD=true; shift ;;
+        --server-url)
+            [[ $# -ge 2 ]] || { echo "ERROR: --server-url needs a value." >&2; usage; exit 2; }
+            SERVER_URL="$2"; shift 2 ;;
+        --server-url=*) SERVER_URL="${1#--server-url=}"; shift ;;
+        -h|--help)    usage; exit 0 ;;
+        *)            echo "ERROR: unknown argument '$1'." >&2; usage; exit 2 ;;
+    esac
+done
+
+# Rejects the address and says why, or returns with it accepted.
+validate_server_url() {
+    local url="$1" allow_http="$2"
+
+    [[ -n "$url" ]] || { echo "no coordination server address is set"; return 1; }
+    [[ "$url" == "${url#"${url%%[![:space:]]*}"}" && "$url" != *[[:space:]] ]] \
+        || { echo "the address has leading or trailing whitespace: '$url'"; return 1; }
+
+    local scheme rest
+    scheme="${url%%://*}"
+    [[ "$url" == *"://"* ]] || { echo "the address needs a scheme, e.g. https://signflow.example.com (got '$url')"; return 1; }
+    rest="${url#*://}"
+
+    if [[ "$scheme" != "https" ]]; then
+        if [[ "$allow_http" == true && "$scheme" == "http" ]]; then
+            : # allowed for --local
+        elif [[ "$scheme" == "http" ]]; then
+            echo "the address must use https:// (got '$url'). Use --local to allow http:// for local testing"
+            return 1
+        else
+            echo "the address must use https:// (got scheme '$scheme')"
+            return 1
+        fi
+    fi
+
+    [[ -n "$rest" ]] || { echo "the address has no host: '$url'"; return 1; }
+    [[ "$rest" != *"@"* ]] || { echo "the address must not carry user information: '$url'"; return 1; }
+    [[ "$rest" != *"?"* ]] || { echo "the address must not have a query string: '$url'"; return 1; }
+    [[ "$rest" != *"#"* ]] || { echo "the address must not have a fragment: '$url'"; return 1; }
+    if [[ "$rest" == *"/"* ]]; then
+        if [[ "$rest" == */ && "${rest%/}" != *"/"* ]]; then
+            echo "the address must not end in a trailing slash: '$url'"
+        else
+            echo "the address must have no path, only host and optional port (got '$url')"
+        fi
+        return 1
+    fi
+    return 0
+}
+
+if ! problem="$(validate_server_url "$SERVER_URL" "$LOCAL_BUILD")"; then
+    echo "ERROR: $problem" >&2
+    echo >&2
+    if [[ -z "$SERVER_URL" ]]; then
+        echo "An installer has to know which coordination server it talks to:" >&2
+        echo "the address is compiled into the launcher, and a build that" >&2
+        echo "guessed would ship an app that reaches nothing." >&2
+        echo >&2
+        echo "  SIGNFLOW_SERVER_URL=https://signflow.example.com scripts/package.sh" >&2
+        echo "  scripts/package.sh --server-url https://signflow.example.com" >&2
+        echo >&2
+        echo "For local testing only:  scripts/package.sh --local --server-url http://localhost:8080" >&2
+    fi
+    exit 2
+fi
+
+if [[ "$LOCAL_BUILD" == true ]]; then
+    echo "== Coordination server: $SERVER_URL  (LOCAL BUILD - do not publish) =="
+else
+    echo "== Coordination server: $SERVER_URL =="
+fi
+
+if [[ "$SKIP_BUILD" != true ]]; then
     echo "== Building Spring Boot jar =="
     ./mvnw -B -q -DskipTests package
 fi
@@ -131,7 +245,18 @@ JAVA_OPTS=(
     # packaged, runs from source without these options.
     "-Dsignature.pkcs11.enabled=true"
     "-Djavax.net.ssl.trustStoreType=WINDOWS-ROOT"
+    # The coordination server this installer is for, validated above. An
+    # administrator can still override it per machine without rebuilding -
+    # see DesktopSettingsFile - but every installer carries a working default.
+    "-Dsignature.remote.base-url=$SERVER_URL"
 )
+if [[ "$LOCAL_BUILD" == true ]]; then
+    # Marks a build that was deliberately pointed at this machine, so the
+    # production safety validator tolerates its loopback address. It does
+    # NOT relax TLS and is NOT a route back into the 'dev' profile, which
+    # stays refused in any packaged build.
+    JAVA_OPTS+=("-Dsignflow.local-build=true")
+fi
 JAVA_MAJOR="$("$JAVA_HOME/bin/java" -XshowSettings:properties -version 2>&1 | awk -F'= ' '/java.specification.version/ {print $2; exit}')"
 if [[ "${JAVA_MAJOR%%.*}" -ge 23 ]]; then
     JAVA_OPTS+=("--sun-misc-unsafe-memory-access=allow")
