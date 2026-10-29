@@ -276,7 +276,14 @@ public class GitHubReleaseClient {
             log.warn("The GitHub release asset could not be mirrored: interrupted");
             return false;
         } finally {
-            if (response.body() != null) {
+            // response is still null when send() itself threw - a refused or
+            // reset connection, DNS failure, timeout - and body() is not
+            // guaranteed non-null either. Dereferencing either here raises an
+            // NPE OUT of the finally block, after the catch clauses have
+            // already run: the method stops returning false and starts
+            // throwing, and the NPE buries the transport failure that is the
+            // actual reason the mirror could not fetch anything.
+            if (response != null && response.body() != null) {
                 try {
                     response.body().close();
                 } catch (IOException e) {
