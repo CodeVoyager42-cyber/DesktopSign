@@ -195,9 +195,13 @@ public class DbUserAccounts implements UserAccountService {
         if (usernameOrEmail == null || usernameOrEmail.isBlank() || password == null) {
             return false;
         }
+        // Both identifier forms are case-insensitive, matching the email
+        // normalization and the uq_users_username_ci uniqueness index: the
+        // form promises "email or username", and a typed "Alice" must find
+        // the account stored as "alice".
         Optional<UserEntity> account = usernameOrEmail.contains("@")
                 ? users.findByEmail(UserEntity.normalizeEmail(usernameOrEmail))
-                : users.findByUsername(usernameOrEmail.trim());
+                : users.findByUsernameIgnoreCase(usernameOrEmail.trim());
         UserEntity user = account.orElse(null);
         if (user == null || !user.isActive()) {
             // Same answer as a wrong password, after the same bcrypt work, so
@@ -506,7 +510,7 @@ public class DbUserAccounts implements UserAccountService {
                     .map(UserEntity::getUsername)
                     .orElse(identifier);
         }
-        return users.findByUsername(identifier)
+        return users.findByUsernameIgnoreCase(identifier)
                 .map(UserEntity::getUsername)
                 .orElse(identifier);
     }

@@ -37,6 +37,7 @@ class DbUserAccountsTests {
         repo = mock(UserRepository.class);
         failures = mock(LoginFailureRepository.class);
         when(repo.findByUsername(anyString())).thenReturn(Optional.empty());
+        when(repo.findByUsernameIgnoreCase(anyString())).thenReturn(Optional.empty());
         when(repo.findByEmail(anyString())).thenReturn(Optional.empty());
         when(failures.findByUsernameAndClientAddress(anyString(), anyString()))
                 .thenReturn(Optional.empty());
@@ -54,6 +55,7 @@ class DbUserAccountsTests {
     private UserEntity account(String username, String hash, AccountStatus status) {
         UserEntity user = new UserEntity(username, username + "@example.test", hash, username, status);
         when(repo.findByUsername(username)).thenReturn(Optional.of(user));
+        when(repo.findByUsernameIgnoreCase(username)).thenReturn(Optional.of(user));
         when(repo.findByEmail(username + "@example.test")).thenReturn(Optional.of(user));
         return user;
     }
@@ -64,6 +66,18 @@ class DbUserAccountsTests {
         assertThat(accounts.matches("alice", PASSWORD)).isTrue();
         assertThat(accounts.matches("ALICE@Example.TEST", PASSWORD)).isTrue();
         verify(repo, never()).save(any());   // cost-12 hash: nothing to upgrade
+    }
+
+    @Test
+    void usernameSignInIgnoresLetterCase() {
+        // The sign-in form invites "email or username"; emails are matched
+        // case-insensitively (see the test above), so a username typed with
+        // any case must find the account too — the same rule the
+        // uq_users_username_ci uniqueness index enforces.
+        UserEntity alice = account("alice", HASH, AccountStatus.ACTIVE);
+        when(repo.findByUsernameIgnoreCase("Alice")).thenReturn(Optional.of(alice));
+        assertThat(accounts.matches("Alice", PASSWORD)).isTrue();
+        assertThat(accounts.accountId("Alice")).isEqualTo("alice");
     }
 
     @Test

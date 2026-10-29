@@ -61,6 +61,7 @@ class AccountLockNoticeTests {
         email = mock(EmailService.class);
         rateLimits = new InMemoryRateLimitStore(Clock.systemUTC());
         when(repo.findByUsername(anyString())).thenReturn(Optional.empty());
+        when(repo.findByUsernameIgnoreCase(anyString())).thenReturn(Optional.empty());
         when(repo.findByEmail(anyString())).thenReturn(Optional.empty());
         when(failures.findByUsernameAndClientAddress(anyString(), anyString()))
                 .thenReturn(Optional.empty());
@@ -74,7 +75,7 @@ class AccountLockNoticeTests {
         if (verified) {
             user.setEmailVerifiedAt(Instant.parse("2026-10-01T09:00:00Z"));
         }
-        when(repo.findByUsername("ada")).thenReturn(Optional.of(user));
+        when(repo.findByUsernameIgnoreCase("ada")).thenReturn(Optional.of(user));
         when(repo.lockIfTooManyFailures(any(), anyInt(), any()))
                 .thenReturn(accountLockFires ? 1 : 0);
         return user;
