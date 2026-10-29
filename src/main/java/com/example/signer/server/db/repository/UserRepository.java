@@ -20,6 +20,15 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
     Optional<UserEntity> findByUsername(String username);
 
+    /**
+     * Sign-in lookup, letter case ignored — the same rule the
+     * {@code uq_users_username_ci} uniqueness index enforces, so what the
+     * schema accepts as one name, sign-in accepts as that name too. The
+     * typed identifier may carry any case; usernames are stored as created
+     * (lowercase system slugs, or the case the registrant chose).
+     */
+    Optional<UserEntity> findByUsernameIgnoreCase(String username);
+
     Optional<UserEntity> findByEmail(String email);
 
     /**
