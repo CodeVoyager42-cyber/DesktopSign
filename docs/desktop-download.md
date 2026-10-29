@@ -13,8 +13,9 @@ require an account — somebody invited to sign has no account yet.
 ## 1. Build a release
 
 ```bash
-scripts/package.sh                # builds the jar, then packages
-scripts/package.sh --skip-build   # reuse an existing target/*.jar
+# The coordination server address is required - see below.
+SIGNFLOW_SERVER_URL=https://signflow.example.com scripts/package.sh
+SIGNFLOW_SERVER_URL=https://signflow.example.com scripts/package.sh --skip-build
 ```
 
 Produces, in `build/dist/`:
@@ -30,6 +31,88 @@ Produces, in `build/dist/`:
 Requires a JDK with `jpackage` (21+) and **WiX 3.x** for the MSI. Without WiX
 the script says so and stops at the zip — which is a worse deliverable,
 because it registers nothing (§3).
+
+### Building an installer for your server
+
+**The coordination server address is a build-time decision, and the build
+will not guess it.** It is compiled into the launcher, so an installer that
+did not know it would start, look healthy, and reach nothing on every machine
+but the one that built it — a failure found by whoever tried to sign, not by
+whoever shipped it. So `scripts/package.sh` refuses to run without one.
+
+```bash
+# Either form; the environment variable is what CI uses.
+SIGNFLOW_SERVER_URL=https://signflow.example.com scripts/package.sh
+scripts/package.sh --server-url https://signflow.example.com
+```
+
+The address must be `https://`, a host, and an optional port — **nothing
+else**: no path, no query, no trailing slash, no `user:password@`. A base
+address has request paths appended to it, so `.../api` or a stray `/`
+silently produces `//api/...` at the far end; it is rejected where it is
+written instead. `ServerUrlRules` holds these rules for the application and
+`scripts/package.sh` mirrors them in bash, so the build and the app agree.
+
+> Two similar names, deliberately separate: **`SIGNFLOW_SERVER_URL`** is
+> read at **build** time by `scripts/package.sh` and compiled into the
+> installer, while **`SIGNER_SERVER_URL`** is the ordinary **runtime**
+> environment variable `application.yml` falls back on when running from
+> source (`.env.example`). A packaged app never needs the second one.
+
+For local testing only, `--local` allows `http://` and a loopback address:
+
+```bash
+scripts/package.sh --local --server-url http://localhost:8080
+```
+
+Such a build is marked (`signflow.local-build`) and is not something to
+publish. The mark excuses the loopback address and nothing else — it does not
+relax TLS, and it is **not** a way to run the `dev` profile in a packaged
+build (§5).
+
+#### The whole flow, for one server
+
+1. **Set the address once, in the repository.** Settings → Secrets and
+   variables → Actions → **Variables** → `SIGNFLOW_SERVER_URL` =
+   `https://signflow.example.com`. A *variable*, not a secret: a server's
+   address is public, the app prints it in its own footer and start-up log,
+   and hiding it would only make it harder to tell which server a release was
+   built for. `release.yml` checks it before the build starts and fails the
+   job with an explicit message if it is unset.
+2. **Tag a release.** `git tag v0.2.2 && git push origin v0.2.2`. The
+   workflow builds, tests, packages with that address, and attaches the MSI,
+   the zip, their checksums and `release-manifest.json` to the GitHub
+   Release.
+3. **Put the MSI where that server serves it from.** Copy
+   `SignFlow-<version>.msi` and its `.sha256` into the directory
+   `SIGNER_DOWNLOAD_DIR` names on the coordination server (§2b) — or, with a
+   GitHub token configured, copy nothing: the server mirrors its own release
+   on the first request (§2a).
+4. **Check what you shipped.** Install it and look at the home screen footer:
+   it names the server this copy talks to. The same address is the first
+   thing in the start-up log.
+
+#### Pointing one installer at a different server
+
+An administrator can override the built-in address per machine, without
+rebuilding or repackaging, with a file beside the installed app:
+
+```properties
+# %APPDATA%\SignFlow\settings.properties
+signature.remote.base-url=https://signflow.internal.example.com
+```
+
+It is read before the application starts and takes precedence over the baked
+address. The same rules apply — and **plain HTTP is refused here even for
+loopback**: a file edited by hand on a managed desktop is not where TLS gets
+switched off. Two more deliberate limits:
+
+- **A bad value stops start-up; it is not ignored.** Falling back silently
+  would leave an administrator believing the override had taken effect while
+  every desktop still talked to the old server.
+- **Only `signature.remote.base-url` is accepted.** This is not a general
+  property back door, so in particular it cannot set
+  `spring.profiles.active=dev` on an installed build.
 
 ### Why per-user, not per-machine
 
@@ -261,6 +344,13 @@ talked into development behaviour. The launcher also pins
 TLS certificate is trusted through the Windows certificate store
 (`docs/TRANSPORT-SECURITY.md`).
 
+It also runs with `signature.remote.base-url` set to the address the
+installer was built for (§1). A packaged build refuses to start without one,
+or with one that points at the machine it is running on, unless it was built
+`--local`: an installer aimed at `localhost` is useless to everyone who
+installs it. The address is shown in the home screen footer and logged once
+at start-up — the address only, never a token or a credential.
+
 
 ### Testing against the development server
 
@@ -364,13 +454,17 @@ Not verified here, and not to be assumed:
 ## 10. Release checklist
 
 1. `mvnw.cmd verify` — the suite green before anything is packaged.
-2. `scripts/package.sh` — the MSI, the zip, a `.sha256` beside each, and
-   `release-manifest.json`.
-3. Optional, and only with your own certificate: sign the `.exe` and the
+2. Confirm the repository variable `SIGNFLOW_SERVER_URL` names the server
+   this release is for (§1). The release job checks it first and fails
+   immediately if it is unset, so this costs nothing to get wrong — but it
+   does decide which server every installed copy will talk to.
+3. `SIGNFLOW_SERVER_URL=https://… scripts/package.sh` — the MSI, the zip, a
+   `.sha256` beside each, and `release-manifest.json`.
+4. Optional, and only with your own certificate: sign the `.exe` and the
    `.msi` (§7), then re-run the checksum step so the hashes match the signed
    bytes.
-4. Tag `vX.Y.Z` and push. `.github/workflows/release.yml` builds, tests,
+5. Tag `vX.Y.Z` and push. `.github/workflows/release.yml` builds, tests,
    packages, and attaches the zip, the MSI, the checksums and the manifest to
    the GitHub Release.
-5. Nothing to copy by hand afterwards: a deployment holding a GitHub token
+6. Nothing to copy by hand afterwards: a deployment holding a GitHub token
    mirrors the new release on demand (§2a).
