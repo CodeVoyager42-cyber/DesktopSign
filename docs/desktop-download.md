@@ -261,6 +261,28 @@ talked into development behaviour. The launcher also pins
 TLS certificate is trusted through the Windows certificate store
 (`docs/TRANSPORT-SECURITY.md`).
 
+
+### Testing against the development server
+
+There is **no flag that unlocks the `dev` profile in a packaged build**, and
+adding one is not the way to test an installed build. An override here ships
+inside the installer, where an environment variable set once — or inherited
+from a parent process — is enough to turn a real signing identity into the
+mock one. A revision that honoured `ALLOW_DEV_PROFILE=true` did reach the
+released v0.2.1; it has been removed, and
+`ProductionSafetyValidatorTests.noOverrideLetsAPackagedBuildRunDevMode`
+keeps it removed.
+
+To exercise the development server, run SignFlow **unpackaged**, which is
+where the `dev` profile belongs:
+
+- `run-app.cmd` from a source checkout (the dev profile by default), or
+- the portable app-image from the release zip, launched without
+  `-Dsignflow.packaged=true`.
+
+Both reach the same server with the same mock token, and neither needs the
+installed copy to be weakened to do it.
+
 ## 6. The page a reader sees
 
 `/download` — public, linked from the header, the footer, the mobile menu,
