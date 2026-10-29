@@ -53,7 +53,7 @@ final class AppNavigator {
      */
     void runHome() {
         while (true) {
-            WorkflowSelectionDialog home = new WorkflowSelectionDialog();
+            WorkflowSelectionDialog home = new WorkflowSelectionDialog(services.serverAddress());
             SigningMode mode = home.showAndWait(owner);
 
             if (home.isSignOutRequested()) {

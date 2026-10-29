@@ -69,8 +69,7 @@ public class ProductionSafetyValidator {
             // and this profile means the mock signing token, the default test
             // accounts and plain HTTP. Testing an installed build against the
             // development server is done by running it UNPACKAGED instead.
-            if (System.getProperty("jpackage.app-version") != null
-                    || Boolean.getBoolean("signflow.packaged")) {
+            if (isPackagedBuild()) {
                 throw new IllegalStateException("The 'dev' profile cannot be used by an"
                         + " installed SignFlow build: it enables the development mock"
                         + " token, default accounts and plain HTTP. To test against a"
@@ -132,6 +131,60 @@ public class ProductionSafetyValidator {
             problems.add("The coordination server URL must use https:// (got " + remote
                     + "). Passwords, tokens and documents never travel over plain HTTP.");
         }
+        // The shape of the address, by the same rules the build applies when
+        // it bakes one into an installer (ServerUrlRules). The scheme is
+        // judged above - loopback HTTP stays allowed for development - so
+        // plain HTTP is tolerated here and only the rest is checked.
+        if (!remote.isBlank()) {
+            String shape = ServerUrlRules.problem(remote, true);
+            if (shape != null) {
+                problems.add("The coordination server URL is unusable: " + shape
+                        + ". Expected just a scheme, host and optional port,"
+                        + " e.g. https://signflow.example.com");
+            }
+        }
+        // An installed build has to point at a server other people can
+        // reach. scripts/package.sh already refuses to produce one without
+        // an address; this is the same rule at the other end, for an
+        // app-image assembled by some other route.
+        if (isPackagedBuild()) {
+            if (remote.isBlank()) {
+                problems.add("This is a packaged SignFlow build with no coordination"
+                        + " server address. Build the installer with"
+                        + " SIGNFLOW_SERVER_URL=https://... (scripts/package.sh), or set "
+                        + DesktopSettingsFile.SERVER_URL + " in "
+                        + DesktopSettingsFile.defaultSettingsFile() + ".");
+            } else if (ServerUrlRules.isLoopback(remote) && !isLocalBuild()) {
+                problems.add("This packaged SignFlow build points at " + remote
+                        + ", which is this machine. An installer somebody else runs"
+                        + " cannot reach it. Rebuild with"
+                        + " SIGNFLOW_SERVER_URL=https://<your server>, or set "
+                        + DesktopSettingsFile.SERVER_URL + " in "
+                        + DesktopSettingsFile.defaultSettingsFile() + ".");
+            }
+        }
+    }
+
+    /**
+     * Whether this process is a packaged build: {@code signflow.packaged} from
+     * {@code scripts/package.sh}, or {@code jpackage.app-version}, which
+     * jpackage's own launcher sets. Read as system properties only - never
+     * through the {@link Environment} - so no environment variable can
+     * persuade an installed build that it is running from source.
+     */
+    private static boolean isPackagedBuild() {
+        return System.getProperty("jpackage.app-version") != null
+                || Boolean.getBoolean("signflow.packaged");
+    }
+
+    /**
+     * Whether this package was deliberately built to talk to this machine
+     * ({@code scripts/package.sh --local}). It only excuses a loopback
+     * address; it does not relax TLS, and it is NOT a way into the
+     * {@code dev} profile, which stays refused in any packaged build.
+     */
+    private static boolean isLocalBuild() {
+        return Boolean.getBoolean("signflow.local-build");
     }
 
     /** Scan roots for the auto-detection: the {@code auto-detect-dirs} config, default System32. */

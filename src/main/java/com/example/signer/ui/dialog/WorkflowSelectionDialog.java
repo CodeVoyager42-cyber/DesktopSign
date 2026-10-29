@@ -54,7 +54,13 @@ import java.util.List;
  */
 public final class WorkflowSelectionDialog {
 
+    /** Shown when no address is configured at all. */
+    static final String NO_SERVER = "not configured";
+
     private final List<SigningMode> modes;
+
+    /** The coordination server this installation talks to, for the footer. */
+    private final String serverAddress;
     private final ObjectProperty<SigningMode> selected = new SimpleObjectProperty<>(this, "selected");
     private boolean cancelled = true;
 
@@ -98,13 +104,26 @@ public final class WorkflowSelectionDialog {
         return signOutRequested;
     }
 
-    public WorkflowSelectionDialog() {
-        this(SigningMode.selectableModes());
+    /**
+     * @param serverAddress the coordination server this copy is configured to
+     *                      use, shown in the footer; blank becomes
+     *                      {@link #NO_SERVER}
+     */
+    public WorkflowSelectionDialog(String serverAddress) {
+        this(SigningMode.selectableModes(), serverAddress);
     }
 
     /** Allows tests/demos to show a different (e.g. extended) mode list. */
-    public WorkflowSelectionDialog(List<SigningMode> modes) {
+    public WorkflowSelectionDialog(List<SigningMode> modes, String serverAddress) {
         this.modes = List.copyOf(modes);
+        this.serverAddress = serverAddress == null || serverAddress.isBlank()
+                ? NO_SERVER
+                : serverAddress.trim();
+    }
+
+    /** The address this dialog reports in its footer. */
+    public String serverAddress() {
+        return serverAddress;
     }
 
     /**
@@ -261,9 +280,25 @@ public final class WorkflowSelectionDialog {
             dialog.close();
         });
 
+        // ---- about / connection ---------------------------------------------
+        // Which server this copy talks to, without digging through a log file.
+        // An installer is built for one server - scripts/package.sh bakes the
+        // address into the launcher - so "which SignFlow is this?" has a
+        // per-installation answer that the person signing cannot otherwise
+        // see. Address only: nothing here is a credential.
+        Label connection = new Label("Server: " + serverAddress,
+                new FontIcon(FontAwesomeSolid.SERVER));
+        connection.getStyleClass().add("workflow-card-meta");
+        connection.setTooltip(new Tooltip("The coordination server this"
+                + " installation of SignFlow uses:\n" + serverAddress
+                + "\n\nIt was set when the installer was built. An"
+                + " administrator can point this machine somewhere else in"
+                + " the SignFlow settings file."));
+        connection.setAccessibleText("Coordination server " + serverAddress);
+
         Region footerSpacer = new Region();
         HBox.setHgrow(footerSpacer, Priority.ALWAYS);
-        HBox footer = new HBox(10, back, footerSpacer, signOut);
+        HBox footer = new HBox(10, back, footerSpacer, connection, signOut);
         footer.getStyleClass().add("workflow-footer");
         footer.setAlignment(Pos.CENTER_LEFT);
 
