@@ -1,14 +1,21 @@
 package com.example.signer.server.downloads;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -224,6 +231,63 @@ class GitHubReleaseClientTests {
         // No request, no file: bytes this server cannot check are bytes it
         // will not publish.
         assertThat(client.downloadAsset(asset, Path.of("never-written.tmp"))).isFalse();
+    }
+
+    /**
+     * The connection fails before there is any response at all - the port is
+     * closed, so send() throws. downloadAsset used to dereference the null
+     * response in its finally block, which raised an NPE out of the method
+     * instead of returning false, and hid the transport failure that was the
+     * real reason nothing could be mirrored.
+     */
+    @Test
+    void aConnectionThatFailsBeforeAnyResponseIsReportedAsAFailedDownload() throws Exception {
+        // Allocate a port, then close it: nothing listens there, so the
+        // connection is refused outright instead of hanging until a timeout.
+        int deadPort;
+        try (ServerSocket socket = new ServerSocket(0)) {
+            deadPort = socket.getLocalPort();
+        }
+        String base = "http://127.0.0.1:" + deadPort;
+
+        byte[] bytes = "never-arrives".getBytes(StandardCharsets.UTF_8);
+        GitHubReleaseClient client = new GitHubReleaseClient(base, "acme/signflow", "t");
+        var asset = new GitHubReleaseClient.Asset(77, "SignFlow-0.2.1.msi",
+                bytes.length, sha256(bytes));
+        Path target = Files.createTempFile("mirror-test", ".bin");
+        // The download must not be credited with the empty placeholder file
+        // createTempFile just made, so judge it on a path that does not exist.
+        Files.delete(target);
+
+        Logger clientLog = (Logger) LoggerFactory.getLogger(GitHubReleaseClient.class);
+        ListAppender<ILoggingEvent> captured = new ListAppender<>();
+        captured.start();
+        clientLog.addAppender(captured);
+        clientLog.setLevel(Level.WARN);
+        try {
+            // Returns false - it does not throw, and in particular not the
+            // NullPointerException the finally block used to raise.
+            assertThat(client.downloadAsset(asset, target)).isFalse();
+
+            // Nothing half-written is left where the folder could serve it.
+            assertThat(target).doesNotExist();
+
+            // And the reason that was logged is the transport failure itself,
+            // not an NPE standing in for it.
+            assertThat(captured.list)
+                    .as("the original exception's class must reach the log")
+                    .anySatisfy(event -> {
+                        assertThat(event.getFormattedMessage())
+                                .contains("could not be mirrored")
+                                .contains("ConnectException");
+                        assertThat(event.getFormattedMessage())
+                                .doesNotContain("NullPointerException");
+                    });
+        } finally {
+            clientLog.detachAppender(captured);
+            captured.stop();
+            Files.deleteIfExists(target);
+        }
     }
 
     /* ------------------------------------------------------------------ */
