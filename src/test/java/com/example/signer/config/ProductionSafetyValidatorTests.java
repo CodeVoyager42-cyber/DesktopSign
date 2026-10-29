@@ -144,59 +144,65 @@ class ProductionSafetyValidatorTests {
                 .doesNotThrowAnyException();
         System.setProperty("signflow.packaged", "true");
         assertThatThrownBy(() -> ProductionSafetyValidator.validate(env("desktop", "dev")))
-                .hasMessageContaining("cannot be used by an installed SignFlow build");
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("cannot be used by an installed SignFlow build")
+                // The refusal has to say what to do instead, or the next
+                // person looking for a way through invents one.
+                .hasMessageContaining("run SignFlow unpackaged");
     }
 
-    /** An operator CAN opt a packaged build into dev mode, explicitly. */
+    /** jpackage sets this one itself, so it blocks an installed build too. */
     @Test
-    void theExplicitOverrideLetsAPackagedBuildRunDevMode() {
-        System.setProperty("signflow.packaged", "true");
-        MockEnvironment env = env("desktop", "dev");
-        env.setProperty("ALLOW_DEV_PROFILE", "true");
-        assertThatCode(() -> ProductionSafetyValidator.validate(env))
-                .doesNotThrowAnyException();
-
-        // Also honoured as a system property (-DALLOW_DEV_PROFILE=true): a
-        // real (not mock) Environment sees system properties in its source
-        // chain, exactly like the packaged build's startup will.
-        System.setProperty("ALLOW_DEV_PROFILE", "true");
+    void theJpackageVersionPropertyAlsoMarksABuildAsPackaged() {
+        System.setProperty("jpackage.app-version", "0.2.1");
         try {
-            StandardEnvironment sysEnv = new StandardEnvironment();
-            sysEnv.setActiveProfiles("desktop", "dev");
-            assertThatCode(() -> ProductionSafetyValidator.validate(sysEnv))
-                    .doesNotThrowAnyException();
+            assertThatThrownBy(() -> ProductionSafetyValidator.validate(env("desktop", "dev")))
+                    .hasMessageContaining("cannot be used by an installed SignFlow build");
         } finally {
-            System.clearProperty("ALLOW_DEV_PROFILE");
+            System.clearProperty("jpackage.app-version");
         }
     }
 
-    /** Even the real Environment chain stays blocked without the opt-in. */
+    /**
+     * There is NO way to run the dev profile in a packaged build. An earlier
+     * revision honoured an ALLOW_DEV_PROFILE=true opt-in; it shipped in the
+     * released v0.2.1 and is gone again. This pins that: the former opt-in
+     * is inert, whether it arrives as an environment property or as a system
+     * property, and whatever it is set to.
+     */
     @Test
-    void aRealEnvironmentStaysBlockedWithoutTheOverride() {
+    void noOverrideLetsAPackagedBuildRunDevMode() {
         System.setProperty("signflow.packaged", "true");
         try {
+            for (String value : new String[] {"true", "TRUE", "True", "1", "yes"}) {
+                MockEnvironment env = env("desktop", "dev");
+                env.setProperty("ALLOW_DEV_PROFILE", value);
+                assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
+                        .as("ALLOW_DEV_PROFILE=<%s>", value)
+                        .hasMessageContaining("installed SignFlow build");
+            }
+
+            // The real Environment chain sees system properties, exactly as a
+            // packaged build's startup would: -DALLOW_DEV_PROFILE=true is no
+            // way through either.
+            System.setProperty("ALLOW_DEV_PROFILE", "true");
             StandardEnvironment sysEnv = new StandardEnvironment();
             sysEnv.setActiveProfiles("desktop", "dev");
             assertThatThrownBy(() -> ProductionSafetyValidator.validate(sysEnv))
                     .hasMessageContaining("installed SignFlow build");
         } finally {
-            System.clearProperty("signflow.packaged");
+            System.clearProperty("ALLOW_DEV_PROFILE");
         }
     }
 
-    /** The opt-in must be explicit: anything else keeps the packaged build blocked. */
+    /** Even the real Environment chain stays blocked. */
     @Test
-    void theOverrideDoesNotFireUnlessItIsExactlyTrue() {
+    void aRealEnvironmentStaysBlockedInAPackagedBuild() {
         System.setProperty("signflow.packaged", "true");
-        for (String value : new String[] {null, "", "false", "TRUE ", "1", "yes", "maybe"}) {
-            MockEnvironment env = env("desktop", "dev");
-            if (value != null) {
-                env.setProperty("ALLOW_DEV_PROFILE", value);
-            }
-            assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
-                    .as("ALLOW_DEV_PROFILE=<%s>", value)
-                    .hasMessageContaining("installed SignFlow build");
-        }
+        StandardEnvironment sysEnv = new StandardEnvironment();
+        sysEnv.setActiveProfiles("desktop", "dev");
+        assertThatThrownBy(() -> ProductionSafetyValidator.validate(sysEnv))
+                .hasMessageContaining("installed SignFlow build");
     }
 
     @Test

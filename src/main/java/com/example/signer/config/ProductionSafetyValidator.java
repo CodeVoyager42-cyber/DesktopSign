@@ -38,10 +38,10 @@ import java.util.Locale;
  *       really delivered (SMTP), not printed to a console.</li>
  *   <li><b>Packaged builds</b> ({@code -Dsignflow.packaged=true} from
  *       package.sh, or jpackage's {@code jpackage.app-version})
- *       can never run the {@code dev} profile — unless the operator
- *       explicitly opts in with the environment variable
- *       {@code ALLOW_DEV_PROFILE=true}, e.g. to test an installed build
- *       against the development server on the same machine.</li>
+ *       can never run the {@code dev} profile. There is no override:
+ *       to exercise an installed build against the development server, run
+ *       it UNPACKAGED instead (the portable app-image, or
+ *       {@code run-app.cmd} from a source checkout).</li>
  * </ul>
  *
  * <p>The JWT secret rule lives in {@code JwtService}, which fails on its own
@@ -63,32 +63,20 @@ public class ProductionSafetyValidator {
         boolean desktop = environment.acceptsProfiles(Profiles.of("desktop"));
 
         if (dev) {
-            boolean packaged = System.getProperty("jpackage.app-version") != null
-                    || Boolean.getBoolean("signflow.packaged");
-            // Escape hatch for operators testing an INSTALLED build (e.g.
-            // the MSI on this machine) against the development mock server.
-            // Read through the Environment so BOTH the process environment
-            // variable ALLOW_DEV_PROFILE=true and -DALLOW_DEV_PROFILE=true
-            // are honoured; the value must be exactly "true" (whitespace and
-            // other values keep the packaged build blocked).
-            boolean override = Boolean.parseBoolean(
-                    environment.getProperty("ALLOW_DEV_PROFILE", "false"));
-            if (packaged && !override) {
+            // A packaged build can NEVER run the dev profile (security Phase B).
+            // There is deliberately no override: an escape hatch compiled into
+            // the installer is one an environment variable can trip by accident,
+            // and this profile means the mock signing token, the default test
+            // accounts and plain HTTP. Testing an installed build against the
+            // development server is done by running it UNPACKAGED instead.
+            if (System.getProperty("jpackage.app-version") != null
+                    || Boolean.getBoolean("signflow.packaged")) {
                 throw new IllegalStateException("The 'dev' profile cannot be used by an"
                         + " installed SignFlow build: it enables the development mock"
-                        + " token, default accounts and plain HTTP. To test an installed"
-                        + " build deliberately, set the environment variable"
-                        + " ALLOW_DEV_PROFILE=true.");
-            }
-            if (packaged) {
-                log.warn("=================================================================");
-                log.warn(" ALLOW_DEV_PROFILE=true: a PACKAGED build is running in"
-                        + " DEVELOPMENT mode (profile 'dev').");
-                log.warn(" Development accounts and the mock signing token are active"
-                        + " for this run.");
-                log.warn(" NEVER use this configuration in production.");
-                log.warn("=================================================================");
-                return;
+                        + " token, default accounts and plain HTTP. To test against a"
+                        + " development server, run SignFlow unpackaged instead: the"
+                        + " portable app-image from the release zip, or run-app.cmd"
+                        + " from a source checkout.");
             }
             log.warn("=================================================================");
             log.warn(" SignFlow is running in DEVELOPMENT mode (profile 'dev'):");
