@@ -10,10 +10,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.security.crypto.bcrypt.BCrypt;
+import com.example.signer.server.auth.PasswordHashing;
+import com.example.signer.server.db.entity.AccountStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Locale;
 
 /**
@@ -49,25 +51,59 @@ public class DevUserSeeder implements ApplicationRunner {
             return; // production posture: no seeding from config
         }
         boolean created = false;
+        boolean completed = false;
         for (var entry : properties.getUsers().entrySet()) {
             String username = entry.getKey().toLowerCase(Locale.ROOT);
-            if (users.existsByUsername(username)) {
+            UserEntity existing = users.findByUsername(username).orElse(null);
+            if (existing != null) {
+                // FileStoreImporter runs before this seeder and creates
+                // PENDING_INVITE placeholders — no e-mail, no password — for
+                // the signers of imported legacy workflows. A dev account can
+                // therefore already exist as an unusable stub; complete it
+                // instead of skipping it, or it can never sign in.
+                if (isPlaceholder(existing)) {
+                    if (existing.getEmail() == null || existing.getEmail().isBlank()) {
+                        existing.setEmail(devEmail(username));
+                    }
+                    existing.changePasswordHash(
+                            PasswordHashing.hash(entry.getValue()), Instant.now());
+                    existing.setStatus(AccountStatus.ACTIVE);
+                    existing.setEmailVerifiedAt(Instant.now());
+                    completed = true;
+                    log.info("Dev seed: completed placeholder account '{}'", username);
+                } else if (existing.getEmailVerifiedAt() == null) {
+                    // Development accounts count as e-mail-verified (Phase B:
+                    // launch codes require a verified address).
+                    existing.setEmailVerifiedAt(Instant.now());
+                }
                 continue;
             }
             UserEntity user = new UserEntity();
             user.setUsername(username);
             user.setEmail(devEmail(username));
             user.setDisplayName(capitalize(username));
-            user.setPasswordHash(BCrypt.hashpw(entry.getValue(), BCrypt.gensalt()));
-            user.setStatus("ACTIVE");
+            user.changePasswordHash(PasswordHashing.hash(entry.getValue()), Instant.now());
+            user.setStatus(AccountStatus.ACTIVE);
+            user.setEmailVerifiedAt(Instant.now());
             users.save(user);
             created = true;
             log.info("Dev seed: created account '{}' ({}@…)", username, username);
         }
-        if (created) {
+        if (created || completed) {
             log.info("Dev seed complete — configuration test users are now"
                     + " database-backed (bcrypt)");
         }
+    }
+
+    /**
+     * Whether {@code user} is an unusable stub rather than a real account:
+     * invited-but-never-registered AND without a password. Both conditions
+     * are required, so a registered account (it has a password) and an
+     * active one are never touched.
+     */
+    private static boolean isPlaceholder(UserEntity user) {
+        return user.getStatus() == AccountStatus.PENDING_INVITE
+                && user.getPasswordHash() == null;
     }
 
     private static String devEmail(String username) {

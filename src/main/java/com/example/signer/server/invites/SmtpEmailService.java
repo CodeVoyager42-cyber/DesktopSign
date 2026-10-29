@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 /**
  * Production email delivery through {@code spring.mail.*} (brief §18) —
@@ -30,7 +31,7 @@ public class SmtpEmailService implements EmailService {
     private static final Logger log = LoggerFactory.getLogger(SmtpEmailService.class);
 
     private static final DateTimeFormatter DATE =
-            DateTimeFormatter.ofPattern("MMMM d, yyyy").withZone(ZoneId.systemDefault());
+            DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.ENGLISH).withZone(ZoneId.systemDefault());
 
     private final JavaMailSender mailSender;
     private final String from;
@@ -67,6 +68,72 @@ public class SmtpEmailService implements EmailService {
             log.info("Invitation email sent to {} for '{}'", recipientEmail, workflowName);
         } catch (MessagingException e) {
             throw new IllegalStateException("The invitation email could not be sent", e);
+        }
+    }
+
+    @Override
+    public void sendGuestVerificationCode(String recipientEmail, String workflowName,
+                                          String code, Instant expiresAt) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, false,
+                    StandardCharsets.UTF_8.name());
+            helper.setFrom(from);
+            helper.setTo(recipientEmail);
+            helper.setSubject(GuestCodeEmailTemplate.subject(workflowName));
+            helper.setText(GuestCodeEmailTemplate.text(workflowName, code, expiresAt, appName));
+            mailSender.send(message);
+            // Never the code itself.
+            log.info("Guest verification code sent to {} for '{}'", recipientEmail, workflowName);
+        } catch (MessagingException e) {
+            throw new IllegalStateException("The verification email could not be sent", e);
+        }
+    }
+
+    @Override
+    public void sendEmailVerification(String recipientEmail, String link, Instant expiresAt) {
+        send(recipientEmail, AccountEmailTemplate.verificationSubject(appName),
+                AccountEmailTemplate.verificationText(link, expiresAt, appName),
+                "e-mail verification link");
+    }
+
+    @Override
+    public void sendPasswordReset(String recipientEmail, String link, Instant expiresAt) {
+        send(recipientEmail, AccountEmailTemplate.resetSubject(appName),
+                AccountEmailTemplate.resetText(link, expiresAt, appName),
+                "password-reset link");
+    }
+
+    @Override
+    public void sendPasswordChanged(String recipientEmail, Instant changedAt,
+                                    boolean afterReset) {
+        send(recipientEmail, AccountEmailTemplate.changedSubject(appName),
+                AccountEmailTemplate.changedText(changedAt, afterReset, appName),
+                "password-change notice");
+    }
+
+    @Override
+    public void sendAccountLocked(String recipientEmail, Instant lockedUntil) {
+        send(recipientEmail, AccountEmailTemplate.lockedOutSubject(appName),
+                AccountEmailTemplate.lockedOutText(lockedUntil, appName),
+                "account-lock notice");
+    }
+
+    /** Sends one plain-text message. The body holds a secret, so it is never logged. */
+    private void send(String recipientEmail, String subject, String body, String what) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, false,
+                    StandardCharsets.UTF_8.name());
+            helper.setFrom(from);
+            helper.setTo(recipientEmail);
+            helper.setSubject(subject);
+            helper.setText(body);
+            mailSender.send(message);
+            // Never the link itself.
+            log.info("Sent {} to {}", what, recipientEmail);
+        } catch (MessagingException e) {
+            throw new IllegalStateException("The " + what + " could not be sent", e);
         }
     }
 }

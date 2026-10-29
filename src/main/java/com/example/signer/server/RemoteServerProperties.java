@@ -1,8 +1,10 @@
 package com.example.signer.server;
 
+import com.example.signer.server.auth.DevPasswordHasher;
+import com.example.signer.server.workflow.WorkflowSignerRecord;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import org.springframework.security.crypto.bcrypt.BCrypt;
+import com.example.signer.server.auth.PasswordHashing;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -87,12 +89,7 @@ public class RemoteServerProperties {
         if (expected == null || password == null) {
             return false;
         }
-        try {
-            return BCrypt.checkpw(password, expected);
-        } catch (IllegalArgumentException e) {
-            // stored value is not a valid bcrypt hash — reject, never throw
-            return false;
-        }
+        return PasswordHashing.matches(password, expected);
     }
 
     /** Whether {@code userId} is a known workflow user. */

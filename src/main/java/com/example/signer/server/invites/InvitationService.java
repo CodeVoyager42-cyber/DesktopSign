@@ -4,9 +4,9 @@ import com.example.signer.server.api.ApiContracts;
 import com.example.signer.server.auth.JwtService;
 import com.example.signer.server.db.AuditLog;
 import java.util.Base64;
-import com.example.signer.server.WorkflowState;
+import com.example.signer.server.workflow.WorkflowState;
 import com.example.signer.server.api.ApiStates.EmailStatus;
-import com.example.signer.server.AuditEventType;
+import com.example.signer.server.workflow.AuditEventType;
 import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
 import com.example.signer.server.api.ApiErrorType.ApiException;
 import com.example.signer.server.db.entity.InvitationEntity;
@@ -104,6 +104,26 @@ public class InvitationService {
         return links.baseUrl() + "/invitations/" + rawToken;
     }
 
+    private boolean exposeLinksToSender = false;
+
+    /**
+     * Whether the SENDER gets the raw invitation link back from the API
+     * (default {@code false}; the {@code dev} profile turns it on, where the
+     * console mailbox may be the only "delivery"). The link is the invitee's
+     * credential: since security Phase 3 it no longer opens a session without
+     * the e-mailed code, but outside development the sender has no need to
+     * hold it at all.
+     */
+    @Value("${signature.remote-server.invitation.expose-links-to-sender:false}")
+    public void setExposeLinksToSender(boolean exposeLinksToSender) {
+        this.exposeLinksToSender = exposeLinksToSender;
+    }
+
+    /** The link as the sender may see it: the URL, or {@code null} when hidden. */
+    public String senderVisibleUrl(String rawToken) {
+        return exposeLinksToSender ? invitationUrl(rawToken) : null;
+    }
+
     /** Base URL the emailed links are built from (see the resolver). */
     public InvitationLinkResolver linkResolver() {
         return links;
@@ -153,6 +173,7 @@ public class InvitationService {
                 .orElseThrow(() -> new ApiException(ApiErrorCode.WORKFLOW_NOT_FOUND,
                         "Workflow not found"));
         requireCreator(wf, invitedBy);
+        requireOpenForInvitations(wf);
         String normalizedEmail = UserEntity.normalizeEmail(email);
         if (normalizedEmail == null || !normalizedEmail.matches(".+@.+\\..+")) {
             throw new ApiException(ApiErrorCode.BAD_REQUEST,
@@ -204,8 +225,17 @@ public class InvitationService {
         slot.setInvitedAt(Instant.now());
         signers.save(slot);
 
+        // The slot number, and NOT the address. Every participant of a
+        // workflow may read its audit trail, while the addresses of its slots
+        // are owner-only (they are served by the invitation routes, behind
+        // requireCreator) — so writing the address here published it to the
+        // co-signers through a different door. Nothing is lost: an invitation
+        // can only ever be addressed to the slot account's own address (the
+        // EMAIL_MISMATCH guard above), so the address of a slot is a property
+        // of the slot, which `invitationStatus` serves to the people entitled
+        // to it. See docs/security/phase-e-workflows.md §6.
         appendAudit(wf, AuditEventType.INVITATION_CREATED, invitedBy,
-                "Invitation created for signer " + signerOrder + " (" + normalizedEmail + ")");
+                "Invitation created for signer " + signerOrder);
         log.info("Invitation created for workflow {} signer {} (recipient {},"
                         + " registered={}) — nothing is signed by this",
                 wf.getWorkflowId(), signerOrder, normalizedEmail,
@@ -406,7 +436,8 @@ public class InvitationService {
             resend(Long invitationId, String requestedBy) {
         InvitationEntity invitation = lockedById(invitationId);
         WorkflowEntity wf = requireWorkflowEntity(invitation.getWorkflowId());
-        requireCreator(wf, requestedBy);
+        requireCreatorOfInvitation(wf, requestedBy);
+        requireOpenForInvitations(wf);
         if (InvitationEntity.STATUS_ACCEPTED.equals(invitation.getStatus())) {
             throw new ApiException(ApiErrorCode.INVITATION_ALREADY_USED,
                     "This invitation was already accepted");
@@ -457,7 +488,7 @@ public class InvitationService {
         sendEmail(replacement, wf, rawToken);
         return new ApiContracts.InvitationLinkView(
                 replacement.getSignerOrder(), replacement.getEmail(),
-                invitationUrl(rawToken));
+                senderVisibleUrl(rawToken));
     }
 
     /** Revokes a pending invitation. Only the workflow creator may revoke. */
@@ -465,7 +496,7 @@ public class InvitationService {
     public void revoke(Long invitationId, String requestedBy) {
         InvitationEntity invitation = lockedById(invitationId);
         WorkflowEntity wf = requireWorkflowEntity(invitation.getWorkflowId());
-        requireCreator(wf, requestedBy);
+        requireCreatorOfInvitation(wf, requestedBy);
         invitation.setStatus(InvitationEntity.STATUS_REVOKED);
         invitations.save(invitation);
         appendAudit(wf, AuditEventType.INVITATION_REVOKED, requestedBy,
@@ -640,12 +671,13 @@ public class InvitationService {
      * the invitation expires (the app may be closed half-way); after a
      * signature it answers {@code INVITATION_COMPLETED}.
      */
-    @Transactional
-    public GuestSessionGrant openGuestSession(String rawToken) {
-        InvitationEntity invitation = lockedByToken(rawToken);
-        WorkflowEntity wf = requireWorkflowEntity(invitation.getWorkflowId());
-        WorkflowSignerEntity slot = requireSlot(wf, invitation.getSignerOrder());
-        Instant now = Instant.now();
+    /**
+     * Checks that the invitation behind a guest request can still open a
+     * signing session. Changes nothing (shared by {@link #requestGuestCode}
+     * and {@link #openGuestSession}).
+     */
+    private void requireGuestOpenable(InvitationEntity invitation, WorkflowEntity wf,
+                                      WorkflowSignerEntity slot, Instant now) {
         if (slot.isSigned()) {
             throw new ApiException(ApiErrorCode.INVITATION_COMPLETED,
                     "Your signature for this invitation is already recorded");
@@ -656,22 +688,11 @@ public class InvitationService {
                     "This signing request is no longer active");
         }
         if (invitation.getExpiresAt() != null && !invitation.getExpiresAt().isAfter(now)) {
-            if (InvitationEntity.STATUS_PENDING.equals(invitation.getStatus())) {
-                invitation.setStatus(InvitationEntity.STATUS_EXPIRED);
-                invitations.save(invitation);
-            }
             throw new ApiException(ApiErrorCode.INVITATION_EXPIRED,
                     "This invitation has expired — ask the requester to send a new one");
         }
         switch (invitation.getStatus()) {
             case InvitationEntity.STATUS_PENDING -> {
-                invitation.setStatus(InvitationEntity.STATUS_ACCEPTED);
-                invitation.setAcceptedAt(now);
-                invitation.setAcceptedBy(slot.getUsername());
-                invitations.save(invitation);
-                appendAudit(wf, AuditEventType.INVITATION_ACCEPTED, slot.getUsername(),
-                        "Invitation opened for signer " + invitation.getSignerOrder()
-                                + " (guest signing session, no account)");
             }
             case InvitationEntity.STATUS_ACCEPTED -> {
                 if (!slot.getUsername().equals(invitation.getAcceptedBy())) {
@@ -689,6 +710,188 @@ public class InvitationService {
             throw new ApiException(ApiErrorCode.INVITATION_REVOKED,
                     "A newer invitation replaced this one — use the latest email");
         }
+    }
+
+    /* ---------------- guest verification codes (security Phase 3) ---------------- */
+
+    /** Wrong entries allowed for one code. */
+    static final int GUEST_CODE_MAX_ATTEMPTS = 5;
+    /** Wrong entries allowed per invitation; then the owner must re-send it. */
+    static final int GUEST_CODE_MAX_FAILURES = 15;
+    /** How long a code works. */
+    static final Duration GUEST_CODE_TTL = Duration.ofMinutes(10);
+    /** Minimum time between two codes for the same invitation. */
+    static final Duration GUEST_CODE_RESEND_AFTER = Duration.ofSeconds(60);
+
+    private boolean guestVerification = true;
+
+    /**
+     * Whether a guest session needs the e-mailed one-time code (default
+     * {@code true}). Turning it off brings back "the link alone opens a
+     * guest session", which lets the sender or anyone the e-mail reaches
+     * sign in the invitee's place.
+     */
+    @Value("${signature.remote-server.invitation.guest-verification:true}")
+    public void setGuestVerification(boolean guestVerification) {
+        this.guestVerification = guestVerification;
+    }
+
+    public boolean guestVerificationRequired() {
+        return guestVerification;
+    }
+
+    /**
+     * A code-related refusal. Its own type so the transaction still COMMITS
+     * the attempt counters when it is thrown (see {@code noRollbackFor}):
+     * otherwise every wrong guess would be rolled back and never counted.
+     */
+    public static class GuestCodeException extends ApiException {
+        public GuestCodeException(ApiErrorCode code, String message) {
+            super(code, message);
+        }
+    }
+
+    /** What the client may show after a code was (or recently had been) sent. */
+    public record GuestCodeSent(String maskedEmail, long expiresInSeconds,
+                                long resendAfterSeconds) {
+    }
+
+    /**
+     * Sends a one-time code to the invited address, for opening a guest
+     * session with {@link #openGuestSession}. A code sent less than a
+     * minute ago is not replaced (the answer says when a new one can be
+     * requested). The code itself is never returned, stored or logged —
+     * only its hash is kept.
+     */
+    @Transactional(noRollbackFor = GuestCodeException.class)
+    public GuestCodeSent requestGuestCode(String rawToken) {
+        InvitationEntity invitation = lockedByToken(rawToken);
+        WorkflowEntity wf = requireWorkflowEntity(invitation.getWorkflowId());
+        WorkflowSignerEntity slot = requireSlot(wf, invitation.getSignerOrder());
+        Instant now = Instant.now();
+        requireGuestOpenable(invitation, wf, slot, now);
+        requireCodesNotExhausted(invitation);
+        Instant sent = invitation.getGuestCodeSentAt();
+        if (invitation.getGuestCodeHash() != null && sent != null
+                && sent.plus(GUEST_CODE_RESEND_AFTER).isAfter(now)) {
+            return new GuestCodeSent(maskEmail(invitation.getEmail()),
+                    secondsUntil(invitation.getGuestCodeExpiresAt(), now),
+                    secondsUntil(sent.plus(GUEST_CODE_RESEND_AFTER), now));
+        }
+        String code = String.format(Locale.ROOT, "%06d", random.nextInt(1_000_000));
+        Instant expires = now.plus(GUEST_CODE_TTL);
+        try {
+            emailService.sendGuestVerificationCode(invitation.getEmail(),
+                    wf.getDocumentName(), code, expires);
+        } catch (RuntimeException e) {
+            log.warn("Guest verification code for workflow {} signer {} could not be"
+                    + " delivered: {}", wf.getWorkflowId(), invitation.getSignerOrder(),
+                    e.getClass().getSimpleName());
+            throw new ApiException(ApiErrorCode.EMAIL_DELIVERY_FAILED,
+                    "The verification code could not be e-mailed. Try again in a"
+                            + " moment, or ask the sender to check the email settings.");
+        }
+        invitation.startGuestCode(codeHash(invitation, code), now, expires);
+        invitations.save(invitation);
+        log.info("Guest verification code sent for workflow {} signer {}",
+                wf.getWorkflowId(), invitation.getSignerOrder());
+        return new GuestCodeSent(maskEmail(invitation.getEmail()),
+                GUEST_CODE_TTL.toSeconds(), GUEST_CODE_RESEND_AFTER.toSeconds());
+    }
+
+    private static void requireCodesNotExhausted(InvitationEntity invitation) {
+        if (invitation.getGuestCodeFailures() >= GUEST_CODE_MAX_FAILURES) {
+            throw new GuestCodeException(ApiErrorCode.GUEST_CODE_EXPIRED,
+                    "Too many wrong codes for this invitation — ask the sender to"
+                            + " send you a new invitation");
+        }
+    }
+
+    /** Checks (and consumes) the code; counts wrong entries. */
+    private void verifyGuestCode(InvitationEntity invitation, String code, Instant now) {
+        requireCodesNotExhausted(invitation);
+        if (code == null || code.isBlank()) {
+            throw new GuestCodeException(ApiErrorCode.GUEST_VERIFICATION_REQUIRED,
+                    "Enter the code sent to " + maskEmail(invitation.getEmail()));
+        }
+        if (invitation.getGuestCodeHash() == null
+                || invitation.getGuestCodeExpiresAt() == null
+                || !invitation.getGuestCodeExpiresAt().isAfter(now)) {
+            throw new GuestCodeException(ApiErrorCode.GUEST_CODE_EXPIRED,
+                    "This code is no longer valid — request a new one");
+        }
+        byte[] expected = invitation.getGuestCodeHash().getBytes(StandardCharsets.US_ASCII);
+        byte[] actual = codeHash(invitation, code.trim()).getBytes(StandardCharsets.US_ASCII);
+        if (!MessageDigest.isEqual(expected, actual)) {
+            invitation.recordWrongGuestCode(GUEST_CODE_MAX_ATTEMPTS);
+            invitations.save(invitation);
+            log.info("Wrong guest verification code for invitation {} ({} wrong in total)",
+                    invitation.getId(), invitation.getGuestCodeFailures());
+            if (invitation.getGuestCodeHash() == null) {
+                throw new GuestCodeException(ApiErrorCode.GUEST_CODE_EXPIRED,
+                        "Too many wrong entries for this code — request a new one");
+            }
+            throw new GuestCodeException(ApiErrorCode.GUEST_CODE_INVALID,
+                    "The code is not correct — check the latest email and try again");
+        }
+        invitation.consumeGuestCode();
+    }
+
+    /** Bound to the invitation, so a code never works for another one. */
+    private static String codeHash(InvitationEntity invitation, String code) {
+        return hash(invitation.getTokenHash() + ":" + code);
+    }
+
+    private static long secondsUntil(Instant then, Instant now) {
+        return then == null ? 0 : Math.max(0, Duration.between(now, then).toSeconds());
+    }
+
+    /** {@code m***@example.com}: enough to recognise, not to harvest. */
+    static String maskEmail(String email) {
+        if (email == null) {
+            return null;
+        }
+        int at = email.indexOf('@');
+        if (at <= 0) {
+            return "***";
+        }
+        return email.charAt(0) + "***" + email.substring(at);
+    }
+
+    /**
+     * Opens a GUEST signing session from the invitation link. Since security
+     * Phase 3 the link alone is not enough: {@code code} must be the
+     * one-time code e-mailed by {@link #requestGuestCode} (unless guest
+     * verification is switched off). The returned grant is scoped to this
+     * one signer slot (see {@code GuestAccessPolicy}); the digital signature
+     * is made later with the signer's own certificate.
+     */
+    @Transactional(noRollbackFor = GuestCodeException.class)
+    public GuestSessionGrant openGuestSession(String rawToken, String code) {
+        InvitationEntity invitation = lockedByToken(rawToken);
+        WorkflowEntity wf = requireWorkflowEntity(invitation.getWorkflowId());
+        WorkflowSignerEntity slot = requireSlot(wf, invitation.getSignerOrder());
+        Instant now = Instant.now();
+        if (invitation.getExpiresAt() != null && !invitation.getExpiresAt().isAfter(now)
+                && InvitationEntity.STATUS_PENDING.equals(invitation.getStatus())
+                && !slot.isSigned()) {
+            invitation.setStatus(InvitationEntity.STATUS_EXPIRED);
+            invitations.save(invitation);
+        }
+        requireGuestOpenable(invitation, wf, slot, now);
+        if (guestVerification) {
+            verifyGuestCode(invitation, code, now);
+        }
+        if (InvitationEntity.STATUS_PENDING.equals(invitation.getStatus())) {
+            invitation.setStatus(InvitationEntity.STATUS_ACCEPTED);
+            invitation.setAcceptedAt(now);
+            invitation.setAcceptedBy(slot.getUsername());
+            appendAudit(wf, AuditEventType.INVITATION_ACCEPTED, slot.getUsername(),
+                    "Invitation opened for signer " + invitation.getSignerOrder()
+                            + " (guest signing session, no account"
+                            + (guestVerification ? ", e-mail code verified" : "") + ")");
+        }
+        invitations.save(invitation);
         appendAudit(wf, AuditEventType.SIGNING_SESSION_CREATED, slot.getUsername(),
                 "Guest signing session opened for signer " + invitation.getSignerOrder()
                         + " (invitation expires " + invitation.getExpiresAt() + ")");
@@ -700,11 +903,6 @@ public class InvitationService {
                 invitation.getEmail(), invitation.getId(), invitation.getExpiresAt());
     }
 
-    /**
-     * An invitation that was already opened (ACCEPTED) and may be opened
-     * again: still the latest for its slot, not expired, slot not signed.
-     * Otherwise the matching typed error.
-     */
     @Transactional(readOnly = true)
     public InvitationEntity reopenableByToken(String rawToken) {
         InvitationEntity invitation = invitations.findByTokenHash(hash(rawToken))
@@ -924,10 +1122,49 @@ public class InvitationService {
                         "Workflow not found"));
     }
 
-    private static void requireCreator(WorkflowEntity wf, String requestedBy) {
-        if (!wf.getCreatedBy().equals(requestedBy)) {
-            throw new ApiException(ApiErrorCode.UNAUTHORIZED,
+    /**
+     * Owner-only invitation management. A signer of the workflow (who knows
+     * it exists) gets 403; anyone else gets the same 404 as for a workflow or
+     * invitation that does not exist, so ids cannot be probed.
+     */
+    private void requireCreator(WorkflowEntity wf, String requestedBy) {
+        if (wf.getCreatedBy().equals(requestedBy)) {
+            return;
+        }
+        boolean signer = requestedBy != null && signers
+                .findByWorkflowIdOrderBySignerOrder(wf.getId()).stream()
+                .anyMatch(s -> requestedBy.equals(s.getUsername()));
+        if (signer) {
+            throw new ApiException(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE,
                     "Only the workflow owner can manage invitations");
+        }
+        throw new ApiException(ApiErrorCode.WORKFLOW_NOT_FOUND, "Workflow not found");
+    }
+
+    /**
+     * {@link #requireCreator} for routes addressed by invitation id: a
+     * stranger gets the very same answer as for an unknown invitation id.
+     */
+    private void requireCreatorOfInvitation(WorkflowEntity wf, String requestedBy) {
+        try {
+            requireCreator(wf, requestedBy);
+        } catch (ApiException e) {
+            if (e.code() == ApiErrorCode.WORKFLOW_NOT_FOUND) {
+                throw new ApiException(ApiErrorCode.INVITATION_NOT_FOUND,
+                        "Invitation not found");
+            }
+            throw e;
+        }
+    }
+
+    /** No new or re-sent invitations once a workflow is finished. */
+    private static void requireOpenForInvitations(WorkflowEntity wf) {
+        String status = wf.getStatus();
+        if (WorkflowState.COMPLETED.name().equals(status)
+                || WorkflowState.CANCELLED.name().equals(status)
+                || WorkflowState.FAILED.name().equals(status)) {
+            throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
+                    "The workflow is " + status + " — no invitations can be sent");
         }
     }
 

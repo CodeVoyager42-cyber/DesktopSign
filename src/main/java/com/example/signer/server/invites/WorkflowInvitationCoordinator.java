@@ -4,6 +4,7 @@ import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.InvitationLinkView;
 import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
 import com.example.signer.server.api.ApiErrorType.ApiException;
+import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.UserRepository;
 
@@ -115,7 +116,7 @@ public class WorkflowInvitationCoordinator {
             String rawToken = invitations.invite(workflowPublicId,
                     invite.signerOrder(), invite.email(), invitedBy);
             sent.add(new InvitationLinkView(invite.signerOrder(),
-                    invite.email(), invitations.invitationUrl(rawToken)));
+                    invite.email(), invitations.senderVisibleUrl(rawToken)));
         }
         return sent;
     }
@@ -146,7 +147,7 @@ public class WorkflowInvitationCoordinator {
         placeholder.setUsername(username);
         placeholder.setEmail(email);
         placeholder.setDisplayName(capitalize(username));
-        placeholder.setStatus("PENDING_INVITE");
+        placeholder.setStatus(AccountStatus.PENDING_INVITE);
         users.save(placeholder);
         log.info("Invitation identity prepared for {} (username {}, not registered)",
                 email, username);
@@ -168,7 +169,7 @@ public class WorkflowInvitationCoordinator {
         }
         String candidate = local;
         for (int suffix = 2; suffix <= 100; suffix++) {
-            if (!users.existsByUsername(candidate)) {
+            if (!users.existsByUsernameIgnoreCase(candidate)) {
                 return candidate;
             }
             candidate = local + "-" + suffix;

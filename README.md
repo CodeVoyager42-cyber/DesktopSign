@@ -45,24 +45,54 @@ Built with Java 21, JavaFX, and Spring Boot, it supports sequential multi-signer
 No JDK, Maven, or any other prerequisite is needed for the packaged build — it
 carries its own Java runtime.
 
-**Installable/portable builds** are produced by the release workflow:
+### For the people who will use it
 
-1. Go to [Releases](https://github.com/CodeVoyager42-cyber/DesktopSign/releases)
-2. Download the asset for the latest release:
-   - `SignFlow-<version>-windows.zip` — portable: unzip anywhere and run
-     `SignFlow.exe` (no installation at all)
-   - `SignFlow-<version>.msi` — classic Windows installer with Start-menu
-     shortcut and uninstaller (built when the CI runner has the WiX toolset)
+**From your own SignFlow server: `/download`.** A public page — no account
+needed, because somebody invited to sign has not got one yet — offering the
+installer with its version, size and SHA-256, the three install steps, and
+what to do about the SmartScreen warning. The server serves it from
+`SIGNER_DOWNLOAD_DIR`; see [docs/desktop-download.md](docs/desktop-download.md)
+for how a release is published into that folder.
 
-To build the package yourself, from a machine with JDK 21+:
+Two builds exist, and they are not equivalent:
+
+- **`SignFlow-<version>.msi`** — the one to use. Per-user, so no
+  administrator rights, and it **registers the `signflow://` scheme** at the
+  installed executable, which is what lets the website's *Sign* button open
+  the app at one document. The uninstaller removes that registration again.
+- `SignFlow-<version>-windows.zip` — portable: unzip anywhere and run
+  `SignFlow.exe`. Registers nothing, so the *Sign* button cannot reach it;
+  you would start it yourself each time.
+
+**The MSI is not code-signed**, so Windows SmartScreen warns about it
+("Windows protected your PC" → *More info* → *Run anyway*). That is what
+Windows says about any unsigned installer; the fix is a code-signing
+certificate, not a workaround.
+
+### Building it yourself
+
+From a machine with JDK 21+ and [WiX 3.x](https://wixtoolset.org/):
 
 ```bash
-./package.sh
+scripts/package.sh
 ```
 
-Output lands in `build/dist/` (`build/jpackage/SignFlow/SignFlow.exe` is the
-raw app-image). If the [WiX 3.x](https://wixtoolset.org/) toolset is
-installed, an MSI installer is produced as well.
+`build/dist/` then holds the MSI, the portable zip and a `.sha256` for each
+(`build/jpackage/SignFlow/SignFlow.exe` is the raw app-image). Without WiX
+the script says so and stops at the zip — which cannot receive `signflow://`
+links, so it is not a substitute for the installer.
+
+### Pointing it at your card
+
+SignFlow signs through PKCS#11 and uses the driver your card's issuer
+supplies. Install that, then:
+
+```bat
+set PKCS11_LIBRARY=C:\Windows\System32\opensc-pkcs11.dll
+```
+
+The common libraries are listed in
+[docs/desktop-download.md](docs/desktop-download.md) §4.
 
 ## Build & Run
 
@@ -161,23 +191,46 @@ launcher prints a warning asking you to move it. Never commit secrets:
 ## Project Structure
 
 ```
-src/main/java/com/example/signer/
-├── config/        Typed configuration properties (login, PKCS#11)
-├── exception/     Error codes and the service exception hierarchy
-├── pdf/           Document analysis, metadata, rendering
-├── signing/       PDF signing (incremental revisions, CMS, stamp rendering)
-├── token/         Token abstraction + state machine
-│   ├── mock/      In-memory development token
-│   └── pkcs11/    Real SunPKCS11-backed token
-├── ui/            JavaFX application, dialogs, theming
-│   ├── support/   Shared UI helpers
-│   └── workspace/ Signing workspaces (single + multi-signer), coordinate mapping
-├── verification/  Chain-aware PDF signature verification
-└── workflow/      Signer state machine, workflow orchestration, audit trail
+.
+├── src/main/java/com/example/signer/
+│   ├── ui/                 JavaFX desktop app
+│   │   ├── (root)          App shell: SignerFxApplication, AppNavigator, single-instance guard
+│   │   ├── dialog/         Login, home screen, invitation and inviter dialogs
+│   │   ├── workspace/      Local signing (1–3 signers on this PC, continue a workflow PDF)
+│   │   ├── remote/         Server-backed screens (tasks, remote signing journey, wizard)
+│   │   ├── kit/            Reusable controls
+│   │   └── support/        Background threads, error messages, helpers
+│   ├── client/             HTTP client for the SignFlow server + remote signing service
+│   ├── server/             Coordination server (Spring Boot, profile "server")
+│   │   ├── api/            REST controllers and API contracts
+│   │   ├── auth/           JWT, refresh tokens, guest sessions, accounts
+│   │   ├── invites/        Invitations, emails, public sign page
+│   │   ├── workflow/       Workflow aggregate, state machine, service, stores
+│   │   └── db/             JPA entities, repositories, PostgreSQL store
+│   ├── workflow/           Portable workflow manifest, reconciliation, local engine
+│   ├── signing/            PDF signing (incremental revisions, CMS, stamp rendering)
+│   ├── verification/       Chain-aware PDF signature verification
+│   ├── pdf/                Document analysis, metadata, rendering
+│   ├── token/              Token abstraction + state machine
+│   │   ├── mock/           Development token
+│   │   └── pkcs11/         Real SunPKCS11-backed token
+│   ├── config/             Typed configuration properties
+│   └── exception/          Error codes and the service exception
+├── src/main/resources/     application.yml, Flyway migrations (db/migration), UI styles
+│   └── static/             The built website (generated — see web/)
+├── src/test/java/          Tests, in the same packages as the code they test
+├── web/                    The website: Next.js + TypeScript, exported into static/
+├── docs/                   Design notes; docs/architecture/ has the sequence diagrams
+├── scripts/                package.sh, db-console.cmd, (un)register-signflow-protocol.cmd
+├── tools/                  Build helpers (icon generation)
+├── run-app.cmd             Start the desktop app
+└── run-server.cmd          Start the coordination server
 ```
 
-Spring Boot is used purely as the application context / dependency-injection
-container (`web-application-type: none`); nothing listens on a network port.
+The desktop app and the server are built from the same jar; the Spring
+profile decides which one starts. The desktop context (`SignerApplication`)
+runs with `web-application-type: none`; only the server profile starts a web
+server.
 
 ## How Signing Works
 
@@ -207,11 +260,11 @@ UI (JavaFX workspace)
   `jdk.crypto.cryptoki` add-exports the raw PKCS#11 wrapper requires (verified
   empirically — see the comment in `pom.xml`)
 - **App icon:** `docs/icon-source.png` is the master brand image (any square
-  picture). `./package.sh` regenerates from it the JavaFX window icon
+  picture). `scripts/package.sh` regenerates from it the JavaFX window icon
   (`src/main/resources/ui/app-icon.png`) and the Windows icon
   (`build/SignFlow.ico`, used by the exe/installer) via
   `tools/BuildIcon.java`. To rebrand, replace the source picture and re-run
-  `./package.sh` — or `java tools/BuildIcon.java` for the icons alone
+  `scripts/package.sh` — or `java tools/BuildIcon.java` for the icons alone
 - Logs go to `%TEMP%/signer-app.log` by default; `com.example.signer` is at
   DEBUG level for tracing token and workflow behavior
 
@@ -223,7 +276,10 @@ UI (JavaFX workspace)
   production servers reject its certificates
 - Configure real credentials and a real PKCS#11 library via the environment
   variables above before any production use
-- The application makes no network connections; there is no HTTP surface
+- The desktop app talks to the SignFlow coordination server over HTTPS (plain
+  HTTP only to this machine's loopback address, in the `dev` profile) and opens
+  **no listening network port** of its own; the single-instance hand-off between
+  two launches uses a private local socket in a per-user directory, not TCP
 
 ## License
 

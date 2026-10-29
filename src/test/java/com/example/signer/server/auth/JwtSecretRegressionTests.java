@@ -1,6 +1,5 @@
 package com.example.signer.server.auth;
 
-import io.jsonwebtoken.Jwts;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
@@ -69,16 +68,8 @@ class JwtSecretRegressionTests {
         String storage = System.getProperty("java.io.tmpdir") + "/signer-server";
         byte[] predictable = MessageDigest.getInstance("SHA-256").digest(
                 ("signer-jwt-dev-key|" + storage).getBytes(StandardCharsets.UTF_8));
-        Instant now = Instant.now();
-        String forged = Jwts.builder()
-                .subject("alice")
-                .issuer(JwtService.ISSUER)
-                .audience().add(JwtService.AUDIENCE).and()
-                .claim("typ", "access")
-                .issuedAt(Date.from(now))
-                .expiration(Date.from(now.plusSeconds(600)))
-                .signWith(new SecretKeySpec(predictable, "HmacSHA256"), Jwts.SIG.HS256)
-                .compact();
+        String forged = TestJwts.sign(predictable, com.nimbusds.jose.JWSAlgorithm.HS256,
+                TestJwts.access("alice").build());
 
         JwtService configured = new JwtService(STRONG_SECRET, 15, true);
         JwtService developmentRandom = new JwtService("", 15, false);

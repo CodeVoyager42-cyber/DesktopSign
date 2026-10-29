@@ -1,9 +1,10 @@
 package com.example.signer.server.db;
 
-import com.example.signer.server.SigningWorkflowAggregate;
-import com.example.signer.server.WorkflowFileStore;
-import com.example.signer.server.WorkflowStore;
+import com.example.signer.server.workflow.SigningWorkflowAggregate;
+import com.example.signer.server.workflow.WorkflowFileStore;
+import com.example.signer.server.workflow.WorkflowStore;
 import com.example.signer.server.db.repository.UserRepository;
+import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.db.entity.UserEntity;
 
 import org.slf4j.Logger;
@@ -108,11 +109,11 @@ public class FileStoreImporter implements ApplicationRunner {
         if (username == null || username.isBlank() || "system".equals(username)) {
             return;
         }
-        if (!users.existsByUsername(username)) {
+        if (!users.existsByUsernameIgnoreCase(username)) {
             UserEntity placeholder = new UserEntity();
             placeholder.setUsername(username);
             placeholder.setDisplayName(capitalize(username));
-            placeholder.setStatus("PENDING_INVITE");
+            placeholder.setStatus(AccountStatus.PENDING_INVITE);
             users.save(placeholder);
         }
     }

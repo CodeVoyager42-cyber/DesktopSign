@@ -1,15 +1,22 @@
 /**
- * JavaFX user interface of the application.
+ * JavaFX user interface of the desktop application.
  *
- * <p>{@link SignerFxApplication} is the entry point:
- * login gate → workflow selection (1/2/3 signers) → either the single-signer
- * workspace or the per-signer multi-signer workspace, both under
- * {@link com.example.signer.ui.workspace}.</p>
+ * <p>{@link com.example.signer.ui.SignerFxApplication} starts the app;
+ * {@link com.example.signer.ui.AppNavigator} decides which screen comes next:
+ * login gate, then the home screen, then one of the flows below. Each flow
+ * returns to the home screen when its window closes.</p>
+ * <ul>
+ *   <li>{@code dialog} — login, home screen, invitation and inviter dialogs</li>
+ *   <li>{@code workspace} — local signing (1–3 signers on this PC, continuing a
+ *       workflow PDF) with the shared {@code PlacementViewer}</li>
+ *   <li>{@code remote} — server-backed screens: signing tasks, the remote
+ *       signing journey, the new-workflow wizard</li>
+ *   <li>{@code kit} — reusable controls; {@code support} — threading, error
+ *       messages and small helpers</li>
+ * </ul>
  *
- * <p>Rules respected throughout this layer: no business logic or token
- * access outside the service layer; every expensive operation on a
- * background {@code Task}; failures mapped through
- * {@link ErrorMessages}; shared helpers live in
- * {@link com.example.signer.ui.support}.</p>
+ * <p>Rules: no business logic or token access outside the service layer;
+ * every slow operation on a background task; failures shown through
+ * {@link com.example.signer.ui.support.ErrorMessages}.</p>
  */
 package com.example.signer.ui;

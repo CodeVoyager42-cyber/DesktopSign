@@ -15,6 +15,18 @@ spring:
       - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
       - org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration
       - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+      # Security: the server's filter chain is configured explicitly
+      # (server.security.SecurityConfig). These would otherwise create a
+      # default in-memory user with a generated password and a second JWT
+      # decoder; neither must exist.
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+      - org.springframework.boot.autoconfigure.security.oauth2.resource.servlet.OAuth2ResourceServerAutoConfiguration
+      # Website sessions (Phase C) are wired EXCLUSIVELY by the conditional
+      # server.web.WebSessionConfiguration (server + database.enabled=true).
+      # Boot's auto-configuration would otherwise look for a DataSource in
+      # every context — including the desktop — and try to create the schema
+      # itself instead of leaving it to Flyway V9.
+      - org.springframework.boot.autoconfigure.session.SessionAutoConfiguration
 
 app:
   # Public web base URL used to build the invitation link that is emailed
@@ -55,7 +67,14 @@ signature:
     # mock token exists only in the 'dev' profile — never as a fallback.
     enabled: ${SIGNATURE_PKCS11_ENABLED:false}
     # Path configured via environment for the target platform (dll / so / dylib).
+    # Left unset, the known Gemalto/eBarid Sign drivers are auto-detected in
+    # the standard Windows driver directory (see auto-detect-dirs), so the
+    # installed application works for signers without any configuration.
     library: ${PKCS11_LIBRARY:}
+    # Where to scan for the known driver files (eTPKCS11.dll, gclib.dll) when
+    # no explicit library is configured. A comma-separated list for tests and
+    # non-standard installs; the default is the Windows driver directory.
+    auto-detect-dirs: ${PKCS11_AUTO_DETECT_DIRS:C:\Windows\System32}
     slot-list-index: ${PKCS11_SLOT_INDEX:0}
 
   remote:
@@ -88,6 +107,24 @@ spring:
       # workflow request part.
       max-request-size: ${SIGNER_UPLOAD_MAX_REQUEST_BYTES:115343360}
 
+server:
+  # Behind a TLS-terminating proxy (SIGNER_TLS_OFFLOADED=true) set this to
+  # "native": Tomcat then takes the client address from X-Forwarded-For,
+  # trusting only proxies on private/loopback addresses. Required so the
+  # per-address sign-in limit sees real clients (security Phase 2, L2).
+  forward-headers-strategy: ${SIGNER_FORWARD_HEADERS_STRATEGY:none}
+  tomcat:
+    # When an upload exceeds the multipart limits above, Tomcat aborts the
+    # multipart parse and the 413 ApiError is written. Until the remaining
+    # request bytes are consumed, Tomcat cannot send that response: at its
+    # default swallow budget (2 MB) it instead resets the connection, and
+    # the client sees a truncated exchange (JDK HttpClient:
+    # "chunked transfer encoding, state: READING_LENGTH") instead of the
+    # structured error. Sized to cover max-request-size (110 MiB) plus
+    # envelope headroom, in one round binary figure; bound it so a
+    # runaway client cannot stream unlimited garbage past the limit.
+    max-swallow-size: 134217728
+
 signature:
   remote-server:
     storage: ${SIGNER_SERVER_STORAGE:${java.io.tmpdir}/signer-server}
@@ -100,6 +137,25 @@ signature:
     jwt-secret: ${SIGNER_SERVER_JWT_SECRET:}
     access-token-minutes: ${SIGNER_SERVER_ACCESS_TOKEN_MINUTES:15}
     refresh-token-hours: ${SIGNER_SERVER_REFRESH_TOKEN_HOURS:12}
+    # Brute-force protection (security Phase 2).
+    login:
+      # Database mode: this many wrong passwords in a row from ONE CLIENT
+      # ADDRESS lock that address out of that account (security Phase 2 risk
+      # L3 — it used to lock the account for everyone, which let anyone keep
+      # a known account locked out for the price of five requests)...
+      max-failures: ${SIGNER_LOGIN_MAX_FAILURES:5}
+      # ...and this many failures from all addresses together lock the
+      # account itself, as a backstop against guessing spread over many
+      # addresses. Must be >= max-failures, or the account-wide lock would
+      # fire first and the per-address one could never fire; the server
+      # refuses to start if it is lower.
+      account-max-failures: ${SIGNER_LOGIN_ACCOUNT_MAX_FAILURES:50}
+      # ...for this many minutes (the right password is refused meanwhile).
+      lock-minutes: ${SIGNER_LOGIN_LOCK_MINUTES:15}
+      # Every mode: at most this many sign-in requests per client address
+      # within the window, then HTTP 429.
+      rate-limit: ${SIGNER_LOGIN_RATE_LIMIT:20}
+      rate-window-seconds: ${SIGNER_LOGIN_RATE_WINDOW_SECONDS:60}
     # Production posture (default): plaintext passwords are refused and no
     # development accounts are seeded. Only the 'dev' profile allows them.
     allow-plaintext-passwords: false
@@ -120,6 +176,45 @@ signature:
       username: ${SIGNER_DB_USERNAME:postgres}
       password: ${SIGNER_DB_PASSWORD:}
 
+    # ── The desktop download (Phase F, finding F2) ───────────────────────
+    download:
+      # A folder OUTSIDE the jar and outside the repository, holding the
+      # published installer and its .sha256 — see docs/desktop-download.md
+      # for how a release is published into it. Unset means there is nothing
+      # to download from this server, and the website then offers
+      # SIGNER_DOWNLOAD_URL (below, under `invitation`) if that is set, or
+      # says the download is not available yet.
+      #
+      # Set but missing or unreadable FAILS STARTUP, deliberately: a
+      # deployment that names a directory and gets it wrong should hear about
+      # it at once, not the first time somebody clicks Download.
+      dir: ${SIGNER_DOWNLOAD_DIR:}
+      # Per client address, across /downloads/** and /web/api/download-info
+      # together. Generous on purpose: a cancelled save, an installer plus
+      # its checksum, a download manager opening several ranged connections
+      # and a whole office behind one address are all honest traffic. It is a
+      # ceiling on abuse, not a quota.
+      rate-limit: ${SIGNER_DOWNLOAD_RATE_LIMIT:60}
+      rate-window: ${SIGNER_DOWNLOAD_RATE_WINDOW:PT1M}
+
+      # Publishing from GitHub on demand. When the token is set, the latest
+      # release of the source repository is mirrored into `dir` the first
+      # time somebody asks for one of its files: the bytes are verified
+      # against the checksum GitHub publishes for each asset before they
+      # reach the folder. Release metadata is read once an hour at most.
+      #
+      # The token needs only read access to the repository — a fine-grained
+      # personal access token with "Contents: Read" is enough — and arrives
+      # by environment variable, never in this file. Unset (the default)
+      # turns the whole feature off, and the download folder remains the
+      # only source; `api-base-url` and `cache-ttl` exist so tests and
+      # self-hosted proxies can point elsewhere.
+      github:
+        token: ${GITHUB_API_TOKEN:}
+        repository: ${GITHUB_RELEASE_REPOSITORY:CodeVoyager42-cyber/DesktopSign}
+        api-base-url: ${GITHUB_API_BASE_URL:https://api.github.com}
+        cache-ttl: ${GITHUB_RELEASE_CACHE_TTL:PT1H}
+
     # ── Invitations (Phase 4) ────────────────────────────────────────────
     invitation:
       # How long an invitation link stays valid.
@@ -132,6 +227,63 @@ signature:
       # your network. A loopback value here is honoured but produces links
       # that only open on this machine, which the server logs as a warning.
       public-base-url: ${SIGNER_PUBLIC_BASE_URL:}
+      # Security Phase 3. A guest session needs the one-time code e-mailed to
+      # the invited address; turning this off lets the link alone open it.
+      guest-verification: ${SIGNER_GUEST_VERIFICATION:true}
+      # Return the invitee's raw link to the SENDER (create / invite /
+      # resend). Off outside development: the link is the invitee's.
+      expose-links-to-sender: ${SIGNER_INVITATION_EXPOSE_LINKS:false}
+
+    # ── Desktop launch from the website (Phase B) ───────────────────────
+    desktop:
+      # Oldest SignFlow desktop version allowed to exchange a launch code
+      # (older apps get HTTP 426 and are asked to upgrade).
+      min-version: ${SIGNER_DESKTOP_MIN_VERSION:0.1.0-SNAPSHOT}
+      # Lifetime of the task session a launch code opens (1..60, no refresh).
+      task-session-minutes: ${SIGNER_DESKTOP_TASK_MINUTES:30}
+      # A desktop that reports its version as "unknown" (IDE run, unfiltered
+      # build) is refused with 426 unless this is true. Development only:
+      # production refuses to start with it.
+      accept-unknown-version: ${SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION:false}
+
+    # ── Website sessions (security Phase C) ──────────────────────────────
+    # The website (/web/**) authenticates with a server-side session stored
+    # in PostgreSQL, never with a bearer token. Separate security domain:
+    # this cookie is refused on /api/**, and a bearer token is ignored on
+    # /web/**. Requires database mode.
+    web:
+      session:
+        # __Host- prefix: the browser then enforces Secure + Path=/ + no
+        # Domain, so the cookie cannot be set by a subdomain or over plain
+        # HTTP. Production refuses any other name (ProductionSafetyValidator).
+        cookie-name: ${SIGNER_WEB_SESSION_COOKIE:__Host-SF_SESSION}
+        # Always true outside dev; production refuses false.
+        secure-cookie: ${SIGNER_WEB_SESSION_SECURE:true}
+        # Sliding window: a session dies this long after its last request.
+        idle-timeout: ${SIGNER_WEB_SESSION_IDLE:PT30M}
+        # Hard ceiling measured from login, regardless of activity.
+        absolute-timeout: ${SIGNER_WEB_SESSION_ABSOLUTE:PT8H}
+        # Security Phase D / risk C9: the CSRF bootstrap has to create a
+        # session for every visitor, so one that has not signed in expires
+        # much sooner. Signing in promotes it to idle-timeout above.
+        anonymous-idle-timeout: ${SIGNER_WEB_SESSION_ANON_IDLE:PT5M}
+      # At most this many account e-mails (verification, password reset) per
+      # recipient per 15 minutes, on top of the per-address limit.
+      mail-limit: ${SIGNER_WEB_MAIL_LIMIT:3}
+      # Risk D1: sign-up writes a users row before the address is proved, so
+      # it gets its own far tighter budget per client address — an HOUR-long
+      # window, not the shared limiter's minute. A household behind one
+      # address can still make a handful of accounts; a script cannot make
+      # thousands. Below 1, or a non-positive window, fails startup.
+      signup-limit: ${SIGNER_WEB_SIGNUP_LIMIT:5}
+      signup-window: ${SIGNER_WEB_SIGNUP_WINDOW:PT1H}
+      # Risk D11: an account that never proved its address and was never used
+      # is deleted after this long. It never touches an invited placeholder,
+      # a disabled account, one that has been signed in to, or one that holds
+      # a signer slot or owns a workflow — see UserRepository. Set it to zero
+      # (PT0S) to switch the sweep off and keep such rows for ever; it is the
+      # only destructive housekeeping here, so it has an off switch.
+      unverified-retention: ${SIGNER_WEB_UNVERIFIED_RETENTION:P7D}
 
     # ── Email delivery (Phase 5) ─────────────────────────────────────────
     # console: development mailbox — links are printed to the server CONSOLE
@@ -169,8 +321,26 @@ signature:
     keystore: ${SIGNER_MOCK_TOKEN_KEYSTORE:${user.home}/.signflow/dev-mock-token.p12}
   remote-server:
     allow-plaintext-passwords: true
+    # Development only: return the raw invitation links to the sender (the
+    # console mailbox may be the only delivery). Off by default elsewhere.
+    invitation:
+      expose-links-to-sender: true
     # Accept certificates/signatures from the development mock token.
     accept-development-identities: true
+    # Desktop builds started from the IDE report their version as "unknown".
+    desktop:
+      accept-unknown-version: true
+    web:
+      session:
+        # Development serves the website over plain http://localhost. The
+        # __Host- prefix requires the Secure attribute, and a browser only
+        # accepts a Secure cookie from a trustworthy origin. localhost counts
+        # as one in current Chrome, Edge and Firefox — but that has NOT been
+        # verified here against real browsers, so dev uses an ordinary cookie
+        # name with no Secure attribute, which works on plain HTTP anywhere.
+        # Production refuses both of these values.
+        cookie-name: SF_SESSION_DEV
+        secure-cookie: false
     users:
       alice: ${SIGNER_USER_ALICE:alice-pass}
       bob: ${SIGNER_USER_BOB:bob-pass}

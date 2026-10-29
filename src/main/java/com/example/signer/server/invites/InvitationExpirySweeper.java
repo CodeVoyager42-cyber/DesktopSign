@@ -1,7 +1,7 @@
 package com.example.signer.server.invites;
 
 import com.example.signer.server.db.AuditLog;
-import com.example.signer.server.AuditEventType;
+import com.example.signer.server.workflow.AuditEventType;
 import com.example.signer.server.db.entity.AuditEventEntity;
 import com.example.signer.server.db.entity.InvitationEntity;
 import com.example.signer.server.db.repository.AuditEventRepository;
@@ -58,9 +58,12 @@ public class InvitationExpirySweeper {
         for (InvitationEntity invitation : overdue) {
             invitation.setStatus(InvitationEntity.STATUS_EXPIRED);
             invitations.save(invitation);
+            // The slot number, not the address: the trail is readable by every
+            // participant and a slot's address is owner-only (§6 of
+            // docs/security/phase-e-workflows.md).
             auditLog.append(invitation.getWorkflowId(), AuditEventType.INVITATION_EXPIRED,
                     "system", "Invitation for signer " + invitation.getSignerOrder()
-                            + " (" + invitation.getEmail() + ") expired");
+                            + " expired");
         }
         if (!overdue.isEmpty()) {
             log.info("Invitation sweep: expired {} overdue invitation(s)",

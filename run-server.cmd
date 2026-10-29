@@ -17,16 +17,22 @@ rem  The server must stay open while using Remote workflow in the
 rem  desktop app. Stop with Ctrl+C or close the window.
 rem ============================================================
 setlocal
-rem Respect JAVA_HOME if set, otherwise fall back to "java" on PATH - no
-rem machine-specific path baked in here.
-set JAVA=java
-if defined JAVA_HOME set JAVA=%JAVA_HOME%\bin\java.exe
-set JAR=%~dp0target\pdf-signer-desktop-0.1.0-SNAPSHOT.jar
+rem Java + jar discovery lives in one shared place (JAVA_HOME, PATH,
+rem standard install roots) - see scripts\dev-runtime.cmd. The version
+rem the build targets is 21+; set JAVA_HOME to pin a specific JDK.
+call "%~dp0scripts\dev-runtime.cmd" "%~dp0"
+if errorlevel 1 (
+    echo.
+    pause
+    exit /b 1
+)
 set SIGNER_SERVER_STORAGE=%USERPROFILE%\signer-server-data
-set SIGNER_DB_ENABLED=true
-set SIGNER_DB_URL=jdbc:postgresql://localhost:5432/Signflow
-set SIGNER_DB_USERNAME=postgres
-set SIGNER_DB_PASSWORD=
+rem Database: these are defaults. Set SIGNER_DB_* before starting this
+rem script (e.g. a test database) and they are kept as they are.
+if not defined SIGNER_DB_ENABLED set SIGNER_DB_ENABLED=true
+if not defined SIGNER_DB_URL set SIGNER_DB_URL=jdbc:postgresql://localhost:5432/Signflow
+if not defined SIGNER_DB_USERNAME set SIGNER_DB_USERNAME=postgres
+if not defined SIGNER_DB_PASSWORD set SIGNER_DB_PASSWORD=
 if not defined APP_BASE_URL set APP_BASE_URL=http://localhost:8080
 
 rem Load optional secrets/overrides from OUTSIDE the project folder:
@@ -78,10 +84,10 @@ goto :eof
 :secretsLoaded
 set "__sf="
 
-if exist "%JAR%" goto haveJar
-echo The application jar was not found:
-echo   %JAR%
-echo Build it first:  mvnw.cmd package -DskipTests
+if exist "%APP_JAR%" goto haveJar
+echo The application jar was not found under "%~dp0target".
+echo Build it first (use any JDK 21+ for the build, e.g. set JAVA_HOME):
+echo                  mvnw.cmd package -DskipTests
 echo Stop any running server first - Windows locks the jar.
 pause
 exit /b 1
@@ -131,7 +137,7 @@ exit /b 1
 echo DEVELOPMENT server (profile server,dev): plain HTTP, console mailbox,
 echo development accounts and mock-token certificates are accepted.
 echo Production: see docs\TRANSPORT-SECURITY.md and .env.example.
-echo Server: %APP_BASE_URL%   Dev users: alice / bob / charlie / jane
+echo Server: %APP_BASE_URL%   Dev users: alice / bob / charlie
 echo %APP_BASE_URL% | findstr /i /c:"localhost" /c:"127.0.0.1" >nul
 if errorlevel 1 goto baseUrlDone
 echo.
@@ -145,9 +151,9 @@ echo.
 :baseUrlDone
 echo Keep this window open. Stop with Ctrl+C.
 echo.
-"%JAVA%" -Dloader.main=com.example.signer.server.WorkflowServerApplication ^
+"%JAVA_EXE%" -Dloader.main=com.example.signer.server.WorkflowServerApplication ^
     -Djavax.net.ssl.trustStoreType=WINDOWS-ROOT ^
-    -cp "%JAR%" org.springframework.boot.loader.launch.PropertiesLauncher ^
+    -cp "%APP_JAR%" org.springframework.boot.loader.launch.PropertiesLauncher ^
     --spring.profiles.active=server,dev --server.port=8080
 
 rem The window would close instantly on a startup crash - keep it open

@@ -12,7 +12,7 @@ SignFlow has two runtime postures, selected by the Spring profile `dev`.
 | Email | Console mailbox allowed | SMTP required; invitation links must be `https://` |
 
 `run-app.cmd`, `run-server.cmd` and `mvnw javafx:run` are **development
-launchers** and activate `dev`. Installed builds (`package.sh`) carry
+launchers** and activate `dev`. Installed builds (`scripts/package.sh`) carry
 `-Dsignflow.packaged=true` and can never run `dev`.
 
 Every production rule is checked at startup by `ProductionSafetyValidator`;

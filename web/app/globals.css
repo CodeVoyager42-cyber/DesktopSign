@@ -1,0 +1,290 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * Vendored from `shadcn@4.22.1`, `dist/tailwind.css`.
+ *
+ * That file was imported from the `shadcn` package, which put a CLI — and a
+ * second copy of its `cn` helper — into this project's dependencies for the
+ * sake of 637 lines of CSS. The components generated into
+ * `components/ui/*` use exactly these seven custom variants, counted:
+ * `data-open` (32 uses), `data-closed` (30), `data-checked` (12),
+ * `data-active` (11), `data-disabled` (8), `data-horizontal` (3),
+ * `data-vertical` (2). Nothing here uses the rest of that file — the
+ * `no-scrollbar`, `scroll-fade` and `shimmer` utilities and the accordion
+ * keyframes are all 0 uses — so they are not copied.
+ *
+ * These exist because Radix reports state as `data-state="open"` and newer
+ * primitives as `data-open`; each variant matches both spellings, which is
+ * why the components can be written once against either.
+ *
+ * If you add a component with `npx shadcn@latest add` and it uses a variant
+ * that is not here — `data-unchecked` and `data-selected` are the two that
+ * were left out — Tailwind will not error. It will quietly emit nothing for
+ * that class and the component will look subtly wrong. Copy the missing
+ * variant from the package's `dist/tailwind.css` into this block.
+ */
+/*
+ * The accordion's keyframes, also from `shadcn@4.22.1`'s `tailwind.css`.
+ *
+ * These were left out of the first pass because nothing used an accordion —
+ * and then `/download`'s troubleshooting section did, which is exactly the
+ * silent failure the note above warns about: the panel opened and closed
+ * with no animation and no error anywhere. Copied across when the component
+ * arrived.
+ */
+@theme inline {
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(
+        --radix-accordion-content-height,
+        var(--accordion-panel-height, auto)
+      );
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(
+        --radix-accordion-content-height,
+        var(--accordion-panel-height, auto)
+      );
+    }
+    to {
+      height: 0;
+    }
+  }
+}
+
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-checked {
+  &:where([data-state="checked"]),
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-active {
+  &:where([data-state="active"]),
+  &:where([data-active]:not([data-active="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
+  }
+}
+
+/* shadcn components carry `dark:` classes. Nothing ever adds the `.dark`
+   class, so they never match — this website is light only, deliberately: a
+   dark theme means contrast decisions nobody has checked. The variant stays
+   declared so the generated components remain valid as written. */
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: var(--font-sans);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    /* Two states the stock palette has no name for and this product shows on
+       every screen: finished, and needs attention. `-strong` is the same hue
+       one step darker, for TEXT on a 10 % tint of itself — see §1 of
+       docs/frontend-design.md for why both exist. */
+    --color-success: var(--success);
+    --color-success-strong: var(--success-strong);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-strong: var(--warning-strong);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-primary-hover: var(--primary-hover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+ * The whole palette. Blue and white, light only.
+ *
+ * Every pair was measured, and the numbers are in docs/frontend-design.md §1.
+ * Nothing outside this block may contain a hex colour or a raw palette class
+ * like `text-blue-600`: a second place to change a colour is how a design
+ * system stops being one.
+ */
+:root {
+    color-scheme: light;
+
+    /* "Inter Variable" is the family @fontsource-variable/inter registers.
+       The platform stack behind it is what shows if the font file ever fails
+       to load, which is a slightly looser page and nothing worse. */
+    --font-sans: "Inter Variable", -apple-system, BlinkMacSystemFont,
+        "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+    --background: #ffffff;
+    --foreground: #0f172a;            /* 17.85:1 on white */
+
+    --card: #ffffff;
+    --card-foreground: #0f172a;
+    --popover: #ffffff;
+    --popover-foreground: #0f172a;
+
+    --primary: #1d4ed8;               /* 6.70:1 both ways with white */
+    --primary-foreground: #ffffff;
+    --primary-hover: #1e40af;         /* white on it: 8.72:1 */
+
+    /* The quiet surface and the quiet button: near-white, not blue, so a
+       tinted panel does not compete with a blue badge sitting on it. */
+    --secondary: #f8fafc;
+    --secondary-foreground: #0f172a;  /* 17.06:1 */
+    --muted: #f8fafc;
+    --muted-foreground: #475569;      /* 7.58:1 on white, 7.24:1 on muted */
+
+    /* The blue tint, for anything that should read as "this is the product's
+       colour": selected cards, badges, the icon circles. */
+    --accent: #eff6ff;
+    --accent-foreground: #1d4ed8;     /* 6.16:1 on the tint */
+
+    --destructive: #b91c1c;           /* 6.47:1 on white, 5.45:1 on its tint */
+    --destructive-foreground: #ffffff;
+    --success: #15803d;               /* 5.02:1 on white */
+    --success-strong: #166534;        /* 6.23:1 on a 10 % success tint */
+    --success-foreground: #ffffff;
+    --warning: #b45309;               /* 5.02:1 on white */
+    --warning-strong: #92400e;        /* 6.20:1 on a 10 % warning tint */
+    --warning-foreground: #ffffff;
+
+    --border: #e2e8f0;
+    --input: #e2e8f0;
+    --ring: #3b82f6;
+
+    --radius: 0.75rem;
+}
+
+@layer base {
+    * {
+        @apply border-border outline-ring/50;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+    }
+
+    html {
+        @apply font-sans;
+        -webkit-text-size-adjust: 100%;
+    }
+
+    /*
+     * One type scale, declared here so no page invents a size.
+     *
+     * display 36/48 · h1 24/30 · h2 18 · h3 16 · body 16 · small 14
+     *
+     * 16 px is the floor for anything a reader reads, inputs included: below
+     * that, iOS Safari zooms when a field is focused, which on a form feels
+     * like the page jumping away.
+     */
+    h1 {
+        @apply text-2xl font-semibold tracking-tight text-foreground sm:text-3xl;
+    }
+
+    h2 {
+        @apply text-lg font-semibold tracking-tight text-foreground;
+    }
+
+    h3 {
+        @apply text-base font-semibold text-foreground;
+    }
+
+    /* A focus ring that is always visible, never only a colour change. */
+    :focus-visible {
+        @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+    }
+
+    /* Motion is decoration here: transitions are ≤200ms and anything that
+       moves can be turned off by the reader's own setting. */
+    @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+            scroll-behavior: auto !important;
+        }
+    }
+}
+
+@layer components {
+    /* The page container: one width, one gutter, used by every screen. */
+    .container-page {
+        @apply mx-auto w-full max-w-6xl px-4 sm:px-6;
+    }
+
+    /* The narrow column a single form or one document sits in. */
+    .container-narrow {
+        @apply mx-auto w-full max-w-xl px-4 sm:px-6;
+    }
+
+    /* The soft blue band behind the home hero and the account screens. The
+       only gradient in the website, and it fades to the page colour so
+       nothing has a visible edge. */
+    .band-soft {
+        background-image: linear-gradient(
+            180deg,
+            var(--accent) 0%,
+            color-mix(in oklch, var(--accent) 40%, var(--background)) 55%,
+            var(--background) 100%
+        );
+    }
+}

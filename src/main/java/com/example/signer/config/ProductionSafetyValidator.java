@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -37,7 +38,10 @@ import java.util.Locale;
  *       really delivered (SMTP), not printed to a console.</li>
  *   <li><b>Packaged builds</b> ({@code -Dsignflow.packaged=true} from
  *       package.sh, or jpackage's {@code jpackage.app-version})
- *       can never run the {@code dev} profile.</li>
+ *       can never run the {@code dev} profile. There is no override:
+ *       to exercise an installed build against the development server, run
+ *       it UNPACKAGED instead (the portable app-image, or
+ *       {@code run-app.cmd} from a source checkout).</li>
  * </ul>
  *
  * <p>The JWT secret rule lives in {@code JwtService}, which fails on its own
@@ -59,11 +63,19 @@ public class ProductionSafetyValidator {
         boolean desktop = environment.acceptsProfiles(Profiles.of("desktop"));
 
         if (dev) {
-            if (System.getProperty("jpackage.app-version") != null
-                    || Boolean.getBoolean("signflow.packaged")) {
+            // A packaged build can NEVER run the dev profile (security Phase B).
+            // There is deliberately no override: an escape hatch compiled into
+            // the installer is one an environment variable can trip by accident,
+            // and this profile means the mock signing token, the default test
+            // accounts and plain HTTP. Testing an installed build against the
+            // development server is done by running it UNPACKAGED instead.
+            if (isPackagedBuild()) {
                 throw new IllegalStateException("The 'dev' profile cannot be used by an"
                         + " installed SignFlow build: it enables the development mock"
-                        + " token, default accounts and plain HTTP.");
+                        + " token, default accounts and plain HTTP. To test against a"
+                        + " development server, run SignFlow unpackaged instead: the"
+                        + " portable app-image from the release zip, or run-app.cmd"
+                        + " from a source checkout.");
             }
             log.warn("=================================================================");
             log.warn(" SignFlow is running in DEVELOPMENT mode (profile 'dev'):");
@@ -92,13 +104,24 @@ public class ProductionSafetyValidator {
 
     private static void checkDesktop(Environment env, List<String> problems) {
         boolean pkcs11 = Boolean.parseBoolean(env.getProperty("signature.pkcs11.enabled", "false"));
-        String library = env.getProperty("signature.pkcs11.library", "").trim();
+        // A blank PKCS11_LIBRARY is not an instant problem: the known
+        // Gemalto/eBarid drivers may be present in the standard locations.
+        // The resolver is the single source of truth and is the same one the
+        // signing-token provider uses at signing time.
+        String library = Pkcs11LibraryResolver.resolve(
+                env.getProperty("signature.pkcs11.library", ""),
+                scanDirs(env));
         if (!pkcs11) {
             problems.add("No signing token is configured: set SIGNATURE_PKCS11_ENABLED=true"
                     + " and PKCS11_LIBRARY to the PKCS#11 library of your smartcard/USB"
                     + " token (the development mock token is never used in production).");
         } else if (library.isEmpty()) {
-            problems.add("SIGNATURE_PKCS11_ENABLED=true but PKCS11_LIBRARY is not set.");
+            problems.add("SIGNATURE_PKCS11_ENABLED=true but no PKCS#11 library is"
+                    + " configured and none was auto-detected. Set PKCS11_LIBRARY to the"
+                    + " PKCS#11 library of your smartcard/USB token, or install the"
+                    + " Gemalto/eBarid Sign middleware (it puts eTPKCS11.dll or gclib.dll"
+                    + " into " + Pkcs11LibraryResolver.SYSTEM32 + ", which SignFlow"
+                    + " searches automatically).");
         } else if ((library.contains("/") || library.contains("\\"))
                 && !Files.exists(Path.of(library))) {
             problems.add("The PKCS#11 library does not exist: " + library);
@@ -108,6 +131,72 @@ public class ProductionSafetyValidator {
             problems.add("The coordination server URL must use https:// (got " + remote
                     + "). Passwords, tokens and documents never travel over plain HTTP.");
         }
+        // The shape of the address, by the same rules the build applies when
+        // it bakes one into an installer (ServerUrlRules). The scheme is
+        // judged above - loopback HTTP stays allowed for development - so
+        // plain HTTP is tolerated here and only the rest is checked.
+        if (!remote.isBlank()) {
+            String shape = ServerUrlRules.problem(remote, true);
+            if (shape != null) {
+                problems.add("The coordination server URL is unusable: " + shape
+                        + ". Expected just a scheme, host and optional port,"
+                        + " e.g. https://signflow.example.com");
+            }
+        }
+        // An installed build has to point at a server other people can
+        // reach. scripts/package.sh already refuses to produce one without
+        // an address; this is the same rule at the other end, for an
+        // app-image assembled by some other route.
+        if (isPackagedBuild()) {
+            if (remote.isBlank()) {
+                problems.add("This is a packaged SignFlow build with no coordination"
+                        + " server address. Build the installer with"
+                        + " SIGNFLOW_SERVER_URL=https://... (scripts/package.sh), or set "
+                        + DesktopSettingsFile.SERVER_URL + " in "
+                        + DesktopSettingsFile.defaultSettingsFile() + ".");
+            } else if (ServerUrlRules.isLoopback(remote) && !isLocalBuild()) {
+                problems.add("This packaged SignFlow build points at " + remote
+                        + ", which is this machine. An installer somebody else runs"
+                        + " cannot reach it. Rebuild with"
+                        + " SIGNFLOW_SERVER_URL=https://<your server>, or set "
+                        + DesktopSettingsFile.SERVER_URL + " in "
+                        + DesktopSettingsFile.defaultSettingsFile() + ".");
+            }
+        }
+    }
+
+    /**
+     * Whether this process is a packaged build: {@code signflow.packaged} from
+     * {@code scripts/package.sh}, or {@code jpackage.app-version}, which
+     * jpackage's own launcher sets. Read as system properties only - never
+     * through the {@link Environment} - so no environment variable can
+     * persuade an installed build that it is running from source.
+     */
+    private static boolean isPackagedBuild() {
+        return System.getProperty("jpackage.app-version") != null
+                || Boolean.getBoolean("signflow.packaged");
+    }
+
+    /**
+     * Whether this package was deliberately built to talk to this machine
+     * ({@code scripts/package.sh --local}). It only excuses a loopback
+     * address; it does not relax TLS, and it is NOT a way into the
+     * {@code dev} profile, which stays refused in any packaged build.
+     */
+    private static boolean isLocalBuild() {
+        return Boolean.getBoolean("signflow.local-build");
+    }
+
+    /** Scan roots for the auto-detection: the {@code auto-detect-dirs} config, default System32. */
+    private static List<String> scanDirs(Environment env) {
+        String raw = env.getProperty("signature.pkcs11.auto-detect-dirs", "");
+        if (raw.isBlank()) {
+            return List.of(Pkcs11LibraryResolver.SYSTEM32);
+        }
+        return java.util.Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
     }
 
     private static void checkServer(Environment env, List<String> problems) {
@@ -123,6 +212,17 @@ public class ProductionSafetyValidator {
         if (!ssl && !offloaded) {
             problems.add("TLS is not configured: enable server.ssl.* (keystore) or, behind"
                     + " a TLS-terminating reverse proxy, set SIGNER_TLS_OFFLOADED=true.");
+        }
+        // Behind a proxy every request arrives from the proxy's address. The
+        // sign-in limit is per client address, so without the forwarded
+        // address all users would share one limit (security Phase 2, L2).
+        String forwarded = env.getProperty("server.forward-headers-strategy", "none")
+                .trim().toLowerCase(Locale.ROOT);
+        if (offloaded && !ssl && !("native".equals(forwarded) || "framework".equals(forwarded))) {
+            problems.add("SIGNER_TLS_OFFLOADED=true but forwarded client addresses are not"
+                    + " used: set SIGNER_FORWARD_HEADERS_STRATEGY=native (the proxy must send"
+                    + " X-Forwarded-For and run on a private address), otherwise every user"
+                    + " shares one sign-in limit.");
         }
         if (Boolean.parseBoolean(env.getProperty(
                 "signature.remote-server.allow-plaintext-passwords", "false"))) {
@@ -145,11 +245,95 @@ public class ProductionSafetyValidator {
                         + " the public https:// address of this server (got '"
                         + linkBase + "').");
             }
+            if (!Boolean.parseBoolean(env.getProperty(
+                    "signature.remote-server.invitation.guest-verification", "true"))) {
+                problems.add("SIGNER_GUEST_VERIFICATION=false lets an invitation link alone"
+                        + " open a guest signing session (the sender, or anyone the e-mail"
+                        + " reaches, could sign in the invitee's place).");
+            }
+            if (Boolean.parseBoolean(env.getProperty(
+                    "signature.remote-server.desktop.accept-unknown-version", "false"))) {
+                problems.add("SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION=true lets desktop builds"
+                        + " that do not report a version open launch links (development"
+                        + " only).");
+            }
             String mode = env.getProperty("signature.remote-server.email.mode", "console");
             if (!"smtp".equalsIgnoreCase(mode.trim())) {
                 problems.add("SIGNER_EMAIL_MODE must be smtp: the console mailbox is a"
                         + " development tool and never delivers invitations.");
             }
+            // The website chain is active exactly when the database is, since
+            // its session store is PostgreSQL (security Phase C).
+            checkWebSession(env, problems);
+        }
+    }
+
+    /** Longest idle window a production website session may have. */
+    private static final Duration MAX_IDLE = Duration.ofHours(12);
+    /** Longest total lifetime a production website session may have. */
+    private static final Duration MAX_ABSOLUTE = Duration.ofHours(24);
+
+    /**
+     * Website session settings (security Phase C). The {@code dev} profile
+     * weakens the cookie so the site works over plain {@code http://localhost};
+     * production must not run with those values.
+     */
+    private static void checkWebSession(Environment env, List<String> problems) {
+        String cookie = env.getProperty(
+                "signature.remote-server.web.session.cookie-name", "__Host-SF_SESSION").trim();
+        if (!cookie.startsWith("__Host-")) {
+            problems.add("The website session cookie must keep the __Host- prefix (got '"
+                    + cookie + "'). With it the browser itself enforces Secure, Path=/ and"
+                    + " no Domain, so neither a sibling subdomain nor a plain-HTTP page can"
+                    + " set the session cookie. SIGNER_WEB_SESSION_COOKIE is a development"
+                    + " setting.");
+        }
+        if (!Boolean.parseBoolean(env.getProperty(
+                "signature.remote-server.web.session.secure-cookie", "true"))) {
+            problems.add("SIGNER_WEB_SESSION_SECURE=false would send the website session"
+                    + " cookie AND the CSRF token cookie over plain HTTP, where any network"
+                    + " observer can take both — which defeats the double-submit check as"
+                    + " well as the session. It is a development setting.");
+        }
+        Duration idle = duration(env, "idle-timeout", "PT30M", problems);
+        Duration absolute = duration(env, "absolute-timeout", "PT8H", problems);
+        if (idle != null && (idle.isZero() || idle.isNegative() || idle.compareTo(MAX_IDLE) > 0)) {
+            problems.add("SIGNER_WEB_SESSION_IDLE must be between 0 and " + MAX_IDLE
+                    + " (got " + idle + "): a website session that never times out is a"
+                    + " permanent credential in a browser.");
+        }
+        if (absolute != null && (absolute.isZero() || absolute.isNegative()
+                || absolute.compareTo(MAX_ABSOLUTE) > 0)) {
+            problems.add("SIGNER_WEB_SESSION_ABSOLUTE must be between 0 and " + MAX_ABSOLUTE
+                    + " (got " + absolute + ").");
+        }
+        Duration anonymous = duration(env, "anonymous-idle-timeout", "PT5M", problems);
+        if (anonymous != null && idle != null
+                && (anonymous.isZero() || anonymous.isNegative()
+                        || anonymous.compareTo(idle) > 0)) {
+            problems.add("SIGNER_WEB_SESSION_ANON_IDLE must be positive and no longer than"
+                    + " SIGNER_WEB_SESSION_IDLE (got " + anonymous + " against " + idle
+                    + "): a visitor who never signs in must not hold a session longer than"
+                    + " one who did.");
+        }
+        if (idle != null && absolute != null && absolute.compareTo(idle) < 0) {
+            problems.add("SIGNER_WEB_SESSION_ABSOLUTE (" + absolute + ") is shorter than"
+                    + " SIGNER_WEB_SESSION_IDLE (" + idle + "), so the idle window could"
+                    + " never be reached. One of them is wrong.");
+        }
+    }
+
+    /** Reads an ISO-8601 duration property, reporting an unparseable value. */
+    private static Duration duration(Environment env, String key, String fallback,
+                                     List<String> problems) {
+        String raw = env.getProperty(
+                "signature.remote-server.web.session." + key, fallback).trim();
+        try {
+            return Duration.parse(raw);
+        } catch (java.time.format.DateTimeParseException e) {
+            problems.add("signature.remote-server.web.session." + key + " is not an"
+                    + " ISO-8601 duration (got '" + raw + "', expected e.g. PT30M).");
+            return null;
         }
     }
 

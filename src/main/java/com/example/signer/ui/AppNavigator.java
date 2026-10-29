@@ -1,6 +1,9 @@
 package com.example.signer.ui;
 
-import com.example.signer.remote.RemoteWorkflowDialog;
+import com.example.signer.ui.dialog.InvitationDialog;
+import com.example.signer.ui.dialog.LoginDialog;
+import com.example.signer.ui.dialog.WorkflowSelectionDialog;
+import com.example.signer.ui.remote.RemoteWorkflowDialog;
 import com.example.signer.ui.workspace.MultiSignerWorkspaceFlow;
 import com.example.signer.ui.workspace.WorkflowContinuationDialog;
 import com.example.signer.workflow.SigningMode;
@@ -50,7 +53,7 @@ final class AppNavigator {
      */
     void runHome() {
         while (true) {
-            WorkflowSelectionDialog home = new WorkflowSelectionDialog();
+            WorkflowSelectionDialog home = new WorkflowSelectionDialog(services.serverAddress());
             SigningMode mode = home.showAndWait(owner);
 
             if (home.isSignOutRequested()) {
@@ -92,6 +95,30 @@ final class AppNavigator {
                     result.workflowId(), result.email(), result.documentName());
         } finally {
             // Wipes the guest token from memory (nothing to revoke server-side).
+            result.client().close();
+        }
+    }
+
+    /**
+     * Phase B: opened from a website launch link. The one-time code is
+     * exchanged for a session limited to that one signing task, then the
+     * same signing screens as an invited guest's open — no sign-in, no task
+     * lists. Local PKCS#11 signing is unchanged.
+     */
+    void openLaunch(Window parent, String code) {
+        com.example.signer.ui.dialog.LaunchDialog.Result result =
+                new com.example.signer.ui.dialog.LaunchDialog(services.remoteBaseUrl(), code)
+                        .showAndWait(parent);
+        if (result == null) {
+            return;
+        }
+        var session = result.session();
+        log.info("Desktop task session opened for workflow {}", session.workflowId());
+        try {
+            remoteWorkflowDialog().showGuestAndWait(owner, result.client(), session.signerId(),
+                    session.workflowId(), null, session.documentName());
+        } finally {
+            // Wipes the task token from memory.
             result.client().close();
         }
     }

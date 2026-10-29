@@ -8,6 +8,7 @@ import com.example.signer.server.auth.AuthController;
 import com.example.signer.token.TokenService;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -37,6 +38,7 @@ class ProductionStartupTests {
                 "--signature.remote-server.storage="
                         + Files.createTempDirectory("prod-startup").toString(),
                 "--signature.remote-server.tls-offloaded=true",
+                "--server.forward-headers-strategy=native",
                 "--signature.remote-server.database.enabled=false",
                 "--logging.file.name="));
         args.addAll(List.of(extra));
@@ -76,7 +78,8 @@ class ProductionStartupTests {
             AuthController auth = ctx.getBean(AuthController.class);
             for (String[] known : new String[][] {{"alice", "alice-pass"},
                     {"bob", "bob-pass"}, {"charlie", "charlie-pass"}}) {
-                assertThat(auth.login(new LoginRequest(known[0], known[1]))
+                assertThat(auth.login(new LoginRequest(known[0], known[1]),
+                                new MockHttpServletRequest())
                         .getStatusCode().value()).isEqualTo(401);
             }
             assertThat(ctx.getBeanNamesForType(
@@ -86,7 +89,7 @@ class ProductionStartupTests {
 
     @Test
     @org.junit.jupiter.api.condition.EnabledIf(
-            value = "com.example.signer.server.PostgresConcurrencyLiveTests#postgresAvailable",
+            value = "com.example.signer.server.workflow.PostgresConcurrencyLiveTests#postgresAvailable",
             disabledReason = "PostgreSQL not reachable")
     void productionServerOnAFreshDatabaseSeedsNoAccounts() throws Exception {
         String user = System.getenv().getOrDefault("SIGNER_DB_USERNAME", "postgres");
@@ -114,7 +117,8 @@ class ProductionStartupTests {
             assertThat(ctx.getBean(com.example.signer.server.db.repository.UserRepository.class)
                     .count()).isZero();
             assertThat(ctx.getBean(AuthController.class)
-                    .login(new LoginRequest("alice", "alice-pass")).getStatusCode().value())
+                    .login(new LoginRequest("alice", "alice-pass"),
+                            new MockHttpServletRequest()).getStatusCode().value())
                     .isEqualTo(401);
         }
     }

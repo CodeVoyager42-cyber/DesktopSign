@@ -43,29 +43,37 @@ class InvitationDeepLinkTests {
     }
 
     @Test
-    void parsesTheTokenForwardedByASecondLaunch() {
-        String token = "YRVKvELD1AlB94FtZnHo5B-Ydam4b43URdsizGjgnms";
-        assertThat(InvitationLinks.parseActivationToken("token=" + token))
-                .isEqualTo(token);
-        assertThat(InvitationLinks.parseActivationToken("x=1&token=" + token))
-                .isEqualTo(token);
+    void parsesAVersionOneLaunchLinkStrictly() {
+        String code = "YRVKvELD1AlB94FtZnHo5B-Ydam4b43URdsizGjgnms";   // 43 chars
+        InvitationLinks.LaunchArgument a = InvitationLinks.parse(
+                List.of("signflow://launch?v=1&c=" + code));
+        assertThat(a.kind()).isEqualTo(InvitationLinks.LaunchArgument.Kind.LAUNCH);
+        assertThat(a.value()).isEqualTo(code);
+        assertThat(a.toString()).doesNotContain(code);
+        // Browsers sometimes add a slash before the query.
+        assertThat(InvitationLinks.parse(List.of("signflow://launch/?v=1&c=" + code)).value())
+                .isEqualTo(code);
+        // Anything else is not a launch link.
+        for (String bad : new String[] {
+                "signflow://launch?v=2&c=" + code,
+                "signflow://launch?c=" + code,
+                "signflow://launch?v=1&c=" + code + "&x=1",
+                "signflow://launch?v=1&c=" + code.substring(1),
+                "signflow://launch?v=1&c=" + code.replace('Y', '%'),
+                "xsignflow://launch?v=1&c=" + code,
+                "signflow://launch?v=1&c=" + code + "/"}) {
+            assertThat(InvitationLinks.launchCode(bad)).as(bad).isNull();
+        }
     }
 
     @Test
-    void forwardedQueryWithoutTokenMeansRaiseOnly() {
-        assertThat(InvitationLinks.parseActivationToken(null)).isNull();
-        assertThat(InvitationLinks.parseActivationToken("x=1")).isNull();
-        assertThat(InvitationLinks.parseActivationToken("token=")).isNull();
-    }
-
-    @Test
-    void rejectsMalformedForwardedTokens() {
-        String token = "YRVKvELD1AlB94FtZnHo5B-Ydam4b43URdsizGjgnms";
-        // %3C = '<' — outside the token character set, so this is rejected.
-        assertThat(InvitationLinks.parseActivationToken(
-                "token=" + token + "%3Cscript%3E")).isNull();
-        // Too short to be an invitation token.
-        assertThat(InvitationLinks.parseActivationToken(
-                "token=abc")).isNull();
+    void aLaunchLinkWinsAndIsNeverMistakenForAnInvitation() {
+        String code = "YRVKvELD1AlB94FtZnHo5B-Ydam4b43URdsizGjgnms";
+        assertThat(InvitationLinks.extractInvitationToken(
+                List.of("signflow://launch?v=1&c=" + code))).isNull();
+        InvitationLinks.LaunchArgument a = InvitationLinks.parse(List.of(
+                "signflow://invitation/" + code, "signflow://launch?v=1&c=" + code));
+        assertThat(a.kind()).isEqualTo(InvitationLinks.LaunchArgument.Kind.LAUNCH);
+        assertThat(InvitationLinks.parse(List.of("--spring.profiles.active=dev"))).isNull();
     }
 }

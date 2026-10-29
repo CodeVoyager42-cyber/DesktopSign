@@ -23,7 +23,7 @@ One artifact (`pdf-signer-desktop`, Spring Boot 3.5.3, Java 21), two run modes:
 
 ## 3. Server — reusable as-is
 
-- **Auth** (`server/auth`): `JwtService` (HS256, minimal claims: sub/iss/aud/iat/exp/jti/typ, 15-min access TTL), `JwtAuthFilter` (servlet `OncePerRequestFilter` on `/api/workflows/**`, structured 401, no Spring Security filter stack — only `spring-security-crypto` for bcrypt), `RefreshTokenStore` (in-memory, 256-bit tokens, SHA-256-at-rest, rotation with family reuse detection), `AuthController` (`/api/auth/login`, `/refresh`, `/logout`, `/me`). Secrets are never logged; unknown-user and wrong-password are indistinguishable.
+- **Auth** (`server/auth`): `JwtService` (HS256, minimal claims: sub/iss/aud/iat/exp/jti/typ, 15-min access TTL), Spring Security filter chain in `server/security` (every route protected by default, structured 401/403; replaced `JwtAuthFilter` in security Phase 2), `RefreshTokenStore` (database or in-memory, 256-bit tokens, SHA-256-at-rest, rotation with family reuse detection), `AuthController` (`/api/auth/login`, `/refresh`, `/logout`, `/me`). Secrets are never logged; unknown-user and wrong-password are indistinguishable.
 - **Workflow engine** (`RemoteWorkflowService` + `SigningWorkflowAggregate`): explicit `WorkflowState` machine (DRAFT → READY_FOR_SIGNING → WAITING_FOR_SIGNER → SIGNATURE_SUBMITTED → VALIDATING → COMPLETED/FAILED/CANCELLED, guarded transitions), SEQUENTIAL + FLEXIBLE policies with persisted 30-min turn claims, certificate binding (UNBOUND → BOUND, fingerprint SHA-256), idempotent submissions (`signingOperationId`), stale-revision rejection (parent number **and** SHA-256), incremental-update byte-prefix verification through the same verifier the desktop uses. Audit types already exist (`AuditEventType`, append-only per workflow).
 - **Persistence** (`WorkflowFileStore`): filesystem JSON aggregate snapshots (`state.json`, atomic rewrite, per-workflow lock) + append-only revision files (`revisions/N.pdf`, write-once) + staged originals for DRAFT. SHA-256 per revision. **This is the only persistence seam** — `RemoteWorkflowService` touches nothing else (plus one leak: `workflowsDir().listFiles()` for `myTasks` listing).
 - **REST** (`WorkflowRestController`): create (multipart), get, my-tasks, task, claim, eligible-signers, bind-certificate, document download, revisions, audit, submit-signature (multipart), cancel — all authorized via JWT-derived user.
@@ -33,6 +33,12 @@ One artifact (`pdf-signer-desktop`, Spring Boot 3.5.3, Java 21), two run modes:
 PDFBox 3.0.5 + BouncyCastle 1.80. `PdfSigningService` (CMS, incremental updates, visible signature appearance, placement in PDF coordinates via `SignaturePlacement`/`CoordinateMapper`), `PdfVerificationService` (full chain incl. previous signatures), `WorkflowManifest`/`WorkflowManifestCodec` (hardened schema-controlled manifest embedded in PDFs).
 
 ## 5. What is MISSING vs. the target architecture
+
+> Historical: this table records the gaps found at the time of the original
+> assessment. Most have since been closed (database, Flyway, accounts,
+> invitations, email, registration). For the current security state see
+> `docs/security/phase-1-identity-foundation.md` and
+> `docs/security/phase-2-authentication.md`.
 
 | Gap | Detail |
 |---|---|

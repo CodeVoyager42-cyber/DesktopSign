@@ -1,12 +1,11 @@
 package com.example.signer.server.api;
 
-import com.example.signer.server.RemoteWorkflowService;
+import com.example.signer.server.workflow.RemoteWorkflowService;
 import com.example.signer.server.api.ApiContracts.AuditView;
 import com.example.signer.server.api.ApiContracts.BindCertificateRequest;
 import com.example.signer.server.api.ApiContracts.CreateInvitationRequest;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowResponse;
-import com.example.signer.server.api.ApiContracts.InvitationLinkView;
 import com.example.signer.server.api.ApiContracts.InvitationStatusView;
 import com.example.signer.server.api.ApiContracts.InvitationView;
 import com.example.signer.server.api.ApiContracts.RevisionView;
@@ -18,10 +17,8 @@ import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
 import com.example.signer.server.api.ApiErrorType.ApiException;
 
 import com.example.signer.server.auth.AuthController;
-import com.example.signer.server.db.entity.InvitationEntity;
 import com.example.signer.server.db.entity.WorkflowEntity;
 import com.example.signer.server.invites.InvitationService;
-import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
@@ -33,13 +30,12 @@ import org.springframework.web.multipart.MultipartFile;
 import jakarta.servlet.http.HttpServletRequest;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * The coordination REST API (§11 of the task spec). The authenticated user is
- * resolved from the validated Bearer JWT (see {@link JwtAuthFilter} — the
+ * resolved from the validated Bearer JWT (Spring Security, see
+ * {@code server.security.SecurityConfig} — the
  * former Basic-auth filter) and injected via the
  * {@code X-Workflow-User} request attribute.
  */
@@ -49,16 +45,20 @@ public class WorkflowRestController {
 
     private final RemoteWorkflowService service;
 
-    /** Present only in database mode: email invitations at creation time. */
-    private final ObjectProvider<WorkflowInvitationCoordinator> invitationCoordinator;
+    /**
+     * The operations that take several steps in a fixed order. Shared with
+     * the website's controllers (Phase E) so the order cannot drift apart
+     * between the two chains.
+     */
+    private final WorkflowOperations operations;
 
     private final ObjectProvider<InvitationService> invitations;
 
     public WorkflowRestController(RemoteWorkflowService service,
-                                  ObjectProvider<WorkflowInvitationCoordinator> invitationCoordinator,
+                                  WorkflowOperations operations,
                                   ObjectProvider<InvitationService> invitations) {
         this.service = service;
-        this.invitationCoordinator = invitationCoordinator;
+        this.operations = operations;
         this.invitations = invitations;
     }
 
@@ -69,37 +69,11 @@ public class WorkflowRestController {
             @RequestPart("file") MultipartFile file,
             HttpServletRequest servletRequest) throws IOException {
         String user = AuthController.requireUser(servletRequest);
-        if (file == null || file.isEmpty()) {
-            throw new ApiException(ApiErrorCode.BAD_REQUEST,
-                    "The original PDF file is required");
-        }
-        if (!file.getOriginalFilename().toLowerCase().endsWith(".pdf")) {
-            throw new ApiException(ApiErrorCode.BAD_REQUEST,
-                    "Only PDF documents can start a signing workflow");
-        }
-        byte[] pdf = file.getBytes();
-
         // Database mode: email-shaped signer slots become invited accounts
         // and receive an email invitation (brief §53). File mode: unchanged.
-        WorkflowInvitationCoordinator coordinator = invitationCoordinator.getIfAvailable();
-        List<WorkflowInvitationCoordinator.SlotInvite> pendingInvites = List.of();
-        CreateWorkflowRequest effective = request;
-        if (coordinator != null) {
-            WorkflowInvitationCoordinator.Preparation prep =
-                    coordinator.prepare(request, user);
-            effective = prep.request();
-            pendingInvites = prep.pendingInvites();
-        }
-
-        WorkflowView view = service.createWorkflow(effective, pdf, user);
-        // The emailed links are returned exactly here and nowhere else: only
-        // the token hash is persisted, so no later read can reproduce them.
-        List<InvitationLinkView> links = List.of();
-        if (coordinator != null && !pendingInvites.isEmpty()) {
-            links = coordinator.invite(view.workflowId(), pendingInvites, user);
-        }
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(new CreateWorkflowResponse(view, links));
+        // Both steps, in that order, are in WorkflowOperations.
+        return ResponseEntity.status(HttpStatus.CREATED).body(operations.create(
+                request, operations.requirePdf(file), user));
     }
 
     @GetMapping("/{workflowId}")
@@ -204,8 +178,10 @@ public class WorkflowRestController {
         byte[] pdf = service.getDocument(workflowId, user);
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
-                .header("Content-Disposition", "attachment; filename=\""
-                        + service.getWorkflow(workflowId, user).documentName() + "\"")
+                // The name is the uploader's text, so it is not put in a
+                // header as it stands — see WorkflowOperations.attachment.
+                .header("Content-Disposition", WorkflowOperations.attachment(
+                        service.getWorkflow(workflowId, user).documentName()))
                 .body(pdf);
     }
 
@@ -247,26 +223,8 @@ public class WorkflowRestController {
             @RequestBody CreateInvitationRequest request,
             HttpServletRequest servletRequest) {
         String user = AuthController.requireUser(servletRequest);
-        ApiContracts.WorkflowView workflow = service.getWorkflow(workflowId, user);
-        // signerOrder is 1-based everywhere (DB slot order, invitation
-        // records, the UI picker) — validate against 1..totalSignatures.
-        if (request.signerOrder() < 1 || request.signerOrder() > workflow.totalSignatures()) {
-            throw new ApiException(ApiErrorCode.BAD_REQUEST,
-                    "Signer order " + request.signerOrder() + " is out of range (1.."
-                            + workflow.totalSignatures() + ")");
-        }
-        InvitationService invitationService = invitations.getIfAvailable();
-        if (invitationService == null) {
-            throw new ApiException(ApiErrorCode.BAD_REQUEST,
-                    "Invitations are not enabled on this server.");
-        }
-        String rawToken = invitationService.invite(workflowId,
-                request.signerOrder(), request.email(), user);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(new InvitationView(null, workflowId, workflow.documentName(),
-                        request.signerOrder(), request.email(), user,
-                        InvitationEntity.STATUS_PENDING, null,
-                        invitationService.invitationUrl(rawToken)));
+                .body(operations.invite(workflowId, request, user));
     }
 
     /**
@@ -280,21 +238,7 @@ public class WorkflowRestController {
             @PathVariable String workflowId,
             HttpServletRequest servletRequest) {
         String user = AuthController.requireUser(servletRequest);
-        service.getWorkflow(workflowId, user);
-        InvitationService invitationService = invitations.getIfAvailable();
-        if (invitationService == null) {
-            return List.of();
-        }
-        Map<Integer, Boolean> slotSigned = new HashMap<>();
-        try {
-            for (TaskView.StepView step : service.getTask(workflowId, user)
-                    .signers()) {
-                slotSigned.put(step.order(), step.signed());
-            }
-        } catch (ApiException ignored) {
-            // Tracking stays invitation-only if the task view is unavailable.
-        }
-        return invitationService.listForWorkflow(workflowId, user, slotSigned);
+        return operations.invitationStatus(workflowId, user);
     }
 
     /** Cancels a workflow (creator or current signer, pre-completion only). */

@@ -47,4 +47,97 @@ public class ConsoleEmailService implements EmailService {
                 + body + "\n"
                 + "================================================================================");
     }
+
+    /** Development mailbox: the last code sent to each address (tests read it). */
+    private final java.util.Map<String, String> latestGuestCodes =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Development mailbox: the last account link sent to each address. */
+    private final java.util.Map<String, String> latestAccountLinks =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Development mailbox: the last account notice sent to each address. */
+    private final java.util.Map<String, String> latestAccountNotices =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    @Override
+    public void sendGuestVerificationCode(String recipientEmail, String workflowName,
+                                          String code, Instant expiresAt) {
+        latestGuestCodes.put(recipientEmail, code);
+        // The code is a secret: the server log only says that one was sent.
+        log.info("EMAIL (console mode) to {} — guest verification code for '{}'",
+                recipientEmail, workflowName);
+        System.out.println("\n================================================================================\n"
+                + "  DEVELOPMENT MAILBOX (console mode) → " + recipientEmail + "\n"
+                + "  Subject: " + GuestCodeEmailTemplate.subject(workflowName) + "\n\n"
+                + GuestCodeEmailTemplate.text(workflowName, code, expiresAt, appName) + "\n"
+                + "================================================================================");
+    }
+
+    /**
+     * The last guest code "sent" to {@code email} in console mode. Console
+     * mode is refused outside the {@code dev} profile, so this mailbox never
+     * exists on a production server.
+     */
+    public String latestGuestCode(String email) {
+        return latestGuestCodes.get(email);
+    }
+
+    @Override
+    public void sendEmailVerification(String recipientEmail, String link, Instant expiresAt) {
+        latestAccountLinks.put(recipientEmail, link);
+        // The link is a secret: the server log only says that one was sent.
+        log.info("EMAIL (console mode) to {} — e-mail verification link", recipientEmail);
+        print(recipientEmail, AccountEmailTemplate.verificationSubject(appName),
+                AccountEmailTemplate.verificationText(link, expiresAt, appName));
+    }
+
+    @Override
+    public void sendPasswordReset(String recipientEmail, String link, Instant expiresAt) {
+        latestAccountLinks.put(recipientEmail, link);
+        log.info("EMAIL (console mode) to {} — password-reset link", recipientEmail);
+        print(recipientEmail, AccountEmailTemplate.resetSubject(appName),
+                AccountEmailTemplate.resetText(link, expiresAt, appName));
+    }
+
+    @Override
+    public void sendPasswordChanged(String recipientEmail, Instant changedAt,
+                                    boolean afterReset) {
+        String body = AccountEmailTemplate.changedText(changedAt, afterReset, appName);
+        latestAccountNotices.put(recipientEmail, body);
+        // There is no secret in this one, so saying what it was is safe.
+        log.info("EMAIL (console mode) to {} — password-change notice", recipientEmail);
+        print(recipientEmail, AccountEmailTemplate.changedSubject(appName), body);
+    }
+
+    /**
+     * The last account link "sent" to {@code email} in console mode. Console
+     * mode is refused outside the {@code dev} profile, so this mailbox never
+     * exists on a production server.
+     */
+    @Override
+    public void sendAccountLocked(String recipientEmail, Instant lockedUntil) {
+        String body = AccountEmailTemplate.lockedOutText(lockedUntil, appName);
+        latestAccountNotices.put(recipientEmail, body);
+        // No secret in this one either.
+        log.info("EMAIL (console mode) to {} — account-lock notice", recipientEmail);
+        print(recipientEmail, AccountEmailTemplate.lockedOutSubject(appName), body);
+    }
+
+    public String latestAccountLink(String email) {
+        return latestAccountLinks.get(email);
+    }
+
+    /** The last account notice (no link in it) "sent" to {@code email}. */
+    public String latestAccountNotice(String email) {
+        return latestAccountNotices.get(email);
+    }
+
+    private static void print(String recipient, String subject, String body) {
+        System.out.println("\n================================================================================\n"
+                + "  DEVELOPMENT MAILBOX (console mode) → " + recipient + "\n"
+                + "  Subject: " + subject + "\n\n"
+                + body + "\n"
+                + "================================================================================");
+    }
 }

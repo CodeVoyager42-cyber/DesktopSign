@@ -1,6 +1,6 @@
 package com.example.signer.server.db;
 
-import com.example.signer.server.WorkflowDirectory;
+import com.example.signer.server.workflow.WorkflowDirectory;
 import com.example.signer.server.db.repository.UserRepository;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
