@@ -11,7 +11,12 @@ package com.example.signer.server.invites;
  * <p>The markup is a single self-contained HTML document (no JavaScript, no
  * external assets) with a mobile-first stylesheet: full-width touch targets
  * and stacked metadata on phones, comfortable two-column metadata on larger
- * screens, and a dark variant via {@code prefers-color-scheme}.
+ * screens.
+ *
+ * <p>Light only, exactly like the Next.js website (web/app/globals.css):
+ * every colour below is that file's measured token, so a page rendered here
+ * sits beside the site's shadcn screens without a seam. There is no dark
+ * variant on purpose — see the note in globals.css before adding one.
  */
 public final class SignPageRenderer {
 
@@ -34,35 +39,47 @@ public final class SignPageRenderer {
     private SignPageRenderer() {
     }
 
+    /*
+     * Every value here is the matching token from the website's design
+     * system, web/app/globals.css (same name, same measurement section).
+     * Light only — the site renders no dark theme, so neither does this.
+     */
     private static final String STYLE = """
-            :root{--bg:#eef1f5;--card:#ffffff;--ink:#1c2530;--muted:#66707d;
-                  --line:#e4e9ef;--brand:#12507d;--brand-ink:#ffffff;
-                  --soft:#f2f6fa;--ok:#1d7a46;--ok-bg:#e7f5ed;
-                  --warn:#8a5a00;--warn-bg:#fdf3dd;
-                  --bad:#a03030;--bad-bg:#fbe9e9}
+            :root{--bg:#f8fafc;--card:#ffffff;--ink:#0f172a;
+                  --muted:#475569;--line:#e2e8f0;
+                  --brand:#1d4ed8;--brand-hover:#1e40af;--brand-ink:#ffffff;
+                  --soft:#f8fafc;--accent:#eff6ff;--ring:#3b82f6;
+                  --ok:#15803d;--ok-bg:#eef6ee;
+                  --warn:#b45309;--warn-bg:#fdf3dd;
+                  --bad:#b91c1c;--bad-bg:#fbe9e9}
             *{box-sizing:border-box}
-            body{font:16px/1.6 -apple-system,"Segoe UI",system-ui,Roboto,sans-serif;
-                 background:var(--bg);color:var(--ink);margin:0;padding:24px 14px 40px}
+            body{font:16px/1.6 "Inter Variable",-apple-system,BlinkMacSystemFont,
+                       "Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+                 background:var(--bg);color:var(--ink);margin:0;
+                 padding:24px 14px 40px}
             .card{max-width:640px;margin:0 auto;background:var(--card);
-                  border-radius:12px;box-shadow:0 2px 16px rgba(18,50,79,.10);
+                  border:1px solid var(--line);
+                  border-radius:12px;box-shadow:0 1px 3px rgba(15,23,42,.06);
                   padding:30px clamp(18px,5vw,36px) 26px}
             .top{display:flex;align-items:center;justify-content:space-between;
                  gap:10px;flex-wrap:wrap;margin-bottom:6px}
             .brand{font-size:13px;font-weight:600;letter-spacing:.4px;
                    text-transform:uppercase;color:var(--muted)}
-            .pill{display:inline-block;font-size:12.5px;font-weight:600;
+            .pill{display:inline-block;font-size:12.5px;font-weight:500;
                   padding:4px 12px;border-radius:999px;background:var(--warn-bg);
                   color:var(--warn);white-space:nowrap}
-            .pill--info{background:var(--soft);color:var(--brand)}
+            .pill--info{background:var(--accent);color:var(--brand)}
             .pill--ok{background:var(--ok-bg);color:var(--ok)}
             .pill--bad{background:var(--bad-bg);color:var(--bad)}
-            h1{margin:2px 0 4px;font-size:clamp(21px,5vw,25px);color:var(--brand);
+            h1{margin:2px 0 4px;font-size:clamp(21px,5vw,25px);color:var(--ink);
+               font-weight:600;letter-spacing:-0.2px;
                line-height:1.25;overflow-wrap:anywhere}
-            .sub{color:var(--muted);margin:0 0 22px;font-size:14.5px}
+            .sub{color:var(--muted);margin:0 0 22px;font-size:15px}
             .steps{display:flex;gap:6px;margin:0 0 22px;padding:0;list-style:none;
                    flex-wrap:wrap}
-            .steps li{flex:1 1 0;min-width:88px;font-size:12.5px;color:var(--muted);
-                      border-top:3px solid var(--line);padding-top:7px}
+            .steps li{flex:1 1 0;min-width:88px;font-size:12.5px;
+                      color:var(--muted);border-top:2px solid var(--line);
+                      padding-top:7px}
             .steps li.done{border-top-color:var(--ok);color:var(--ok)}
             .steps li.now{border-top-color:var(--brand);color:var(--brand);
                           font-weight:600}
@@ -70,35 +87,34 @@ public final class SignPageRenderer {
             dl > div{display:flex;gap:14px;padding:9px 0;
                      border-bottom:1px solid var(--line)}
             dt{color:var(--muted);flex:0 0 38%;font-size:14px;margin:0}
-            dd{margin:0;font-size:14.5px;font-weight:600;min-width:0;
+            dd{margin:0;font-size:14.5px;font-weight:500;min-width:0;
                overflow-wrap:anywhere}
             .cta{display:flex;align-items:center;justify-content:center;gap:9px;
-                 background:var(--brand);color:var(--brand-ink);text-decoration:none;
-                 padding:14px 26px;border-radius:8px;font-weight:600;font-size:16px;
-                 min-height:50px;text-align:center}
-            .cta.secondary{background:var(--soft);color:var(--brand);
+                 background:var(--brand);color:var(--brand-ink);
+                 text-decoration:none;padding:14px 26px;border-radius:10px;
+                 font-weight:500;font-size:16px;min-height:50px;text-align:center}
+            .cta:hover{background:var(--brand-hover)}
+            .cta:focus-visible{outline:2px solid var(--ring);
+                               outline-offset:2px}
+            a:not(.cta):focus-visible{outline:2px solid var(--ring);
+                                      outline-offset:2px}
+            .cta.secondary{background:var(--accent);color:var(--brand);
                            font-weight:500;margin-top:10px}
+            .cta.secondary:hover{background:#dbeafe}
             .row{margin:0 0 10px}
             .note{color:var(--muted);font-size:13px;margin:18px 0 0;
                   overflow-wrap:anywhere}
-            .detail{font-size:15px;margin:0 0 6px}
-            .install{border:1px solid var(--line);border-radius:8px;
+            .detail{font-size:15px;margin:0 0 6px;color:var(--muted)}
+            .install{border:1px solid var(--line);border-radius:12px;
                      padding:14px 16px;margin-top:22px;background:var(--soft)}
             .install-head{margin:0 0 8px;font-size:14px;font-weight:600}
             @media (max-width:460px){
               body{padding:14px 10px 28px}
-              .card{padding:22px 16px 20px;border-radius:10px}
+              .card{padding:22px 16px 20px}
               dl > div{flex-direction:column;gap:2px;padding:10px 0}
               dt{flex:none}
               .cta{width:100%;padding-left:12px;padding-right:12px}
               .steps li{min-width:74px}
-            }
-            @media (prefers-color-scheme:dark){
-              :root{--bg:#141a22;--card:#1d2530;--ink:#e8edf3;--muted:#9aa7b4;
-                    --line:#2c3642;--brand:#5aa2d8;--brand-ink:#0d1319;
-                    --soft:#253140;--ok:#6fd39a;--ok-bg:#1d3a2b;
-                    --warn:#e4b45c;--warn-bg:#3a301a;
-                    --bad:#e08b8b;--bad-bg:#432424}
             }
             """;
 
@@ -183,7 +199,7 @@ public final class SignPageRenderer {
         return """
                 <!doctype html><html lang="en"><head><meta charset="utf-8">
                 <meta name="viewport" content="width=device-width,initial-scale=1">
-                <meta name="color-scheme" content="light dark">
+                <meta name="color-scheme" content="light">
                 <style>%s</style></head><body>
                 <div class="card">
                 %s
