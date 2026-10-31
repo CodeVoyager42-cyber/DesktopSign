@@ -82,7 +82,12 @@ class SignPageRendererTests {
 
         assertThat(html).contains("viewport");
         assertThat(html).contains("@media (max-width:460px)");
-        assertThat(html).contains("prefers-color-scheme:dark");
+        // Light only, matching the website (web/app/globals.css): no dark
+        // variant is allowed to sneak back in, and the browser is told the
+        // page does not follow the OS theme.
+        assertThat(html).doesNotContain("prefers-color-scheme:dark");
+        assertThat(html).doesNotContain("prefers-color-scheme:none");
+        assertThat(html).contains("color-scheme\" content=\"light\"");
         assertThat(html).contains("Awaiting your signature");
         assertThat(html).contains("You have been invited to sign a document");
         assertThat(html).contains("1 · Invited");
