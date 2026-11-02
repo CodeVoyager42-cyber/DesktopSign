@@ -40,15 +40,37 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up JDK 26
+      - name: Set up packaging JDK 26.0.2 (the exact release the WiX template was authored against)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '26'
+          # Pinned EXACTLY: packaging/windows/main.wxs tracks this JDK's
+          # jpackage template. A patch-version drift trips the template
+          # drift check, and a major drift (26 -> anything else) breaks
+          # WiX link time outright. See docs/windows-packaging.md.
+          java-version: '26.0.2'
           cache: maven
 
       - name: Install WiX toolset (for MSI)
         run: choco install wixtoolset -y --no-progress
+
+      - name: Verify WiX 3.14.1 is discoverable (fail before the ~20-minute build)
+        run: |
+          # WiX installs to the 32-bit Program Files root on the runner;
+          # scripts/package-windows.sh scans exactly these roots.
+          wix_bin=""
+          for d in "/c/Program Files (x86)/WiX Toolset"*/bin "/c/Program Files/WiX Toolset"*/bin; do
+            if [ -x "$d/candle.exe" ]; then wix_bin="$d"; break; fi
+          done
+          if [ -z "$wix_bin" ]; then
+            echo "::error::candle.exe not found in the WiX Toolset install roots"
+            exit 1
+          fi
+          if ! "$wix_bin/candle.exe" -? 2>&1 | grep -q "version 3.14.1"; then
+            echo "::error::$wix_bin/candle.exe is not WiX 3.14.1 - the pinned pairing is WiX 3.14.1 + packaging JDK 26.0.2 (docs/windows-packaging.md)"
+            exit 1
+          fi
+          echo "WiX verified at $wix_bin: $("$wix_bin/candle.exe" -? 2>&1 | head -n 1)"
 
       - name: Build and test
         run: ./mvnw -B --no-transfer-progress verify
@@ -56,7 +78,11 @@ jobs:
       - name: Package (jpackage, reuses the jar built above)
         env:
           SIGNFLOW_SERVER_URL: ${{ vars.SIGNFLOW_SERVER_URL }}
-        run: bash scripts/package.sh --skip-build
+        run: |
+          # The pinned wrapper: locates the 26.0.2 packaging JDK (setup-java's
+          # JAVA_HOME) and WiX 3.14.1, runs scripts/package.sh --skip-build,
+          # then verifies MSI + zip + checksums exist and agree.
+          bash scripts/package-windows.sh --skip-build
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@v4

@@ -71,11 +71,20 @@ certificate, not a workaround.
 
 ### Building it yourself
 
-From a machine with JDK 21+ and [WiX 3.x](https://wixtoolset.org/):
+On Windows, use the pinned, pre-checked wrapper:
 
 ```bash
-scripts/package.sh
+scripts/package-windows.sh --server-url https://signflow.example.com
 ```
+
+It pins the two prerequisites the MSI is known to need — a **packaging JDK
+of exactly OpenJDK 26.0.2** (the release `packaging/windows/main.wxs` was
+authored against; other JDKs fail at WiX link time with LGHT0094) and
+**WiX 3.14.1** — verifies them before the minutes-long build, then delegates
+to `scripts/package.sh`, and finally verifies the MSI + portable zip and
+their `.sha256` files. See
+[docs/windows-packaging.md](docs/windows-packaging.md) for prerequisites,
+one-time setup and how to verify the installer's `signflow://` handling.
 
 `build/dist/` then holds the MSI, the portable zip and a `.sha256` for each
 (`build/jpackage/SignFlow/SignFlow.exe` is the raw app-image). Without WiX
