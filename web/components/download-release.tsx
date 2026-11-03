@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SectionCard } from "@/components/blocks";
+import { InstallerButton } from "@/components/installer-button";
 import { api, type LatestRelease, type ReleaseAsset } from "@/lib/api";
 import { fileSize, groupedChecksum, releaseDate, verifyCommand } from "@/lib/download";
 
@@ -245,12 +246,16 @@ export function DownloadRelease() {
           </p>
 
           <div className="flex flex-wrap items-center gap-3">
-            {release.installer?.url ? (
-              <AssetButton
-                asset={release.installer}
-                variant="default"
-                label="Download for Windows (.msi)"
-              />
+            {/* The installer goes through the signed-in route rather than
+                the public `/downloads/<file>` link the zip below uses: this
+                card is only ever rendered behind a session, and the server
+                checks that session again on the request itself. The reader
+                also gets the stable `SignFlow-Setup.msi` name from it,
+                which is why no size is appended to the label — the version
+                is on the line above, and the exact size is in the
+                verification section with the checksum. */}
+            {release.installer ? (
+              <InstallerButton label="Download for Windows (.msi)" />
             ) : null}
             {release.portable?.url ? (
               <AssetButton

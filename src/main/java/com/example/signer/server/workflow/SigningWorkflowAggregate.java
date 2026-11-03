@@ -1,9 +1,7 @@
 package com.example.signer.server.workflow;
 
 import com.example.signer.signing.SignaturePlacement;
-import com.example.signer.workflow.WorkflowSigningPolicy;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -11,29 +9,20 @@ import java.util.List;
 /**
  * The owning aggregate of a server-coordinated signing workflow.
  *
- * <p>All state changes funnel through {@link #transition} (state-machine
- * guarded), {@link #claimTurn}, {@link #markSignedByUser}, {@link #appendRevision}
- * and {@link #appendAudit}, keeping the invariants — contiguous revision
- * chain, contiguous signer order, at most one claimed turn — in one place.
- * The aggregate performs NO persistence and NO locking; the service
- * serialises access with the per-workflow lock.
+ * <p>All state changes funnel through {@link #transition},
+ * {@link #markSignedByUser}, {@link #appendRevision} and
+ * {@link #appendAudit}, keeping the invariants — contiguous revision chain,
+ * exactly one signer slot — in one place. The aggregate performs NO
+ * persistence and NO locking; the service serialises access with the
+ * per-workflow lock.
  *
- * <p>Turn model (the server is authoritative, never the client):
- * <ul>
- *   <li>{@code SEQUENTIAL}: the turn belongs to the first unsigned signer in
- *       order. {@code claimTurn} verifies the caller IS that signer.</li>
- *   <li>{@code FLEXIBLE}: any pending signer may claim the single turn; only
- *       the holder may submit. The claim is persisted with a timestamp so it
- *       survives restarts, and expires after {@link #CLAIM_TIMEOUT}: another
- *       eligible signer may then supersede it (escape hatch if the holder's
- *       machine dies mid-turn). Simultaneous claims within the TTL: the first
- *       wins, the loser gets a conflict.</li>
- * </ul>
+ * <p><b>One document, one signer.</b> SignFlow signs the document of the
+ * account that uploaded it: a workflow has exactly one signer slot, and it
+ * belongs to its creator. There is no signing order to negotiate and no turn
+ * to hand over or claim — the slot's owner holds it from creation until the
+ * signature is accepted, which is also the moment the workflow completes.
  */
 public final class SigningWorkflowAggregate {
-
-    /** A flexible turn claim older than this may be superseded. */
-    public static final Duration CLAIM_TIMEOUT = Duration.ofMinutes(30);
 
     /**
      * Version of an aggregate that has never been persisted. Stores refuse
@@ -45,15 +34,12 @@ public final class SigningWorkflowAggregate {
 
     private final String workflowId;
     private final String documentName;
-    private final WorkflowSigningPolicy policy;
     private final List<WorkflowSignerRecord> signers;
     private final List<DocumentRevisionRecord> revisions;
     private final List<AuditEventRecord> audit;
 
     private WorkflowState status;
     private String blockedReason;
-    private String claimedTurnUserId;
-    private Instant claimedTurnAt;
     private String createdBy;
 
     /** Stored version this copy was loaded from ({@link #NEW} if never saved). */
@@ -69,55 +55,32 @@ public final class SigningWorkflowAggregate {
 
     private SigningWorkflowAggregate(String workflowId,
                                      String documentName,
-                                     WorkflowSigningPolicy policy,
                                      List<WorkflowSignerRecord> signers,
                                      List<DocumentRevisionRecord> revisions,
                                      List<AuditEventRecord> audit,
                                      WorkflowState status,
                                      String blockedReason,
-                                     String claimedTurnUserId,
-                                     Instant claimedTurnAt,
                                      String createdBy) {
         this.workflowId = workflowId;
         this.documentName = documentName;
-        this.policy = policy;
         this.signers = new ArrayList<>(signers);
         this.revisions = new ArrayList<>(revisions);
         this.audit = new ArrayList<>(audit);
         this.status = status;
         this.blockedReason = blockedReason;
-        this.claimedTurnUserId = claimedTurnUserId;
-        this.claimedTurnAt = claimedTurnAt;
         this.createdBy = createdBy;
     }
 
     /** Rehydrates an aggregate from storage; validates internal consistency. */
     public static SigningWorkflowAggregate rehydrate(String workflowId,
                                                      String documentName,
-                                                     WorkflowSigningPolicy policy,
                                                      List<WorkflowSignerRecord> signers,
                                                      List<DocumentRevisionRecord> revisions,
                                                      List<AuditEventRecord> audit,
                                                      WorkflowState status,
                                                      String blockedReason) {
-        return rehydrate(workflowId, documentName, policy, signers, revisions,
-                audit, status, blockedReason, null, null, null);
-    }
-
-    /** Full rehydration including a persisted turn claim. */
-    public static SigningWorkflowAggregate rehydrate(String workflowId,
-                                                     String documentName,
-                                                     WorkflowSigningPolicy policy,
-                                                     List<WorkflowSignerRecord> signers,
-                                                     List<DocumentRevisionRecord> revisions,
-                                                     List<AuditEventRecord> audit,
-                                                     WorkflowState status,
-                                                     String blockedReason,
-                                                     String claimedTurnUserId,
-                                                     Instant claimedTurnAt) {
-        return rehydrate(workflowId, documentName, policy, signers, revisions,
-                audit, status, blockedReason, claimedTurnUserId, claimedTurnAt,
-                null);
+        return rehydrate(workflowId, documentName, signers, revisions, audit,
+                status, blockedReason, null);
     }
 
     /**
@@ -127,42 +90,41 @@ public final class SigningWorkflowAggregate {
      */
     public static SigningWorkflowAggregate rehydrateStored(String workflowId,
                                                            String documentName,
-                                                           WorkflowSigningPolicy policy,
                                                            List<WorkflowSignerRecord> signers,
                                                            List<DocumentRevisionRecord> revisions,
                                                            List<AuditEventRecord> audit,
                                                            WorkflowState status,
                                                            String blockedReason,
-                                                           String claimedTurnUserId,
-                                                           Instant claimedTurnAt,
                                                            String createdBy,
                                                            long version) {
-        SigningWorkflowAggregate wf = rehydrate(workflowId, documentName, policy,
-                signers, revisions, audit, status, blockedReason,
-                claimedTurnUserId, claimedTurnAt, createdBy);
+        SigningWorkflowAggregate wf = rehydrate(workflowId, documentName, signers,
+                revisions, audit, status, blockedReason, createdBy);
         wf.version = version;
         return wf;
     }
 
-    /** Full rehydration including a persisted turn claim and the creator. */
+    /** Full rehydration including the creator. */
     public static SigningWorkflowAggregate rehydrate(String workflowId,
                                                      String documentName,
-                                                     WorkflowSigningPolicy policy,
                                                      List<WorkflowSignerRecord> signers,
                                                      List<DocumentRevisionRecord> revisions,
                                                      List<AuditEventRecord> audit,
                                                      WorkflowState status,
                                                      String blockedReason,
-                                                     String claimedTurnUserId,
-                                                     Instant claimedTurnAt,
                                                      String createdBy) {
         if (signers == null || signers.isEmpty()) {
-            throw new IllegalArgumentException("a workflow needs at least one signer");
+            throw new IllegalArgumentException("a workflow needs its signer");
         }
-        for (int i = 0; i < signers.size(); i++) {
-            if (signers.get(i).order() != i + 1) {
-                throw new IllegalArgumentException("signer order must be 1..N without gaps");
-            }
+        // One signer, and it is slot 1. A stored workflow with more than one
+        // slot predates single-signer signing and cannot be represented here;
+        // failing loudly beats silently dropping somebody's signature.
+        if (signers.size() != 1) {
+            throw new IllegalArgumentException(
+                    "a workflow has exactly one signer, but " + workflowId
+                            + " has " + signers.size());
+        }
+        if (signers.get(0).order() != 1) {
+            throw new IllegalArgumentException("the signer slot must be order 1");
         }
         if (revisions == null || revisions.isEmpty()) {
             throw new IllegalArgumentException("a workflow needs at least revision 0");
@@ -173,29 +135,26 @@ public final class SigningWorkflowAggregate {
             }
         }
         SigningWorkflowAggregate wf = new SigningWorkflowAggregate(workflowId, documentName,
-                policy == null ? WorkflowSigningPolicy.SEQUENTIAL : policy,
-                signers, revisions, audit == null ? List.of() : audit, status, blockedReason,
-                claimedTurnUserId, claimedTurnAt, createdBy);
+                signers, revisions, audit == null ? List.of() : audit, status,
+                blockedReason, createdBy);
         wf.persistedAuditCount = wf.audit.size();
         return wf;
     }
 
     /**
-     * Creates a fresh DRAFT workflow. DRAFT = no real revision 0 yet:
-     * workflows with unbound signer slots stay in DRAFT until every signer
-     * has bound a certificate (revision 0 embeds the manifest that lists the
-     * bound identities, so it can only be written once all are known).
+     * Creates a fresh DRAFT workflow. DRAFT = no real revision 0 yet: the
+     * workflow stays in DRAFT until its signer has bound a certificate
+     * (revision 0 embeds the manifest that names the bound identity, so it
+     * can only be written once that is known).
      */
     public static SigningWorkflowAggregate create(String workflowId,
                                                   String documentName,
-                                                  WorkflowSigningPolicy policy,
-                                                  List<WorkflowSignerRecord> signers,
+                                                  WorkflowSignerRecord signer,
                                                   String createdBy) {
         DocumentRevisionRecord zero = new DocumentRevisionRecord(0, -1,
                 "0".repeat(64), 0, Instant.now(), "system");
-        return rehydrate(workflowId, documentName, policy, signers,
-                List.of(zero), List.of(), WorkflowState.DRAFT, null,
-                null, null, createdBy);
+        return rehydrate(workflowId, documentName, List.of(signer),
+                List.of(zero), List.of(), WorkflowState.DRAFT, null, createdBy);
     }
 
     /** The stored version this copy was loaded at, or {@link #NEW}. */
@@ -227,9 +186,8 @@ public final class SigningWorkflowAggregate {
      * when importing a workflow from another store).
      */
     public SigningWorkflowAggregate asNewForImport() {
-        SigningWorkflowAggregate copy = rehydrate(workflowId, documentName, policy,
-                signers, revisions, List.of(), status, blockedReason,
-                claimedTurnUserId, claimedTurnAt, createdBy);
+        SigningWorkflowAggregate copy = rehydrate(workflowId, documentName,
+                signers, revisions, List.of(), status, blockedReason, createdBy);
         copy.audit.addAll(audit);
         return copy;
     }
@@ -249,13 +207,9 @@ public final class SigningWorkflowAggregate {
         return documentName;
     }
 
-    /** The authenticated user who created the workflow (participant or not). */
+    /** The authenticated user who created the workflow — also its signer. */
     public String createdBy() {
         return createdBy;
-    }
-
-    public WorkflowSigningPolicy policy() {
-        return policy;
     }
 
     public WorkflowState status() {
@@ -270,6 +224,11 @@ public final class SigningWorkflowAggregate {
         return List.copyOf(signers);
     }
 
+    /** The one signer slot of this workflow. */
+    public WorkflowSignerRecord signer() {
+        return signers.get(0);
+    }
+
     public List<DocumentRevisionRecord> revisions() {
         return List.copyOf(revisions);
     }
@@ -278,113 +237,37 @@ public final class SigningWorkflowAggregate {
         return List.copyOf(audit);
     }
 
-    /** The newest accepted revision — what the current signer must download. */
+    /** The newest accepted revision — what the signer must download. */
     public DocumentRevisionRecord currentRevision() {
         return revisions.get(revisions.size() - 1);
     }
 
     /**
-     * The signer who holds the signing turn, or {@code null} when none
-     * applies: FLEXIBLE with no (unexpired) claim, or all signed.
+     * The signer who holds the signing turn, or {@code null} once the
+     * signature has been accepted. With one slot there is nothing to choose:
+     * it is the slot, until it is signed.
      */
     public WorkflowSignerRecord currentSigner() {
-        List<WorkflowSignerRecord> pending = pendingSigners();
-        if (pending.isEmpty()) {
-            return null;
-        }
-        if (policy == WorkflowSigningPolicy.SEQUENTIAL) {
-            return pending.get(0);
-        }
-        if (claimedTurnUserId == null || isClaimExpired()) {
-            return null;
-        }
-        return pending.stream()
-                .filter(s -> s.userId().equals(claimedTurnUserId))
-                .findFirst()
-                .orElse(null); // stale claim on a superseded record — treat as unclaimed
-    }
-
-    /** Signers whose signature has not been accepted yet, in slot order. */
-    public List<WorkflowSignerRecord> pendingSigners() {
-        return signers.stream().filter(s -> !s.signed()).toList();
-    }
-
-    /** Whether {@code userId} holds a pending signer slot. */
-    public boolean isEligibleSigner(String userId) {
-        return pendingSigners().stream().anyMatch(s -> s.userId().equals(userId));
+        WorkflowSignerRecord slot = signers.get(0);
+        return slot.signed() ? null : slot;
     }
 
     /**
-     * Whether {@code userId} may submit a signature right now: they must hold
-     * the turn — for SEQUENTIAL that means being the first pending signer,
-     * for FLEXIBLE having the (unexpired) claim.
+     * Whether {@code userId} may submit a signature right now: they must own
+     * the one unsigned slot.
      */
     public boolean maySubmit(String userId) {
         WorkflowSignerRecord current = currentSigner();
         return current != null && current.userId().equals(userId);
     }
 
-    /** The current turn claim holder, or {@code null}. */
-    public String claimedTurnUserId() {
-        return currentSigner() == null ? null : claimedTurnUserId;
-    }
-
-    /**
-     * Reserves the signing turn for {@code userId}.
-     *
-     * <ul>
-     *   <li>SEQUENTIAL: legal only for the first pending signer; a no-op
-     *       formality that still verifies the caller's turn.</li>
-     *   <li>FLEXIBLE: atomically reserves the single turn. Re-claiming your
-     *       own (unexpired) claim refreshes it. Superseding another signer's
-     *       claim is legal only once that claim has expired.</li>
-     * </ul>
-     *
-     * @return the signer record of the turn holder after the claim
-     * @throws IllegalStateException when the caller holds no pending slot, or
-     *         another eligible signer holds an unexpired claim
-     */
-    public WorkflowSignerRecord claimTurn(String userId) {
-        WorkflowSignerRecord claimer = signers.stream()
-                .filter(s -> !s.signed() && s.userId().equals(userId))
-                .findFirst()
-                .orElse(null);
-        if (claimer == null) {
-            throw new IllegalStateException(
-                    userId + " is not a pending signer of this workflow");
-        }
-        WorkflowSignerRecord holder = currentSigner();
-        if (holder == claimer) {
-            claimedTurnAt = Instant.now(); // refresh own claim
-            return claimer;
-        }
-        if (holder != null) {
-            throw new IllegalStateException("The signing turn is held by "
-                    + holder.userId());
-        }
-        claimedTurnUserId = userId;
-        claimedTurnAt = Instant.now();
-        return claimer;
-    }
-
-    /** Releases any FLEXIBLE turn claim (used on cancel / completion). */
-    public void releaseTurn() {
-        claimedTurnUserId = null;
-        claimedTurnAt = null;
-    }
-
-    private boolean isClaimExpired() {
-        return claimedTurnAt == null
-                || claimedTurnAt.plus(CLAIM_TIMEOUT).isBefore(Instant.now());
-    }
-
     public boolean allSigned() {
-        return signers.stream().allMatch(WorkflowSignerRecord::signed);
+        return signers.get(0).signed();
     }
 
-    /** Whether every signer slot has a certificate bound (precondition for revision 0). */
+    /** Whether the signer slot has a certificate bound (precondition for revision 0). */
     public boolean allBound() {
-        return signers.stream().allMatch(WorkflowSignerRecord::isBound);
+        return signers.get(0).isBound();
     }
 
     /** Whether the current revision's number equals {@code revisionNumber}. */
@@ -401,55 +284,44 @@ public final class SigningWorkflowAggregate {
         status = target;
     }
 
-    /**
-     * Marks {@code userId}'s slot signed and — for SEQUENTIAL workflows —
-     * returns the NEXT signer (or {@code null} when that was the last one).
-     * FLEXIBLE workflows have no predefined next signer: returns {@code null}
-     * and releases the claimed turn.
-     */
-    public WorkflowSignerRecord markSignedByUser(String userId, String signingOperationId) {
-        return markSignedByUser(userId, signingOperationId, null);
+    /** Marks {@code userId}'s slot signed. */
+    public void markSignedByUser(String userId, String signingOperationId) {
+        markSignedByUser(userId, signingOperationId, null);
     }
 
     /**
      * As above, additionally recording the accepted visible-signature
      * placement ({@code null} = invisible signature) on the signer slot.
      */
-    public WorkflowSignerRecord markSignedByUser(String userId,
-                                                 String signingOperationId,
-                                                 SignaturePlacement acceptedPlacement) {
-        WorkflowSignerRecord slot = signers.stream()
-                .filter(s -> !s.signed() && s.userId().equals(userId))
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException(
-                        userId + " holds no pending signer slot"));
-        WorkflowSignerRecord signed = slot.asSigned(Instant.now(), signingOperationId,
-                acceptedPlacement);
-        signers.set(signers.indexOf(slot), signed);
-        releaseTurn();
-        return policy == WorkflowSigningPolicy.SEQUENTIAL
-                ? signers.stream().filter(s -> !s.signed()).findFirst().orElse(null)
-                : null;
+    public void markSignedByUser(String userId, String signingOperationId,
+                                 SignaturePlacement acceptedPlacement) {
+        WorkflowSignerRecord slot = signers.get(0);
+        if (slot.signed() || !slot.userId().equals(userId)) {
+            throw new IllegalStateException(
+                    userId + " holds no pending signer slot");
+        }
+        signers.set(0, slot.asSigned(Instant.now(), signingOperationId,
+                acceptedPlacement));
     }
 
     /**
      * Binds {@code fingerprint} to the pending slot of {@code userId}
-     * (certificate enrollment, §14/§17 of the task spec). Legal only while
+     * (certificate enrollment on the signer's own machine). Legal only while
      * the workflow is DRAFT — the service enforces that.
      *
      * @return the updated signer record
      */
     public WorkflowSignerRecord bindCertificate(String userId, String fingerprint) {
-        WorkflowSignerRecord slot = signers.stream()
-                .filter(s -> s.userId().equals(userId) && !s.signed())
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException(
-                        userId + " holds no pending signer slot"));
+        WorkflowSignerRecord slot = signers.get(0);
+        if (slot.signed() || !slot.userId().equals(userId)) {
+            throw new IllegalStateException(
+                    userId + " holds no pending signer slot");
+        }
         if (slot.isBound()) {
             throw new IllegalStateException(userId + "'s slot already has a certificate");
         }
         WorkflowSignerRecord bound = slot.asBound(fingerprint);
-        signers.set(signers.indexOf(slot), bound);
+        signers.set(0, bound);
         return bound;
     }
 
@@ -463,8 +335,8 @@ public final class SigningWorkflowAggregate {
 
     /**
      * Replaces the DRAFT placeholder revision 0 with the real prepared
-     * document record (used once, when the last signer binds their
-     * certificate and the manifest-bearing document is prepared).
+     * document record (used once, when the signer binds their certificate
+     * and the manifest-bearing document is prepared).
      */
     public void replaceRevision0(DocumentRevisionRecord revision) {
         if (revisions.size() != 1 || revisions.get(0).revisionNumber() != 0
@@ -484,22 +356,19 @@ public final class SigningWorkflowAggregate {
         this.blockedReason = reason;
     }
 
-    /** Persistable snapshot of the aggregate (claim and creator included). */
+    /** Persistable snapshot of the aggregate. */
     public Snapshot snapshot() {
-        return new Snapshot(workflowId, documentName, policy, status, blockedReason,
-                claimedTurnUserId, claimedTurnAt, createdBy,
-                List.copyOf(signers), List.copyOf(revisions), List.copyOf(audit));
+        return new Snapshot(workflowId, documentName, status, blockedReason,
+                createdBy, List.copyOf(signers), List.copyOf(revisions),
+                List.copyOf(audit));
     }
 
     /** Persistable snapshot of the aggregate. */
     public record Snapshot(
             String workflowId,
             String documentName,
-            WorkflowSigningPolicy policy,
             WorkflowState status,
             String blockedReason,
-            String claimedTurnUserId,
-            Instant claimedTurnAt,
             String createdBy,
             List<WorkflowSignerRecord> signers,
             List<DocumentRevisionRecord> revisions,

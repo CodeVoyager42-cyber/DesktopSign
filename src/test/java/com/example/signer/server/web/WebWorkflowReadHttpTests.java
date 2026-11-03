@@ -88,9 +88,6 @@ class WebWorkflowReadHttpTests {
     private RemoteWorkflowService workflows;
 
     @Autowired
-    private com.example.signer.server.invites.InvitationService invitations;
-
-    @Autowired
     private JwtService jwtService;
 
     @Autowired
@@ -117,75 +114,47 @@ class WebWorkflowReadHttpTests {
     @Test
     void eachListHoldsOnlyWhatTheCallerTakesPartIn() throws Exception {
         String owner = account(true);
-        String signer = account(true);
-        String workflow = workflow(owner, signer);
+        String stranger = account(true);
+        String workflow = workflow(owner);
 
-        // The owner is not a signer of it and the signer did not create it,
-        // so each of them sees it in exactly one of the two lists.
+        // The account that uploaded the document is also its signer, so it
+        // is in both of that account's lists — and in neither of anybody
+        // else's.
         assertThat(read("/owned", login(owner))).contains(workflow);
-        assertThat(read("/participating", login(owner))).doesNotContain(workflow);
-        assertThat(read("/participating", login(signer))).contains(workflow);
-        assertThat(read("/owned", login(signer))).doesNotContain(workflow);
+        assertThat(read("/participating", login(owner))).contains(workflow);
+        assertThat(read("/owned", login(stranger))).doesNotContain(workflow);
+        assertThat(read("/participating", login(stranger))).doesNotContain(workflow);
     }
 
     @Test
-    void aCoSignerCannotReadAnAddressOutOfTheAuditTrail() throws Exception {
+    void noAddressOfAnAccountIsReadableOutOfTheAuditTrail() throws Exception {
         String owner = account(true);
-        String signer = account(true);
-        String coSigner = account(true);
         String workflow = this.workflows.createWorkflow(
-                new CreateWorkflowRequest("addresses.pdf", "SEQUENTIAL", List.of(
-                        new CreateWorkflowRequest.SignerSpec(1, signer, null),
-                        new CreateWorkflowRequest.SignerSpec(2, coSigner, null))),
-                pdf(), owner).workflowId();
-        // Slot 1 is invited at its own account's address, the only address an
-        // invitation can be addressed to.
-        this.invitations.invite(workflow, 1, signer + "@example.test", owner);
-
-        String asCoSigner = get("/web/api/workflows/" + workflow + "/audit",
-                cookies(login(coSigner)), null).body();
-
-        // The trail is readable by every participant, while a slot's address
-        // is owner-only (the invitation routes check the creator). It used to
-        // be written into the INVITATION_CREATED detail, which handed one
-        // signer another's address through a different door.
-        assertThat(asCoSigner)
-                .as("no address of any account may appear in the trail")
-                .doesNotContain("@example.test");
-        // What happened and in what order still reaches every participant.
-        assertThat(asCoSigner).contains("INVITATION_CREATED");
-        // The invitation prose is the creator's: rows written before the fix
-        // still hold an address, and rewriting an append-only trail to hide
-        // what it recorded would be worse than the exposure.
-        assertThat(asCoSigner).doesNotContain("Invitation created for signer");
-        // But only that prose. The rule is a short list of event types, not
-        // "all detail to the owner" — the blunt version hid a signer's own
-        // DESKTOP_SESSION_OPENED device and version from them, which is the
-        // whole of the Phase B F3 mitigation.
-        assertThat(asCoSigner)
-                .as("detail of an event that never named an address still arrives")
-                .contains("Workflow created with 2 signer(s)");
+                new CreateWorkflowRequest("addresses.pdf", null), pdf(), owner)
+                .workflowId();
 
         String asOwner = get("/web/api/workflows/" + workflow + "/audit",
                 cookies(login(owner)), null).body();
+
+        // An address is an account's own business. The trail says what
+        // happened and who did it by username — never where they were
+        // written to.
         assertThat(asOwner)
-                .as("the creator still reads the detail")
-                .contains("Invitation created for signer 1");
-        assertThat(asOwner)
-                .as("and it no longer names an address, for anyone")
+                .as("no address of any account may appear in the trail")
                 .doesNotContain("@example.test");
+        // What happened still reaches the reader, with its prose detail.
+        assertThat(asOwner).contains("WORKFLOW_CREATED")
+                .contains("Document uploaded for signing");
     }
 
     @Test
     void aDraftSaysWhyItIsADraftRatherThanSayingCreatedTwice() throws Exception {
         String owner = account(true);
-        String signer = account(true);
-        // No certificate for the slot, which is how the website creates every
+        // No certificate yet, which is how the website creates every
         // workflow: a certificate lives on the signer's own card.
         String workflow = this.workflows.createWorkflow(
-                new CreateWorkflowRequest("unbound.pdf", "SEQUENTIAL",
-                        List.of(new CreateWorkflowRequest.SignerSpec(1, signer, null))),
-                pdf(), owner).workflowId();
+                new CreateWorkflowRequest("unbound.pdf", null), pdf(), owner)
+                .workflowId();
 
         HttpResponse<String> trail = get("/web/api/workflows/" + workflow + "/audit",
                 cookies(login(owner)), null);
@@ -197,7 +166,7 @@ class WebWorkflowReadHttpTests {
         // timeline) cannot use, so it said "Created" twice and never said
         // what the document was waiting for.
         assertThat(countOf("WORKFLOW_CREATED", trail.body())).isEqualTo(1);
-        assertThat(countOf("CERTIFICATES_PENDING", trail.body())).isEqualTo(1);
+        assertThat(countOf("CERTIFICATE_PENDING", trail.body())).isEqualTo(1);
     }
 
     /** How often an event type appears in an audit answer. */
@@ -213,8 +182,7 @@ class WebWorkflowReadHttpTests {
     @Test
     void aCancelledWorkflowStaysInTheListOfWhatYouSent() throws Exception {
         String owner = account(true);
-        String signer = account(true);
-        String workflow = workflow(owner, signer);
+        String workflow = workflow(owner);
         assertThat(read("/owned", login(owner))).contains(workflow);
 
         this.workflows.cancelWorkflow(workflow, owner);
@@ -228,12 +196,14 @@ class WebWorkflowReadHttpTests {
         assertThat(read("/owned", login(owner)))
                 .as("the sender must still see what they cancelled")
                 .contains(workflow);
-        assertThat(read("/participating", login(owner))).doesNotContain(workflow);
+        assertThat(read("/participating", login(owner)))
+                .as("and still in the list of what they signed")
+                .contains(workflow);
     }
 
     @Test
     void aStrangerGetsExactlyTheAnswerForAWorkflowThatDoesNotExist() throws Exception {
-        String workflow = workflow(account(true), account(true));
+        String workflow = workflow(account(true));
         String stranger = login(account(true));
         String missing = "WF-" + (900_000_000 + RANDOM.nextInt(99_999_999));
 
@@ -254,7 +224,7 @@ class WebWorkflowReadHttpTests {
 
     @Test
     void withoutASessionEveryRouteIsRefused() throws Exception {
-        String workflow = workflow(account(true), account(true));
+        String workflow = workflow(account(true));
 
         List<String> routes = new ArrayList<>(List.of("/owned", "/participating"));
         for (String route : BY_ID) {
@@ -269,7 +239,7 @@ class WebWorkflowReadHttpTests {
     @Test
     void aDesktopBearerTokenOpensNothingHere() throws Exception {
         String signer = account(true);
-        String workflow = workflow(account(true), signer);
+        String workflow = workflow(signer);
         String bearer = this.jwtService.issueAccessJwt(signer);
 
         // The very same token, for the very same person, on the chain it
@@ -292,8 +262,11 @@ class WebWorkflowReadHttpTests {
         // been asked to sign and how far the document has got. What it cannot
         // do is start a workflow or download the document — part 2 and the
         // filter's business respectively.
-        String signer = account(false);
-        String workflow = workflow(account(true), signer);
+        // Created while verified — an unverified account cannot upload at all
+        // — and unverified afterwards, which is the state this is about.
+        String signer = account(true);
+        String workflow = workflow(signer);
+        unverify(signer);
         String session = login(signer);
 
         assertThat(read("/participating", session)).contains(workflow);
@@ -317,15 +290,19 @@ class WebWorkflowReadHttpTests {
         return name;
     }
 
-    /** A workflow owned by {@code owner}, with one slot per signer. */
-    private String workflow(String owner, String... signers) {
-        List<CreateWorkflowRequest.SignerSpec> slots = new ArrayList<>();
-        for (int i = 0; i < signers.length; i++) {
-            slots.add(new CreateWorkflowRequest.SignerSpec(i + 1, signers[i], fingerprint()));
-        }
+    /** A document uploaded by {@code signer} — its owner and its only signer. */
+    private String workflow(String signer) {
         return this.workflows.createWorkflow(
-                new CreateWorkflowRequest("phase-e.pdf", "SEQUENTIAL", slots),
-                pdf(), owner).workflowId();
+                new CreateWorkflowRequest("phase-e.pdf", fingerprint()),
+                pdf(), signer).workflowId();
+    }
+
+    /** Takes a verified account's verification away again. */
+    private void unverify(String username) {
+        this.users.findByUsername(username).ifPresent(account -> {
+            account.setEmailVerifiedAt(null);
+            this.users.save(account);
+        });
     }
 
     /** The body of one list route, read with a session. */

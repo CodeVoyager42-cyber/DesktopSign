@@ -5,21 +5,19 @@ import java.util.regex.Pattern;
 
 /**
  * What a desktop <b>task session</b> (Phase B launch code) may do: exactly
- * the four requests needed to sign an already-prepared slot of one
- * workflow, and nothing else.
+ * the three requests needed to sign an already-prepared document, and
+ * nothing else.
  *
- * <p>Deliberately <b>not</b> the guest allow-list: a task session may never
- * bind or replace a certificate (that would let a stolen launch code attach
- * the thief's card to the victim's slot), create or manage workflows or
- * invitations, read audit trails, or issue further launch codes. Its slot is
- * resolved on the server from the session's account; the URL never selects
- * a signer.
+ * <p>A task session may never bind or replace a certificate (that would let
+ * a stolen launch code attach the thief's card to the victim's document),
+ * create or manage documents, read audit trails, or issue further launch
+ * codes. Its slot is resolved on the server from the session's account; the
+ * URL never selects a signer.
  *
  * <table>
  *   <caption>Allowed requests (own workflow only)</caption>
  *   <tr><td>GET</td><td>/api/workflows/{id}/task</td><td>status of the task</td></tr>
  *   <tr><td>GET</td><td>/api/workflows/{id}/document</td><td>the revision to sign</td></tr>
- *   <tr><td>POST</td><td>/api/workflows/{id}/claim</td><td>take the turn (flexible order)</td></tr>
  *   <tr><td>POST</td><td>/api/workflows/{id}/signatures</td><td>submit the signed revision</td></tr>
  * </table>
  *
@@ -29,7 +27,7 @@ import java.util.regex.Pattern;
 public final class TaskAccessPolicy {
 
     private static final Pattern PATH =
-            Pattern.compile("^/api/workflows/([^/]+)/(task|document|claim|signatures)$");
+            Pattern.compile("^/api/workflows/([^/]+)/(task|document|signatures)$");
 
     private TaskAccessPolicy() {
     }
@@ -45,13 +43,13 @@ public final class TaskAccessPolicy {
         }
         return switch (m.group(2)) {
             case "task", "document" -> "GET".equals(method);
-            default -> "POST".equals(method); // claim, signatures
+            default -> "POST".equals(method); // signatures
         };
     }
 
     /**
-     * The one request still answered once the task is finished (signed,
-     * cancelled or completed): its status, so the app can show the outcome.
+     * The one request still answered once the task is finished (signed or
+     * cancelled): its status, so the app can show the outcome.
      */
     public static boolean isStatusRead(String method, String uri, String workflowId) {
         return "GET".equals(method) && uri != null && workflowId != null

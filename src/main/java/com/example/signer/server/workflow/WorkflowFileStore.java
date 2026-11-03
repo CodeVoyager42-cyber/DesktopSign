@@ -125,9 +125,8 @@ public class WorkflowFileStore implements WorkflowStore {
         try {
             SnapshotDto dto = mapper.readValue(stateFile.toFile(), SnapshotDto.class);
             return SigningWorkflowAggregate.rehydrateStored(workflowId, dto.documentName(),
-                    dto.policy(), dto.signers(), dto.revisions(), dto.audit(),
-                    dto.status(), dto.blockedReason(),
-                    dto.claimedTurnUserId(), dto.claimedTurnAt(), creatorOf(dto),
+                    dto.signers(), dto.revisions(), dto.audit(),
+                    dto.status(), dto.blockedReason(), creatorOf(dto),
                     dto.version() == null ? 0L : dto.version());
         } catch (IOException e) {
             throw new SignerException(ErrorCode.WORKFLOW_INVALID,
@@ -205,10 +204,10 @@ public class WorkflowFileStore implements WorkflowStore {
                 WorkflowRegressionGuard.check(stored, aggregate);
             }
             long nextVersion = stored == null ? 0L : stored.version() + 1;
-            SnapshotDto dto = new SnapshotDto(snap.documentName(), snap.policy(),
-                    snap.status(), snap.blockedReason(), snap.claimedTurnUserId(),
-                    snap.claimedTurnAt(), snap.createdBy(), snap.signers(),
-                    snap.revisions(), renumberAudit(stored, aggregate), nextVersion);
+            SnapshotDto dto = new SnapshotDto(snap.documentName(),
+                    snap.status(), snap.blockedReason(), snap.createdBy(),
+                    snap.signers(), snap.revisions(),
+                    renumberAudit(stored, aggregate), nextVersion);
             try {
                 Files.createDirectories(dir);
                 Path temp = Files.createTempFile(dir, "state-", ".tmp");

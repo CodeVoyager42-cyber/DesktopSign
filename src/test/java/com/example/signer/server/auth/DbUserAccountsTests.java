@@ -37,7 +37,6 @@ class DbUserAccountsTests {
         repo = mock(UserRepository.class);
         failures = mock(LoginFailureRepository.class);
         when(repo.findByUsername(anyString())).thenReturn(Optional.empty());
-        when(repo.findByUsernameIgnoreCase(anyString())).thenReturn(Optional.empty());
         when(repo.findByEmail(anyString())).thenReturn(Optional.empty());
         when(failures.findByUsernameAndClientAddress(anyString(), anyString()))
                 .thenReturn(Optional.empty());
@@ -55,7 +54,6 @@ class DbUserAccountsTests {
     private UserEntity account(String username, String hash, AccountStatus status) {
         UserEntity user = new UserEntity(username, username + "@example.test", hash, username, status);
         when(repo.findByUsername(username)).thenReturn(Optional.of(user));
-        when(repo.findByUsernameIgnoreCase(username)).thenReturn(Optional.of(user));
         when(repo.findByEmail(username + "@example.test")).thenReturn(Optional.of(user));
         return user;
     }
@@ -69,22 +67,10 @@ class DbUserAccountsTests {
     }
 
     @Test
-    void usernameSignInIgnoresLetterCase() {
-        // The sign-in form invites "email or username"; emails are matched
-        // case-insensitively (see the test above), so a username typed with
-        // any case must find the account too — the same rule the
-        // uq_users_username_ci uniqueness index enforces.
-        UserEntity alice = account("alice", HASH, AccountStatus.ACTIVE);
-        when(repo.findByUsernameIgnoreCase("Alice")).thenReturn(Optional.of(alice));
-        assertThat(accounts.matches("Alice", PASSWORD)).isTrue();
-        assertThat(accounts.accountId("Alice")).isEqualTo("alice");
-    }
-
-    @Test
     void wrongPasswordUnknownUserDisabledAndPendingAllAnswerFalse() {
         account("alice", HASH, AccountStatus.ACTIVE);
         account("dora", HASH, AccountStatus.DISABLED);
-        account("pete", null, AccountStatus.PENDING_INVITE);
+        account("pete", null, AccountStatus.PLACEHOLDER);
         assertThat(accounts.matches("alice", "wrong-password")).isFalse();
         assertThat(accounts.matches("nobody", PASSWORD)).isFalse();
         assertThat(accounts.matches("dora", PASSWORD)).isFalse();
@@ -312,7 +298,7 @@ class DbUserAccountsTests {
 
     @Test
     void unknownAndBlockedAccountsAreNeverCounted() {
-        account("pete", null, AccountStatus.PENDING_INVITE);
+        account("pete", null, AccountStatus.PLACEHOLDER);
         account("dora", HASH, AccountStatus.DISABLED);
         accounts.matches("nobody", "x");
         accounts.matches("pete", "x");

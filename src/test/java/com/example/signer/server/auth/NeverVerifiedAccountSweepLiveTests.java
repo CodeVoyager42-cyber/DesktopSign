@@ -6,7 +6,6 @@ import com.example.signer.server.api.ApiContracts.WorkflowView;
 import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 
 import org.junit.jupiter.api.Test;
@@ -73,9 +72,6 @@ class NeverVerifiedAccountSweepLiveTests {
     private RemoteWorkflowService workflows;
 
     @Autowired
-    private WorkflowInvitationCoordinator coordinator;
-
-    @Autowired
     private DataSource dataSource;
 
     public static boolean freshDatabase() {
@@ -132,13 +128,10 @@ class NeverVerifiedAccountSweepLiveTests {
         return users.findByUsername(username).isPresent();
     }
 
-    /** alice's workflow, with {@code signer} holding slot 1. */
-    private String workflowSignedBy(String owner, String signer) {
-        List<CreateWorkflowRequest.SignerSpec> specs = new ArrayList<>();
-        specs.add(new CreateWorkflowRequest.SignerSpec(1, signer, null));
-        WorkflowInvitationCoordinator.Preparation prep = coordinator.prepare(
-                new CreateWorkflowRequest("d11.pdf", "SEQUENTIAL", specs), owner);
-        WorkflowView view = workflows.createWorkflow(prep.request(), pdf(), owner);
+    /** A document uploaded by {@code signer}, who is its only signer. */
+    private String workflowSignedBy(String signer) {
+        WorkflowView view = workflows.createWorkflow(
+                new CreateWorkflowRequest("d11.pdf", null), pdf(), signer);
         return view.workflowId();
     }
 
@@ -194,19 +187,20 @@ class NeverVerifiedAccountSweepLiveTests {
     }
 
     @Test
-    void anInvitationIdentitySurvives() {
-        // The dangerous case: a PENDING_INVITE placeholder has no verified
-        // address and no password either, so only the status tells it apart
-        // from an abandoned sign-up.
+    void aPlaceholderIdentitySurvives() {
+        // The dangerous case: a PLACEHOLDER identity (one the file-to-database
+        // importer creates for a username an imported workflow names) has no
+        // verified address and no password either, so only the status tells it
+        // apart from an abandoned sign-up.
         String username = newName();
         UserEntity placeholder = new UserEntity(username, username + "@example.test",
-                null, "Invited", AccountStatus.PENDING_INVITE);
+                null, "Invited", AccountStatus.PLACEHOLDER);
         users.save(placeholder);
         age(username, Duration.ofDays(400));
 
         accounts.deleteNeverVerifiedAccounts();
 
-        assertThat(exists(username)).as("an invited signer must never be swept").isTrue();
+        assertThat(exists(username)).as("a placeholder identity must never be swept").isTrue();
     }
 
     @Test
@@ -245,48 +239,28 @@ class NeverVerifiedAccountSweepLiveTests {
         assertThat(exists(young)).as("six days is inside the seven-day window").isTrue();
     }
 
+    /**
+     * The account that uploaded a document is also its signer, so one guard
+     * covers both foreign keys ({@code workflows.created_by} and
+     * {@code workflow_signers.username}).
+     *
+     * <p>The document is created while the account is verified, because an
+     * unverified account cannot start a signing request at all (risk D4);
+     * the verification is taken away afterwards, which is the state this
+     * guard is about.
+     */
     @Test
-    void anAccountHoldingASignerSlotSurvives() {
+    void theAccountThatOwnsAndSignsAWorkflowSurvives() {
         String owner = verifiedOwner();
-        String signer = unverifiedSignUp();
-        workflowSignedBy(owner, signer);
-        age(signer, Duration.ofDays(400));
-
-        // Must not throw: the foreign key would refuse this delete, so the
-        // sweep has to skip the row rather than fail the whole statement.
-        accounts.deleteNeverVerifiedAccounts();
-
-        assertThat(exists(signer)).as("a signer slot keeps its account alive").isTrue();
-    }
-
-    @Test
-    void anAccountOwningAWorkflowSurvives() {
-        // Created while verified, because an unverified account cannot start
-        // a signing request at all (risk D4); the verification is taken away
-        // afterwards, which is the state this guard is about.
-        String owner = verifiedOwner();
-        workflowSignedBy(owner, verifiedOwner());
+        workflowSignedBy(owner);
         unverify(owner);
         age(owner, Duration.ofDays(400));
 
+        // Must not throw: the foreign keys would refuse this delete, so the
+        // sweep has to skip the row rather than fail the whole statement.
         accounts.deleteNeverVerifiedAccounts();
 
-        assertThat(exists(owner)).as("the creator of a workflow is kept").isTrue();
-    }
-
-    @Test
-    void anAccountHoldingAClaimedTurnSurvives() {
-        String owner = verifiedOwner();
-        String claimer = unverifiedSignUp();
-        String workflowId = workflowSignedBy(owner, verifiedOwner());
-        assertThat(jdbc().update("UPDATE workflows SET claimed_turn_username = ?,"
-                + " claimed_turn_at = now() WHERE workflow_id = ?", claimer, workflowId))
-                .isEqualTo(1);
-        age(claimer, Duration.ofDays(400));
-
-        accounts.deleteNeverVerifiedAccounts();
-
-        assertThat(exists(claimer)).as("a claimed turn keeps its account alive").isTrue();
+        assertThat(exists(owner)).as("a document keeps its signer's account alive").isTrue();
     }
 
     /* ------------------------------ the off switch ---------------------- */

@@ -65,9 +65,7 @@ class DevelopmentIdentityRejectionTests {
 
     @Test
     void theOldPubliclyKnownMockKeysCanNeverBeAssignedToASignerSlot() {
-        assertThatThrownBy(() -> service.createWorkflow(new CreateWorkflowRequest(
-                "contract.pdf", "SEQUENTIAL", List.of(
-                        new CreateWorkflowRequest.SignerSpec(1, "alice", LEGACY))),
+        assertThatThrownBy(() -> service.createWorkflow(new CreateWorkflowRequest("contract.pdf", LEGACY),
                 pdf(), "alice"))
                 .isInstanceOf(ApiException.class)
                 .satisfies(e -> {
@@ -77,8 +75,7 @@ class DevelopmentIdentityRejectionTests {
                             .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY.value());
                 });
 
-        String id = service.createWorkflow(new CreateWorkflowRequest("contract.pdf",
-                "SEQUENTIAL", List.of(new CreateWorkflowRequest.SignerSpec(1, "alice", null))),
+        String id = service.createWorkflow(new CreateWorkflowRequest("contract.pdf", null),
                 pdf(), "alice").workflowId();
         assertThatThrownBy(() -> service.bindCertificate(id, "alice",
                 new BindCertificateRequest(LEGACY)))
@@ -91,8 +88,7 @@ class DevelopmentIdentityRejectionTests {
     @Test
     void aSignatureMadeWithTheMockTokenIsRejectedAndChangesNothing() throws Exception {
         String fp = mockFingerprint(MockSigningToken.DEFAULT_ALIAS);
-        String id = service.createWorkflow(new CreateWorkflowRequest("contract.pdf",
-                "SEQUENTIAL", List.of(new CreateWorkflowRequest.SignerSpec(1, "alice", fp))),
+        String id = service.createWorkflow(new CreateWorkflowRequest("contract.pdf", fp),
                 pdf(), "alice").workflowId();
 
         Path dir = Files.createTempDirectory("dev-identity");

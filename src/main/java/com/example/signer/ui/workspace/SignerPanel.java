@@ -41,7 +41,7 @@ import java.util.List;
  * token PIN, and the placement / sign actions.
  *
  * <p>It shows state and forwards the user's actions; the workflow itself
- * (turns, placements, signing) stays in {@link MultiSignerWorkspaceFlow},
+ * (turns, placements, signing) stays in {@link SigningWorkspaceFlow},
  * reached only through {@link Host}.
  */
 final class SignerPanel {
@@ -282,7 +282,7 @@ final class SignerPanel {
 
     /** One-shot success pulse so "just signed" reads at a glance. */
     void celebratePill() {
-        MultiSignerWorkspaceFlow.pulseSuccess(statePill);
+        SigningWorkspaceFlow.pulseSuccess(statePill);
     }
 
     void refreshTokenUi() {
@@ -324,7 +324,7 @@ final class SignerPanel {
             return;
         }
         List<String> labels = certs.stream()
-                .map(c -> MultiSignerWorkspaceFlow.certificateName(c.getSubject()) + " ["
+                .map(c -> SigningWorkspaceFlow.certificateName(c.getSubject()) + " ["
                         + c.getAlias() + "]")
                 .toList();
         if (!labels.equals(certCombo.getItems())) {
@@ -344,7 +344,7 @@ final class SignerPanel {
                             ? "\u26A0 expires soon "
                             : "\u2713 valid ";
             certDetails.setText(validity + "— until "
-                    + MultiSignerWorkspaceFlow.dateLabel(until) + "\n" + cert.getIssuer()
+                    + SigningWorkspaceFlow.dateLabel(until) + "\n" + cert.getIssuer()
                     + "\n" + cert.getPublicKeyAlgorithm() + " "
                     + cert.getKeySize() + " bit");
         }
@@ -400,11 +400,10 @@ final class SignerPanel {
         }
         identityName.setText(signer.getDisplayName());
         String certName = signer.getCertificate()
-                .map(cert -> MultiSignerWorkspaceFlow.certificateName(cert.getSubject()))
+                .map(cert -> SigningWorkspaceFlow.certificateName(cert.getSubject()))
                 .orElse(null);
-        identityDetails.setText("Signing turn " + signer.getOrder() + " of "
-                + host.workflow().signerCount()
-                + (certName != null ? "  ·  certificate: " + certName : ""));
+        identityDetails.setText(certName == null ? ""
+                : "Certificate: " + certName);
     }
 
     void clearPin() {
@@ -451,8 +450,8 @@ final class SignerPanel {
         }
         try {
             BufferedImage stamp = SignatureStampRenderer.render(
-                    MultiSignerWorkspaceFlow.DEFAULT_BOX_W_PTS, MultiSignerWorkspaceFlow.DEFAULT_BOX_H_PTS,
-                    MultiSignerWorkspaceFlow.certificateName(current), MultiSignerWorkspaceFlow.algorithmFor(current),
+                    SigningWorkspaceFlow.DEFAULT_BOX_W_PTS, SigningWorkspaceFlow.DEFAULT_BOX_H_PTS,
+                    SigningWorkspaceFlow.certificateName(current), SigningWorkspaceFlow.algorithmFor(current),
                     appearance());
             preview.setImage(SwingFXUtils.toFXImage(stamp, null));
         } catch (RuntimeException e) {

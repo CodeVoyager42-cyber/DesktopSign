@@ -1,11 +1,8 @@
 /**
- * Multi-signing workflow domain model.
+ * Signing workflow domain model.
  *
- * <p>{@link SigningWorkflow} composes a
- * {@link SigningMode} with an ordered list of
- * {@link Signer}s whose progress is tracked via
- * {@link SigningStatus}. The sequential signing
- * engine and the workflow-selection UI are both driven from this model, so
- * new modes (more signers, custom counts) need no engine changes.</p>
+ * <p>{@link SigningWorkflow} holds the one {@link Signer} of a document,
+ * whose progress is tracked via {@link SigningStatus}. The signing engine
+ * and the workspace UI are both driven from this model.</p>
  */
 package com.example.signer.workflow;

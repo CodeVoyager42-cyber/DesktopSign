@@ -21,12 +21,9 @@ import { FINISHED } from "./dashboard.ts";
  *
  *  2. `detail` is not rendered, anywhere. It is written for whoever reads an
  *     audit trail — "Revision 3 accepted (54123 bytes)", a short certificate
- *     fingerprint — and one of those strings carries the invited e-mail
- *     address of a slot (`INVITATION_CREATED`), which every participant can
- *     read this endpoint for. No screen in this product renders it today, and
- *     this one does not become the first. The words below are written here
- *     instead, from the event type, which is the part that means something to
- *     a reader.
+ *     fingerprint — not for the person whose document it is. The words below
+ *     are written here instead, from the event type, which is the part that
+ *     means something to a reader.
  */
 
 /** Where a row's dot sits in the story: finished, still to come, or wrong. */
@@ -41,28 +38,17 @@ export type Mark = "done" | "pending" | "blocked";
  * missing from here is handled by {@link words}, not dropped.
  */
 export const EVENT_WORDS: Record<string, string> = {
-  WORKFLOW_CREATED: "Created",
-  CERTIFICATES_PENDING: "Every signer must register a certificate before this is prepared",
+  WORKFLOW_CREATED: "Uploaded",
+  CERTIFICATE_PENDING: "A certificate must be registered before this is prepared",
   WORKFLOW_PREPARED: "Prepared for signing",
-  INVITATION_CREATED: "A signer was invited",
-  INVITATION_SENT: "The invitation went out",
-  INVITATION_ACCEPTED: "The invitation was opened",
-  INVITATION_REVOKED: "An invitation was withdrawn",
-  INVITATION_EXPIRED: "An invitation expired",
-  EMAIL_DELIVERY_FAILED: "An invitation e-mail could not be delivered",
-  SIGNER_REGISTERED: "A signer created their account",
-  CERTIFICATE_BOUND: "A signer's certificate was registered",
-  SIGNING_SESSION_CREATED: "A signing session was opened",
-  SIGNING_TURN_CLAIMED: "Took the next turn",
-  SIGNING_TURN_RELEASED: "Gave the turn back",
+  CERTIFICATE_BOUND: "Your certificate was registered",
   SIGNATURE_SUBMITTED: "A signature arrived",
   SIGNATURE_PLACEMENT_RECORDED: "Where the signature goes was recorded",
   SIGNATURE_VALIDATED: "The signature was checked",
   SIGNATURE_VALIDATION_FAILED: "A signature did not pass its check",
   REVISION_CREATED: "A new version of the document was stored",
   SIGNER_COMPLETED: "Signed",
-  NEXT_SIGNER_ACTIVATED: "Passed to the next signer",
-  WORKFLOW_COMPLETED: "Signed by everyone",
+  WORKFLOW_COMPLETED: "Signed",
   STALE_REVISION_REJECTED: "A signature of an out-of-date version was refused",
   CERTIFICATE_MISMATCH_REJECTED: "A signature with the wrong certificate was refused",
   DUPLICATE_OPERATION_IGNORED: "A repeated submission was ignored",
@@ -78,9 +64,6 @@ export const EVENT_WORDS: Record<string, string> = {
  * not do.
  */
 const BLOCKED = new Set([
-  "INVITATION_REVOKED",
-  "INVITATION_EXPIRED",
-  "EMAIL_DELIVERY_FAILED",
   "SIGNATURE_VALIDATION_FAILED",
   "STALE_REVISION_REJECTED",
   "CERTIFICATE_MISMATCH_REJECTED",
@@ -90,18 +73,17 @@ const BLOCKED = new Set([
 ]);
 
 /**
- * What happened to the agreement, as opposed to what the server had to do
- * about it: created, invited, opened, signed, finished. Everything that went
- * wrong joins this set in {@link inStory}, and so does an event type this
- * version has never heard of — see there.
+ * What happened to the document, as opposed to what the server had to do
+ * about it: uploaded, prepared, signed. Everything that went wrong joins
+ * this set in {@link inStory}, and so does an event type this version has
+ * never heard of — see there.
  */
 const STORY = new Set([
   "WORKFLOW_CREATED",
-  // Why a new document sits there doing nothing is exactly what its sender
-  // comes to this screen to find out.
-  "CERTIFICATES_PENDING",
-  "INVITATION_SENT",
-  "INVITATION_ACCEPTED",
+  // Why a freshly uploaded document sits there doing nothing is exactly what
+  // its owner comes to this screen to find out.
+  "CERTIFICATE_PENDING",
+  "CERTIFICATE_BOUND",
   "SIGNER_COMPLETED",
   "WORKFLOW_COMPLETED",
 ]);
@@ -219,38 +201,25 @@ export function pendingRow(
     // its messages. Nothing here knows more about why than it does.
     return { ...base, words: workflow.blockedReason, mark: "blocked" };
   }
-  // DRAFT means the document cannot be prepared yet because a slot has no
-  // certificate. What is being waited for is a certificate, not a signature,
-  // and the server names the slot it is waiting on — so this is said before
-  // the signature wording below, which would otherwise claim somebody is
-  // being asked to sign a document that has not been prepared.
+  // DRAFT means the document cannot be prepared yet because no certificate
+  // is registered for it. What is being waited for is a certificate, not a
+  // signature — so this is said before the signature wording below, which
+  // would otherwise claim somebody is being asked to sign a document that
+  // has not been prepared.
   if (workflow.status === "DRAFT") {
-    const who =
-      workflow.currentSignerUserId === username
-        ? "your certificate"
-        : workflow.currentSignerUserId
-          ? `a certificate from ${workflow.currentSignerUserId}`
-          : "the signers' certificates";
-    return { ...base, words: `Waiting for ${who}`, mark: "pending" };
-  }
-  if (workflow.waitingForClaim) {
-    return {
-      ...base,
-      words: "Waiting for one of the signers to take the next turn",
-      mark: "pending",
-    };
+    return { ...base, words: "Waiting for your certificate", mark: "pending" };
   }
   if (workflow.currentSignerUserId) {
     return {
       ...base,
       words:
         workflow.currentSignerUserId === username
-          ? "Waiting for you"
+          ? "Waiting for your signature"
           : `Waiting for ${workflow.currentSignerUserId}`,
       mark: "pending",
     };
   }
-  return { ...base, words: "Not sent out yet", mark: "pending" };
+  return { ...base, words: "Not prepared yet", mark: "pending" };
 }
 
 /**

@@ -34,6 +34,13 @@ if not defined SIGNER_DB_URL set SIGNER_DB_URL=jdbc:postgresql://localhost:5432/
 if not defined SIGNER_DB_USERNAME set SIGNER_DB_USERNAME=postgres
 if not defined SIGNER_DB_PASSWORD set SIGNER_DB_PASSWORD=
 if not defined APP_BASE_URL set APP_BASE_URL=http://localhost:8080
+rem Where the published desktop installer is read from. Outside the jar and
+rem outside the project, so an installer can be replaced without rebuilding.
+rem Read ONCE at startup: a new folder needs a restart, but a file copied
+rem into the folder is offered immediately. Empty/absent folder is a
+rem supported state - the website then says the download is not ready yet.
+if not defined SIGNER_DOWNLOAD_DIR set SIGNER_DOWNLOAD_DIR=%USERPROFILE%\signflow-releases
+if not exist "%SIGNER_DOWNLOAD_DIR%" mkdir "%SIGNER_DOWNLOAD_DIR%"
 
 rem Load optional secrets/overrides from OUTSIDE the project folder:
 rem %SIGNFLOW_SECRETS_FILE% when set, else

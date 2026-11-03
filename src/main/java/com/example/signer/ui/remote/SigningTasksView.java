@@ -7,7 +7,6 @@ import com.example.signer.ui.support.ErrorMessages;
 import javafx.scene.control.ButtonBase;
 import com.example.signer.ui.support.Background;
 import com.example.signer.exception.SignerException;
-import com.example.signer.client.SigningTaskModels.Participant;
 import com.example.signer.client.SigningTaskModels.SigningTask;
 import com.example.signer.client.SigningTaskModels.TaskFilter;
 import com.example.signer.client.SigningTaskModels.TaskSort;
@@ -83,12 +82,6 @@ public final class SigningTasksView {
 
         /** Starts the new-workflow wizard. */
         void newWorkflow();
-
-        /** Opens the inviter (owner-side email invitations). */
-        void inviteSigner();
-
-        /** Opens the owner tracking view. */
-        void manageWorkflows();
 
         /** Signs out (clears the cached session) and returns to sign-in. */
         void signOut();
@@ -228,7 +221,7 @@ public final class SigningTasksView {
         sortMenu.getStyleClass().add("btn-secondary");
         sortMenu.setMinWidth(Region.USE_PREF_SIZE);
         for (TaskSort s : List.of(TaskSort.RECENTLY_UPDATED, TaskSort.NEWEST,
-                TaskSort.OLDEST, TaskSort.EXPIRING_SOON)) {
+                TaskSort.OLDEST)) {
             MenuItem item = new MenuItem(sortLabel(s));
             item.setOnAction(e -> {
                 sort.set(s);
@@ -242,7 +235,7 @@ public final class SigningTasksView {
         searchRow.setAlignment(Pos.CENTER_LEFT);
 
         // ---- summary tiles (the main filters) ---------------------------
-        for (TaskFilter f : List.of(TaskFilter.NEEDS_ACTION, TaskFilter.WAITING,
+        for (TaskFilter f : List.of(TaskFilter.NEEDS_ACTION, TaskFilter.IN_PROGRESS,
                 TaskFilter.COMPLETED, TaskFilter.ALL)) {
             VBox tile = tile(f);
             tileNodes.put(f, tile);
@@ -292,17 +285,11 @@ public final class SigningTasksView {
                 () -> filter.set(TaskFilter.ALL));
         Node completedNav = navItem(FontAwesomeSolid.CHECK_DOUBLE, "Completed", null, false,
                 () -> filter.set(TaskFilter.COMPLETED));
-        Node sentNav = navItem(FontAwesomeSolid.PAPER_PLANE, "Sent for signature", null, false,
-                host::manageWorkflows);
-
-        Button send = new Button("Send a document", new FontIcon(FontAwesomeSolid.PLUS));
+        Button send = new Button("Sign a document", new FontIcon(FontAwesomeSolid.PLUS));
         send.getStyleClass().addAll("btn-primary", "st-send");
         send.setMaxWidth(Double.MAX_VALUE);
-        send.setTooltip(new Tooltip("Pick a PDF, add the signers and send them invitations"));
+        send.setTooltip(new Tooltip("Upload a PDF and prepare it for your signature"));
         send.setOnAction(e -> host.newWorkflow());
-        Hyperlink invite = new Hyperlink("Invite a signer by email…");
-        invite.getStyleClass().add("st-nav-link");
-        invite.setOnAction(e -> host.inviteSigner());
 
         Label avatar = new Label(username == null || username.isBlank()
                 ? "?" : username.substring(0, 1).toUpperCase());
@@ -322,8 +309,8 @@ public final class SigningTasksView {
 
         Region grow = new Region();
         VBox.setVgrow(grow, Priority.ALWAYS);
-        VBox side = new VBox(6, brand, spacer(14), tasksNav, completedNav, sentNav,
-                spacer(14), send, invite, grow, profile);
+        VBox side = new VBox(6, brand, spacer(14), tasksNav, completedNav,
+                spacer(14), send, grow, profile);
         side.getStyleClass().add("st-sidebar");
         side.setPrefWidth(220);
         side.setMinWidth(200);
@@ -409,7 +396,7 @@ public final class SigningTasksView {
         }
         // rarer states as small filters, only when they occur
         moreFilters.getChildren().clear();
-        for (TaskFilter f : List.of(TaskFilter.EXPIRED, TaskFilter.DECLINED, TaskFilter.REVOKED)) {
+        for (TaskFilter f : List.of(TaskFilter.CANCELLED)) {
             int n = SigningTaskModels.count(all, f);
             if (n > 0 || filter.get() == f) {
                 Hyperlink link = new Hyperlink(tileLabel(f) + " (" + n + ")");
@@ -461,11 +448,9 @@ public final class SigningTasksView {
 
     private String sectionTitle() {
         return switch (filter.get()) {
-            case WAITING -> "Waiting for others";
-            case COMPLETED -> "Completed";
-            case EXPIRED -> "Expired";
-            case DECLINED -> "Declined";
-            case REVOKED -> "Cancelled";
+            case IN_PROGRESS -> "In progress";
+            case COMPLETED -> "Signed";
+            case CANCELLED -> "Cancelled";
             default -> "Documents";
         };
     }
@@ -519,22 +504,12 @@ public final class SigningTasksView {
         stripe.setMinWidth(4);
         stripe.setMaxHeight(Double.MAX_VALUE);
 
-        // 1. state + expiry
+        // 1. state
         Label chip = new Label(state.label().toUpperCase(), new FontIcon(stateIcon(state)));
         chip.getStyleClass().addAll("st-state", "st-state--" + state.style());
         chip.setMinWidth(Region.USE_PREF_SIZE);
         HBox row1 = new HBox(10, chip);
         row1.setAlignment(Pos.CENTER_LEFT);
-        if (t.expiresText() != null
-                && (state == TaskState.ACTION_REQUIRED || state == TaskState.EXPIRED
-                        || state == TaskState.WAITING)) {
-            Label expires = new Label(t.expiresText(), new FontIcon(FontAwesomeSolid.CLOCK));
-            expires.getStyleClass().add(t.expiresSoon() ? "st-expires-soon" : "st-meta");
-            if (t.expiresSoon()) {
-                expires.setTooltip(new Tooltip("Expires within 48 hours"));
-            }
-            row1.getChildren().add(expires);
-        }
 
         // 2. document
         Label title = new Label(t.title());
@@ -543,29 +518,21 @@ public final class SigningTasksView {
         title.setTooltip(new Tooltip(t.title()));
         title.setMinWidth(0);
 
-        // 3. what is needed / who we wait for
-        Label explain = new Label(t.explanation()
-                + (t.yourRole() != null && state == TaskState.ACTION_REQUIRED
-                ? "  ·  " + t.yourRole() : ""));
+        // 3. what is needed
+        Label explain = new Label(t.explanation());
         explain.getStyleClass().add(state == TaskState.ACTION_REQUIRED
                 ? "st-explain-strong" : "st-explain");
         explain.setWrapText(true);
         explain.setMinWidth(0);
 
-        // 4. requester + dates
-        String requester = t.senderName() == null ? "Requester unknown"
-                : "Requested by " + t.senderName();
-        String created = t.dateText() == null ? "" : "  ·  " + t.dateKind() + " " + t.dateText();
-        Label meta = new Label(requester + created);
+        // 4. dates
+        Label meta = new Label(t.dateText() == null ? ""
+                : t.dateKind() + " " + t.dateText());
         meta.getStyleClass().add("st-meta");
         meta.setMinWidth(0);
         meta.setTextOverrun(OverrunStyle.ELLIPSIS);
 
         VBox text = new VBox(4, row1, title, explain, meta);
-        // 5. signing order
-        if (!t.participants().isEmpty()) {
-            text.getChildren().add(signerChain(t));
-        }
         text.setMinWidth(0);
         HBox.setHgrow(text, Priority.ALWAYS);
 
@@ -613,60 +580,11 @@ public final class SigningTasksView {
         }
     }
 
-    /**
-     * ✓ Alice → ● You → ○ Charlie for ordered signing; "Any order:" with
-     * no arrows for flexible workflows (never implies an order the
-     * workflow does not have).
-     */
-    private Node signerChain(SigningTask t) {
-        FlowPane chain = new FlowPane(6, 4);
-        chain.getStyleClass().add("st-chain");
-        if (t.anyOrder()) {
-            Label any = new Label("Any order:");
-            any.getStyleClass().add("st-chain-mode");
-            any.setTooltip(new Tooltip("Signers can sign in any order, one at a time"));
-            chain.getChildren().add(any);
-        }
-        List<Participant> people = t.participants();
-        for (int i = 0; i < people.size(); i++) {
-            Participant p = people.get(i);
-            boolean mine = p.you();
-            String kind = p.signed() ? "signed"
-                    : p.current() || mine && t.state() == TaskState.ACTION_REQUIRED ? "current"
-                    : "waiting";
-            FontIcon dot = new FontIcon(switch (kind) {
-                case "signed" -> FontAwesomeSolid.CHECK_CIRCLE;
-                case "current" -> FontAwesomeSolid.DOT_CIRCLE;
-                default -> FontAwesomeSolid.CIRCLE;
-            });
-            dot.getStyleClass().add("st-chain-dot--" + kind);
-            Label person = new Label(mine ? "You" : p.name(), dot);
-            person.getStyleClass().addAll("st-chain-person", "st-chain-person--" + kind);
-            person.setMaxWidth(160);
-            person.setTextOverrun(OverrunStyle.ELLIPSIS);
-            person.setTooltip(new Tooltip((mine ? "You (" + p.name() + ")" : p.name())
-                    + " — " + switch (kind) {
-                        case "signed" -> "signed";
-                        case "current" -> mine ? "your signature is required" : "signing now";
-                        default -> "waiting";
-                    }));
-            chain.getChildren().add(person);
-            if (!t.anyOrder() && i < people.size() - 1) {
-                FontIcon arrow = new FontIcon(FontAwesomeSolid.LONG_ARROW_ALT_RIGHT);
-                arrow.getStyleClass().add("st-chain-arrow");
-                chain.getChildren().add(arrow);
-            }
-        }
-        return chain;
-    }
-
     private static Ikon stateIcon(TaskState state) {
         return switch (state) {
             case ACTION_REQUIRED -> FontAwesomeSolid.PEN_NIB;
-            case WAITING -> FontAwesomeSolid.HOURGLASS_HALF;
+            case IN_PROGRESS -> FontAwesomeSolid.HOURGLASS_HALF;
             case COMPLETED -> FontAwesomeSolid.CHECK_CIRCLE;
-            case EXPIRED -> FontAwesomeSolid.CLOCK;
-            case DECLINED -> FontAwesomeSolid.TIMES_CIRCLE;
             case CANCELLED -> FontAwesomeSolid.BAN;
             case ERROR -> FontAwesomeSolid.EXCLAMATION_TRIANGLE;
         };
@@ -677,7 +595,6 @@ public final class SigningTasksView {
             case ACTION_REQUIRED -> t.certificatePending()
                     ? FontAwesomeSolid.ID_CARD : FontAwesomeSolid.ARROW_RIGHT;
             case COMPLETED -> FontAwesomeSolid.FILE_PDF;
-            case WAITING -> FontAwesomeSolid.STREAM;
             default -> FontAwesomeSolid.INFO_CIRCLE;
         };
     }
@@ -794,23 +711,20 @@ public final class SigningTasksView {
 
     private static String tileLabel(TaskFilter f) {
         return switch (f) {
-            case ALL -> "All tasks";
-            case NEEDS_ACTION -> "Action required";
-            case WAITING -> "Waiting";
-            case COMPLETED -> "Completed";
-            case DECLINED -> "Declined";
-            case EXPIRED -> "Expired";
-            case REVOKED -> "Cancelled";
+            case ALL -> "All documents";
+            case NEEDS_ACTION -> "Ready to sign";
+            case IN_PROGRESS -> "In progress";
+            case COMPLETED -> "Signed";
+            case CANCELLED -> "Cancelled";
         };
     }
 
     private static String sortLabel(TaskSort s) {
         return switch (s) {
-            case NEEDS_ACTION_FIRST -> "Action required first";
+            case NEEDS_ACTION_FIRST -> "Ready to sign first";
             case RECENTLY_UPDATED -> "Recently updated";
             case NEWEST -> "Newest";
             case OLDEST -> "Oldest";
-            case EXPIRING_SOON -> "Expiring soon";
         };
     }
 

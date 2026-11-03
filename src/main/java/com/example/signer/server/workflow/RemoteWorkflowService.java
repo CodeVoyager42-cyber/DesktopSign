@@ -1,13 +1,9 @@
 package com.example.signer.server.workflow;
 
 import com.example.signer.server.RemoteServerProperties;
-import com.example.signer.server.api.ApiContracts;
 import com.example.signer.server.auth.UserAccountService;
-import com.example.signer.server.invites.InvitationService;
 import org.springframework.beans.factory.ObjectProvider;
-import com.example.signer.server.api.ApiStates.InvitationStatus;
 import com.example.signer.server.api.ApiStates.ParticipantState;
-import com.example.signer.server.api.ApiStates.SlotState;
 
 import com.example.signer.server.api.ApiContracts.AuditView;
 import com.example.signer.server.api.ApiContracts.BindCertificateRequest;
@@ -31,7 +27,6 @@ import com.example.signer.verification.SignatureVerificationResult;
 import com.example.signer.workflow.CertificateIdentity;
 import com.example.signer.workflow.WorkflowManifest;
 import com.example.signer.workflow.WorkflowSignerStep;
-import com.example.signer.workflow.WorkflowSigningPolicy;
 import com.example.signer.workflow.WorkflowSigningService;
 
 import org.slf4j.Logger;
@@ -44,21 +39,25 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Server-side coordination of REMOTE signing workflows.
+ *
+ * <p><b>One document, one signer.</b> A workflow is created by the account
+ * that uploads the PDF, and that account is its only signer. Nobody is
+ * invited, nothing is sent to anybody, and no turn is ever handed over: the
+ * creator binds their own certificate, downloads the prepared revision,
+ * signs it on their own machine and submits it, which completes the workflow.
  *
  * <p>Trust model: the PDF signature chain is the only cryptographic truth;
  * workflow state is server-owned and never taken from client claims. A
  * submission is accepted only when
  *
  * <ul>
- *   <li>the authenticated user IS the currently assigned signer,</li>
+ *   <li>the authenticated user IS the workflow's signer,</li>
  *   <li>the workflow still expects the submitted parent revision (number AND
  *       SHA-256),</li>
  *   <li>the submitted PDF is a pure incremental update: byte-identical to the
@@ -66,7 +65,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <li>the full signature chain — including the new signature — verifies
  *       through the SAME verifier the desktop uses, and</li>
  *   <li>the NEW signature's certificate fingerprint matches the identity
- *       bound to the signer slot at creation time.</li>
+ *       bound to the signer slot.</li>
  * </ul>
  *
  * <p>Submissions are idempotent by {@code signingOperationId}: a network
@@ -86,20 +85,12 @@ public class RemoteWorkflowService {
 
     /**
      * Account existence check for workflow validation: the YAML-config
-     * accounts in file mode, the users table in database mode. Optional
-     * because the coordinator (database mode) may rewrite email slots to
-     * usernames it has just ensured to exist.
+     * accounts in file mode, the users table in database mode.
      */
     private final UserAccountService accounts;
 
-    /** Human directory (database mode): display names for sender labels. */
+    /** Human directory (database mode): display names. */
     private final WorkflowDirectory directory;
-
-    /**
-     * Invitation lookup (database mode): overlays REVOKED / DECLINED /
-     * EXPIRED slot states onto the signing-tasks view. Null in file mode.
-     */
-    private final InvitationService invitations;
 
     private final AtomicLong workflowSeq = new AtomicLong(System.currentTimeMillis());
 
@@ -109,8 +100,7 @@ public class RemoteWorkflowService {
                                  WorkflowSigningService workflowSigningService,
                                  SignaturePlacementExtractor placementExtractor,
                                  ObjectProvider<UserAccountService> accounts,
-                                 ObjectProvider<WorkflowDirectory> directory,
-                                 ObjectProvider<InvitationService> invitations) {
+                                 ObjectProvider<WorkflowDirectory> directory) {
         this.store = store;
         this.properties = properties;
         this.pdfVerification = pdfVerification;
@@ -118,7 +108,6 @@ public class RemoteWorkflowService {
         this.placementExtractor = placementExtractor;
         this.accounts = accounts.getIfAvailable();
         this.directory = directory.getIfAvailable();
-        this.invitations = invitations.getIfAvailable();
     }
 
     /* ------------------------------------------------------------------
@@ -127,54 +116,48 @@ public class RemoteWorkflowService {
      * ------------------------------------------------------------------ */
 
     /**
-     * Creates a workflow from an uploaded original PDF.
+     * Creates a workflow from an uploaded original PDF, to be signed by
+     * {@code creator} — the only signer there is.
      *
-     * <p>When every signer arrives with a certificate fingerprint, the server
-     * immediately embeds the portable manifest and stores revision 0. When
-     * any signer slot is UNBOUND, the workflow stays in DRAFT with NO stored
-     * document: the missing signers bind their own certificates from their
-     * own machines ({@link #bindCertificate}), and the manifest-bearing
-     * revision 0 is prepared only once all slots are bound. Revision 0 is
+     * <p>When the creator already arrives with a certificate fingerprint, the
+     * server immediately embeds the portable manifest and stores revision 0.
+     * Otherwise the workflow stays in DRAFT with NO stored document: the
+     * signer binds their own certificate from the machine their token is
+     * plugged into ({@link #bindCertificate}), and the manifest-bearing
+     * revision 0 is prepared once the slot is bound. Revision 0 is
      * immutable, so binding must complete before it exists.
      */
     public WorkflowView createWorkflow(CreateWorkflowRequest request,
                                        byte[] originalPdf,
                                        String creator) {
         // Phase D decision: an account with an unverified e-mail address may
-        // sign in, but may not start a signing request — it would put its
-        // name on a document and e-mail invitations in its name. File-mode
-        // accounts have no address to verify, so the seam answers true there.
+        // sign in, but may not put its name on a document. File-mode accounts
+        // have no address to verify, so the seam answers true there.
         if (!accounts.maySign(creator)) {
             throw new ApiException(ApiErrorCode.EMAIL_NOT_VERIFIED,
-                    "Verify your e-mail address before creating a signing request");
+                    "Verify your e-mail address before signing a document");
         }
         validate(request, creator);
         String workflowId = "WF-" + workflowSeq.incrementAndGet();
-        WorkflowSigningPolicy policy = WorkflowSigningPolicy.parse(request.signingPolicy());
 
         SigningWorkflowAggregate aggregate = SigningWorkflowAggregate.create(
-                workflowId, request.documentName(), policy,
-                mapSigners(request), creator);
+                workflowId, request.documentName(), mapSigner(request, creator), creator);
         aggregate.appendAudit(AuditEventType.WORKFLOW_CREATED, creator,
-                "Workflow created with " + request.signers().size() + " signer(s)"
-                        + " (" + policy + " policy)");
+                "Document uploaded for signing");
 
         synchronized (store.lockFor(workflowId)) {
-            boolean allBound = aggregate.allBound();
-            if (!allBound) {
-                long unbound = aggregate.pendingSigners().stream()
-                        .filter(s -> !s.isBound()).count();
+            if (!aggregate.allBound()) {
                 // Its own event type, not a second WORKFLOW_CREATED: this is a
                 // different fact about the workflow, and a reader that shows
                 // the type rather than this prose could only say "created"
                 // twice (the website's status timeline does exactly that).
-                aggregate.appendAudit(AuditEventType.CERTIFICATES_PENDING, creator,
-                        unbound + " signer(s) must bind a certificate before the"
-                                + " document is prepared");
+                aggregate.appendAudit(AuditEventType.CERTIFICATE_PENDING, creator,
+                        "A certificate must be registered before the document"
+                                + " is prepared");
                 store.stageOriginal(workflowId, originalPdf);
                 store.save(aggregate);
-                log.info("Workflow {} created by {} — DRAFT, {} certificate(s) pending",
-                        workflowId, creator, unbound);
+                log.info("Workflow {} created by {} — DRAFT, certificate pending",
+                        workflowId, creator);
                 return toView(aggregate);
             }
             prepareWorkflow(aggregate, originalPdf, creator);
@@ -184,9 +167,9 @@ public class RemoteWorkflowService {
 
     /**
      * Binds the authenticated signer's certificate to their UNBOUND slot
-     * (certificate enrollment, §14/§17 of the task spec). Only the slot's own
-     * user may bind it, only while the workflow is DRAFT. Binding the last
-     * missing certificate prepares the document (revision 0) atomically.
+     * (certificate enrollment happens on the signer's own machine). Only the
+     * slot's own user may bind it, only while the workflow is DRAFT. Binding
+     * prepares the document (revision 0) atomically.
      */
     public WorkflowView bindCertificate(String workflowId, String userId,
                                         BindCertificateRequest body) {
@@ -196,7 +179,7 @@ public class RemoteWorkflowService {
             throw new ApiException(ApiErrorCode.BAD_REQUEST,
                     "The certificate fingerprint must be 64 hex characters (the"
                             + " SHA-256 of the signer certificate, captured from"
-                            + " the signer's USB token)");
+                            + " your USB token)");
         }
         rejectDevelopmentFingerprint(fingerprint, "signer " + userId);
         synchronized (store.lockFor(workflowId)) {
@@ -207,72 +190,56 @@ public class RemoteWorkflowService {
                         "Certificates can only be bound while the workflow is"
                                 + " awaiting enrollment (status " + wf.status() + ")");
             }
-            WorkflowSignerRecord slot = wf.signers().stream()
-                    .filter(s -> s.userId().equals(userId))
-                    .findFirst()
-                    .orElseThrow(() -> new ApiException(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE,
-                            "You are not a signer of this workflow"));
+            WorkflowSignerRecord slot = wf.signer();
+            if (!slot.userId().equals(userId)) {
+                throw new ApiException(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE,
+                        "You are not the signer of this workflow");
+            }
             if (slot.signed()) {
                 throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
                         "Your signature is already recorded");
             }
-            // Security Phase 3: a slot's certificate is set once — by the
-            // sender at creation or by the signer here — and never replaced,
-            // and one certificate can hold only one slot of a workflow.
+            // Security Phase 3: a slot's certificate is set once and never
+            // replaced.
             if (slot.isBound()) {
                 throw new ApiException(ApiErrorCode.CERTIFICATE_ALREADY_BOUND,
                         "A certificate is already assigned to your signer slot");
             }
-            String normalized = fingerprint.toUpperCase(Locale.ROOT);
-            if (wf.signers().stream().anyMatch(s -> s.isBound()
-                    && normalized.equals(normalizeFingerprint(s.certificateSha256())))) {
-                throw new ApiException(ApiErrorCode.CERTIFICATE_ALREADY_BOUND,
-                        "This certificate is already assigned to another signer of"
-                                + " this workflow — each signer signs with their own"
-                                + " certificate");
-            }
-            wf.bindCertificate(userId, normalized);
+            wf.bindCertificate(userId, fingerprint.toUpperCase(Locale.ROOT));
             wf.appendAudit(AuditEventType.CERTIFICATE_BOUND, userId,
-                    "Certificate bound to signer " + slot.order() + " ("
-                            + shortFingerprint(fingerprint) + ")");
-            if (wf.allBound()) {
-                byte[] original = store.readStagedOriginal(workflowId);
-                if (original == null) {
-                    throw new ApiException(ApiErrorCode.VALIDATION_FAILED,
-                            "The staged original document is missing — the"
-                                    + " workflow cannot be prepared");
-                }
-                prepareWorkflow(wf, original, wf.createdBy());
-                log.info("Workflow {}: last certificate bound by {} — document"
-                                + " prepared", workflowId, userId);
-            } else {
-                store.save(wf);
+                    "Certificate bound (" + shortFingerprint(fingerprint) + ")");
+            byte[] original = store.readStagedOriginal(workflowId);
+            if (original == null) {
+                throw new ApiException(ApiErrorCode.VALIDATION_FAILED,
+                        "The staged original document is missing — the"
+                                + " workflow cannot be prepared");
             }
+            prepareWorkflow(wf, original, wf.createdBy());
+            log.info("Workflow {}: certificate bound by {} — document prepared",
+                    workflowId, userId);
             return toView(wf);
         }
     }
 
     /**
      * Embeds the manifest into the original, stores immutable revision 0 and
-     * activates the first signing turn. Caller must hold the workflow lock.
+     * activates the signing turn. Caller must hold the workflow lock.
      */
     private void prepareWorkflow(SigningWorkflowAggregate wf, byte[] originalPdf,
                                  String actor) {
-        List<WorkflowSignerStep> steps = new ArrayList<>();
-        for (WorkflowSignerRecord s : wf.signers()) {
-            CertificateIdentity identity = s.isBound()
-                    ? new CertificateIdentity(s.certificateSha256(), "", "", "")
-                    : CertificateIdentity.unbound();
-            steps.add(WorkflowSignerStep.of(s.order(), "Signer " + s.order(),
-                    identity, null));
-        }
+        WorkflowSignerRecord s = wf.signer();
+        CertificateIdentity identity = s.isBound()
+                ? new CertificateIdentity(s.certificateSha256(), "", "", "")
+                : CertificateIdentity.unbound();
+        List<WorkflowSignerStep> steps = List.of(
+                WorkflowSignerStep.of(s.order(), "Signer " + s.order(), identity, null));
         Path original = null;
         Path prepared = null;
         try {
             original = Files.createTempFile("wf-create-", ".pdf");
             Files.write(original, originalPdf);
             WorkflowManifest manifest = workflowSigningService.createWorkflow(
-                    original, wf.documentName(), wf.policy(), steps);
+                    original, wf.documentName(), steps);
             prepared = Files.createTempFile("wf-prepared-", ".pdf");
             workflowSigningService.writeManifestIntoCopy(original, manifest, prepared);
             byte[] revision0 = Files.readAllBytes(prepared);
@@ -285,8 +252,8 @@ public class RemoteWorkflowService {
                 wf.transition(WorkflowState.READY_FOR_SIGNING);
                 wf.transition(WorkflowState.WAITING_FOR_SIGNER);
                 wf.appendAudit(AuditEventType.WORKFLOW_PREPARED, actor,
-                        "Revision 0 stored (" + revision0.length + " bytes) — all"
-                                + " certificates bound");
+                        "Revision 0 stored (" + revision0.length + " bytes) —"
+                                + " ready to sign");
                 store.save(wf);
             } catch (RuntimeException e) {
                 // Not committed: never leave an orphan revision 0 behind.
@@ -323,151 +290,63 @@ public class RemoteWorkflowService {
      * Retrieval
      * ------------------------------------------------------------------ */
 
-    /** The workflow view for participants (and the creator). */
+    /** The workflow view for its signer. */
     public WorkflowView getWorkflow(String workflowId, String userId) {
         return toView(requireAccessible(workflowId, userId));
     }
 
-    /**
-     * The authenticated user's task in {@code workflowId}. When the workflow
-     * is FLEXIBLE and the turn is unclaimed, {@code waitingForClaim} is true
-     * and {@code eligibleSignerUserIds} lists who may claim.
-     */
+    /** The authenticated user's signing task in {@code workflowId}. */
     public TaskView getTask(String workflowId, String userId) {
         SigningWorkflowAggregate wf = requireAccessible(workflowId, userId);
         WorkflowSignerRecord signer = wf.currentSigner();
-        boolean waitingForClaim = signer == null;
-        List<String> eligible = waitingForClaim
-                ? wf.pendingSigners().stream()
-                        .map(WorkflowSignerRecord::userId).toList()
-                : List.of();
-        List<TaskView.StepView> steps = wf.signers().stream()
-                .map(s -> new TaskView.StepView(s.order(), s.userId(),
-                        s.signed(),
-                        signer != null && s.order() == signer.order(),
-                        s.isBound(), signerState(s)))
-                .toList();
-        log.info("Signing task opened for workflow {} by {} (status {}, "
-                        + "{}/{} signature(s) accepted)", wf.workflowId(), userId,
-                wf.status(), steps.stream().filter(TaskView.StepView::signed).count(),
-                steps.size());
+        WorkflowSignerRecord slot = wf.signer();
+        TaskView.StepView step = new TaskView.StepView(slot.order(), slot.userId(),
+                slot.signed(), signer != null, slot.isBound(),
+                slot.signed() ? "SIGNED" : "PENDING");
+        log.info("Signing task opened for workflow {} by {} (status {}, signed={})",
+                wf.workflowId(), userId, wf.status(), slot.signed());
         return new TaskView(wf.workflowId(), wf.documentName(), wf.status().name(),
                 signer == null ? null : signer.order(),
                 signer == null ? null : signatureFieldFor(signer.order()),
                 wf.currentRevision().revisionNumber(), wf.currentRevision().sha256(),
-                waitingForClaim, eligible, steps);
-    }
-
-    /* ------------------------------------------------------------------
-     * Explicit, server-derived signer lifecycle
-     * ------------------------------------------------------------------ */
-
-    /**
-     * The signer lifecycle of ONE slot, derived from server-owned facts
-     * only:
-     *
-     * <pre>
-     * INVITED  — the invited recipient has no registered account yet
-     * PENDING  — the recipient has an account, but no accepted signature
-     * SIGNED   — an accepted signature exists (validated submission only)
-     * </pre>
-     *
-     * <p>Deliberately NOT derived from: the invitation's own status, the
-     * workflow's status, whether the document was opened/downloaded, or
-     * anything the client sends. Registration and authentication never move
-     * a slot past PENDING; only an accepted signature reaches SIGNED.
-     */
-    private String signerState(WorkflowSignerRecord slot) {
-        if (slot.signed()) {
-            return "SIGNED";
-        }
-        return isRegistered(slot.userId()) ? "PENDING" : "INVITED";
-    }
-
-    /** Whether the slot's account is registered (can authenticate). */
-    private boolean isRegistered(String userId) {
-        return accounts == null || accounts.isRegistered(userId);
+                List.of(step));
     }
 
     /**
-     * Atomically claims the flexible signing turn for the authenticated
-     * user. Re-claiming your own turn refreshes it; a claim held by another
-     * signer yields {@code TURN_ALREADY_CLAIMED} (409).
-     */
-    public TaskView claimTurn(String workflowId, String userId) {
-        synchronized (store.lockFor(workflowId)) {
-            // Mutation protocol: load INSIDE the lock, validate the fresh copy.
-            SigningWorkflowAggregate wf = requireAccessible(workflowId, userId);
-            if (wf.signers().stream().noneMatch(s -> s.userId().equals(userId))) {
-                throw new ApiException(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE,
-                        "Only a signer of this workflow can take a signing turn");
-            }
-            if (wf.status() != WorkflowState.WAITING_FOR_SIGNER) {
-                throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
-                        "The workflow is not accepting signatures (status "
-                                + wf.status() + ")");
-            }
-            try {
-                wf.claimTurn(userId);
-            } catch (IllegalStateException e) {
-                throw new ApiException(ApiErrorCode.TURN_ALREADY_CLAIMED, e.getMessage());
-            }
-            wf.appendAudit(AuditEventType.SIGNING_TURN_CLAIMED, userId,
-                    "Signing turn claimed by " + userId);
-            store.save(wf);
-        }
-        return getTask(workflowId, userId);
-    }
-
-    /**
-     * Phase B: the signer slot {@code userId} may open in the desktop right
-     * now, or a refusal. Checked when a launch code is issued AND again when
-     * it is exchanged. Allowed:
+     * The signer slot {@code userId} may open in the desktop right now, or a
+     * refusal. Checked when a launch code is issued AND again when it is
+     * exchanged. Allowed:
      * <ul>
-     *   <li>DRAFT, the user's slot has no certificate yet (enrolment);</li>
-     *   <li>WAITING_FOR_SIGNER, the user holds the turn, or (FLEXIBLE, turn
-     *       unclaimed) the user is an eligible signer.</li>
+     *   <li>DRAFT, the slot has no certificate yet (enrolment);</li>
+     *   <li>WAITING_FOR_SIGNER, the slot is unsigned.</li>
      * </ul>
-     * Strangers get the uniform "not found"; an owner who is not a signer 403.
+     * Anybody else gets the uniform "not found".
      *
      * @return the user's signer order
      */
     public int requireLaunchableSlot(String workflowId, String userId) {
         SigningWorkflowAggregate wf = requireAccessible(workflowId, userId);
-        WorkflowSignerRecord slot = wf.signers().stream()
-                .filter(s -> s.userId().equals(userId))
-                .findFirst()
-                .orElseThrow(() -> new ApiException(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE,
-                        "Only a signer of this workflow can open it for signing"));
+        WorkflowSignerRecord slot = wf.signer();
+        if (!slot.userId().equals(userId)) {
+            throw new ApiException(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE,
+                    "Only the signer of this workflow can open it for signing");
+        }
         if (slot.signed()) {
             throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
                     "Your signature is already recorded");
         }
         // Remediation of H2: a launch never registers a certificate. The
         // slot must already have one, registered through the signed-in
-        // desktop (or the invitation flow), so a stolen launch code cannot
-        // attach another card to this signer's slot.
+        // desktop, so a stolen launch code cannot attach another card to
+        // this signer's slot.
         if (!slot.isBound()) {
             throw new ApiException(ApiErrorCode.CERTIFICATE_NOT_BOUND,
                     "Your smart card is not registered for this signing task yet."
                             + " Open the task in SignFlow while signed in and connect your"
                             + " card first.");
         }
-        switch (wf.status()) {
-            case DRAFT -> throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
-                    "The workflow is waiting for other signers' certificates");
-            case WAITING_FOR_SIGNER -> {
-                WorkflowSignerRecord current = wf.currentSigner();
-                boolean mine = current != null
-                        ? current.userId().equals(userId)
-                        : wf.policy() == WorkflowSigningPolicy.FLEXIBLE
-                                && wf.isEligibleSigner(userId);
-                if (!mine) {
-                    throw new ApiException(ApiErrorCode.NOT_YOUR_TURN,
-                            "It is not your turn to sign this workflow");
-                }
-            }
-            default -> throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
+        if (wf.status() != WorkflowState.WAITING_FOR_SIGNER) {
+            throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
                     "The workflow is " + wf.status() + " and cannot be signed");
         }
         return slot.order();
@@ -494,10 +373,9 @@ public class RemoteWorkflowService {
         } catch (ApiException e) {
             return TaskSlotState.INVALID;
         }
-        WorkflowSignerRecord slot = wf.signers().stream()
-                .filter(s -> s.order() == signerOrder)
-                .findFirst().orElse(null);
-        if (slot == null || !slot.userId().equals(userId) || !slot.isBound()) {
+        WorkflowSignerRecord slot = wf.signer();
+        if (slot.order() != signerOrder || !slot.userId().equals(userId)
+                || !slot.isBound()) {
             return TaskSlotState.INVALID;
         }
         boolean active = switch (wf.status()) {
@@ -507,52 +385,53 @@ public class RemoteWorkflowService {
         return active && !slot.signed() ? TaskSlotState.ACTIVE : TaskSlotState.FINISHED;
     }
 
-    /** Pending signer user ids of an active workflow (claim candidates). */
-    public List<String> eligibleSigners(String workflowId, String userId) {
-        SigningWorkflowAggregate wf = requireAccessible(workflowId, userId);
-        if (wf.status() != WorkflowState.WAITING_FOR_SIGNER) {
-            return List.of();
-        }
-        return wf.pendingSigners().stream()
-                .map(WorkflowSignerRecord::userId).toList();
-    }
-
-    /** The current revision bytes — only for the signer whose turn it is. */
+    /**
+     * The current revision bytes — only for the workflow's own signer.
+     *
+     * <p>A DRAFT workflow has no revision 0 yet: the signer's certificate is
+     * not registered, so the manifest-bearing document cannot have been
+     * prepared ({@link #createWorkflow}). That is a state the caller can act
+     * on — register the certificate — so it answers
+     * {@code CERTIFICATE_NOT_BOUND} (409), the same code the launch route
+     * gives for the same situation, rather than failing on the missing file.
+     */
     public byte[] getDocument(String workflowId, String userId) {
         SigningWorkflowAggregate wf = requireAccessible(workflowId, userId);
         WorkflowSignerRecord signer = wf.currentSigner();
         if (signer == null || !signer.userId().equals(userId)) {
             throw new ApiException(ApiErrorCode.NOT_YOUR_TURN,
-                    "It is not your turn to sign this workflow");
+                    "This document is not waiting for your signature");
+        }
+        if (wf.status() == WorkflowState.DRAFT || !signer.isBound()) {
+            throw new ApiException(ApiErrorCode.CERTIFICATE_NOT_BOUND,
+                    "Register your signing certificate first: the document is"
+                            + " prepared once the certificate that will sign it"
+                            + " is known");
         }
         return store.readRevision(workflowId, wf.currentRevision().revisionNumber());
     }
 
     /**
-     * The finished document, for everyone who took part in it (gap G6).
+     * The finished document, once it is signed.
      *
-     * <p>{@link #getDocument} is the signing download: it hands the current
-     * revision to the one signer whose turn it is, because that is the only
-     * person who has a use for it. This is the other kind — the result, once
-     * there is one, for the creator and every signer alike. Nobody's turn is
-     * involved and nothing can follow it, so no signing rule applies.
+     * <p>{@link #getDocument} is the signing download: the revision to put a
+     * signature on. This is the other kind — the result, once there is one.
+     * Nothing can follow it, so no signing rule applies.
      *
-     * <p>Before the last signature there is deliberately nothing to give out:
-     * a half-signed revision is a working copy, and handing it out as "the
-     * document" invites it to be forwarded, printed and treated as the
-     * agreement. {@code INVALID_WORKFLOW_STATE} (409) says so, and the
-     * uniform 404 still covers anyone who is not in the workflow at all.
+     * <p>Before the signature there is deliberately nothing to give out:
+     * {@code INVALID_WORKFLOW_STATE} (409) says so, and the uniform 404 still
+     * covers anyone the workflow does not belong to.
      */
     public byte[] getCompletedDocument(String workflowId, String userId) {
         SigningWorkflowAggregate wf = requireAccessible(workflowId, userId);
         if (wf.status() != WorkflowState.COMPLETED) {
             throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
-                    "This document is not signed by everyone yet");
+                    "This document is not signed yet");
         }
         return store.readRevision(workflowId, wf.currentRevision().revisionNumber());
     }
 
-    /** Revision history visible to participants. */
+    /** Revision history visible to the signer. */
     public List<RevisionView> getRevisions(String workflowId, String userId) {
         SigningWorkflowAggregate wf = requireAccessible(workflowId, userId);
         return wf.revisions().stream()
@@ -562,80 +441,32 @@ public class RemoteWorkflowService {
                 .toList();
     }
 
-    /** Audit trail visible to participants. */
     /**
-     * The event types whose {@code detail} has ever named an e-mail address,
-     * and whose prose therefore goes to the workflow's creator alone.
-     *
-     * <p>{@code INVITATION_CREATED} and {@code INVITATION_EXPIRED} wrote the
-     * invited address until it was taken out (see those call sites), so this
-     * is what covers the rows already in the table: rewriting an append-only
-     * audit trail to hide what it recorded would be worse than the exposure.
-     * {@code EMAIL_DELIVERY_FAILED} is different and still current — it
-     * carries the mail transport's own error text, which routinely names the
-     * recipient it rejected, and no scrubbing of somebody else's SMTP message
-     * would be dependable. The creator is also the only reader who can act on
-     * a delivery failure.
-     *
-     * <p>Deliberately a narrow list and not "all prose to the owner". That
-     * blunter rule was written first and two Phase B tests caught it:
-     * {@code DESKTOP_SESSION_OPENED} carries the device and app version of
-     * the session, which the signer whose session it is must be able to see —
-     * it is the whole of the F3 mitigation ("opened on device X, app vY", with
-     * a "this wasn't me" revoke). Hiding a signer's own session detail to
-     * protect a co-signer's address would have traded one exposure for a
-     * worse one.
-     */
-    private static final Set<AuditEventType> CREATOR_ONLY_DETAIL = EnumSet.of(
-            AuditEventType.INVITATION_CREATED,
-            AuditEventType.INVITATION_EXPIRED,
-            AuditEventType.EMAIL_DELIVERY_FAILED);
-
-    /**
-     * What happened, in order, to a workflow the caller takes part in.
-     *
-     * <p>Every participant reads the event type, the actor and the time —
-     * what happened and in what order is what the trail is for. The prose
-     * {@code detail} of the few event types in {@link #CREATOR_ONLY_DETAIL}
-     * reaches the creator only; see there for which and why.
+     * What happened, in order, to a workflow the caller owns. Since a
+     * workflow has exactly one participant, who is also its creator, there is
+     * nobody the trail could leak anything to.
      */
     public List<AuditView> getAudit(String workflowId, String userId) {
         SigningWorkflowAggregate wf = requireAccessible(workflowId, userId);
-        boolean creator = userId != null && userId.equals(wf.createdBy());
         return wf.audit().stream()
                 .map(a -> new AuditView(a.sequence(), a.eventType().name(),
-                        a.actor(),
-                        creator || !CREATOR_ONLY_DETAIL.contains(a.eventType())
-                                ? a.detail() : null,
-                        a.occurredAt().toString()))
+                        a.actor(), a.detail(), a.occurredAt().toString()))
                 .toList();
     }
 
-    /** Workflows where {@code userId} holds the current signing task. */
+    /** Workflows that are waiting for {@code userId} to act. */
     public List<WorkflowView> myTasks(String userId) {
         List<WorkflowView> result = new ArrayList<>();
         for (String workflowId : store.listWorkflowIdsForSigner(userId)) {
-            SigningWorkflowAggregate wf;
-            try {
-                wf = store.load(workflowId);
-            } catch (RuntimeException e) {
-                log.warn("Skipping unreadable workflow {}", workflowId);
-                continue;
-            }
+            SigningWorkflowAggregate wf = loadQuietly(workflowId);
             if (wf == null) {
                 continue;
             }
-            if (wf.status() == WorkflowState.WAITING_FOR_SIGNER) {
-                boolean mine = wf.currentSigner() != null
-                        ? wf.maySubmit(userId)
-                        : wf.policy() == WorkflowSigningPolicy.FLEXIBLE
-                                && wf.isEligibleSigner(userId);
-                if (mine) {
-                    result.add(toView(wf));
-                }
+            if (wf.status() == WorkflowState.WAITING_FOR_SIGNER && wf.maySubmit(userId)) {
+                result.add(toView(wf));
             } else if (wf.status() == WorkflowState.DRAFT
-                    && wf.signers().stream().anyMatch(s ->
-                            s.userId().equals(userId) && !s.isBound() && !s.signed())) {
+                    && wf.signer().userId().equals(userId)
+                    && !wf.signer().isBound() && !wf.signer().signed()) {
                 // The user still owes a certificate binding — surface it.
                 result.add(toView(wf));
             }
@@ -644,31 +475,17 @@ public class RemoteWorkflowService {
     }
 
     /**
-     * Workflows created by {@code userId} (the inviter's picker — the owner
-     * invites signers into workflows they created). Cancelled workflows are
-     * hidden; DRAFT workflows appear so their unbound slots can be invited.
+     * Every workflow {@code userId} created. Since the creator is also the
+     * signer, this is simply "my documents" — every lifecycle state,
+     * cancelled included.
      */
     public List<WorkflowView> ownedBy(String userId) {
         List<WorkflowView> result = new ArrayList<>();
         for (String workflowId : store.listWorkflowIdsCreatedBy(userId)) {
-            SigningWorkflowAggregate wf;
-            try {
-                wf = store.load(workflowId);
-            } catch (RuntimeException e) {
-                log.warn("Skipping unreadable workflow {}", workflowId);
-                continue;
-            }
+            SigningWorkflowAggregate wf = loadQuietly(workflowId);
             if (wf == null) {
                 continue;
             }
-            // Every lifecycle state, cancelled included. Hiding CANCELLED
-            // made a request disappear from its sender's own list the moment
-            // they cancelled it: the website's dashboard groups COMPLETED,
-            // CANCELLED and FAILED as "Finished", and for a workflow its
-            // creator does not also sign, this was the only list it could
-            // ever appear in — so cancelling from the document screen left
-            // the reader on a page that had fallen out of their dashboard.
-            // Cancelled is a state to be shown, not a reason to forget.
             if (userId != null && userId.equals(wf.createdBy())) {
                 result.add(toView(wf));
             }
@@ -676,174 +493,95 @@ public class RemoteWorkflowService {
         return result;
     }
 
+    private SigningWorkflowAggregate loadQuietly(String workflowId) {
+        try {
+            return store.load(workflowId);
+        } catch (RuntimeException e) {
+            log.warn("Skipping unreadable workflow {}", workflowId);
+            return null;
+        }
+    }
+
     /* ------------------------------------------------------------------
-     * Signing Tasks workspace (participant-scoped, all lifecycle states)
+     * The signing-tasks workspace (all lifecycle states)
      * ------------------------------------------------------------------ */
 
     /**
-     * Every workflow the signed-in user participates in as a SIGNER, across
-     * all lifecycle states — unlike {@link #myTasks}, which returns only
-     * actionable items. This is the data behind the desktop "Signing
-     * Tasks" workspace; cancelled workflows are hidden (the participant's
-     * action is gone, keeping them visible only in the owner's tracking).
+     * Every workflow the signed-in user has, across all lifecycle states —
+     * unlike {@link #myTasks}, which returns only actionable items. This is
+     * the data behind the desktop "My documents" workspace and the website
+     * dashboard.
      */
     public SigningTasksView listParticipating(String userId) {
         List<TaskItemView> tasks = new ArrayList<>();
         // Only the caller's workflows are loaded (one indexed query in
-        // database mode) — before, EVERY workflow was loaded on each refresh.
+        // database mode).
         for (String workflowId : store.listWorkflowIdsForSigner(userId)) {
-            SigningWorkflowAggregate wf;
-            try {
-                wf = store.load(workflowId);
-            } catch (RuntimeException e) {
-                log.warn("Skipping unreadable workflow {}", workflowId);
+            SigningWorkflowAggregate wf = loadQuietly(workflowId);
+            if (wf == null || !wf.signer().userId().equals(userId)) {
                 continue;
             }
-            if (wf == null) {
-                continue;
-            }
-            WorkflowSignerRecord mine = wf.signers().stream()
-                    .filter(s -> s.userId().equals(userId))
-                    .findFirst().orElse(null);
-            if (mine == null) {
-                continue;
-            }
-            tasks.add(toTaskItem(wf, mine));
+            tasks.add(toTaskItem(wf));
         }
         tasks.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(
                 a.documentName(), b.documentName()));
         return new SigningTasksView(tasks);
     }
 
-    /** Maps one aggregate + the caller's slot to the task-item view. */
-    private TaskItemView toTaskItem(SigningWorkflowAggregate wf,
-                                    WorkflowSignerRecord mine) {
-        String senderId = wf.createdBy();
-        WorkflowDirectory.Profile senderProfile = senderId == null
-                ? null : directory == null ? null : directory.profileOf(senderId);
+    /** Maps one aggregate to the task-item view. */
+    private TaskItemView toTaskItem(SigningWorkflowAggregate wf) {
+        WorkflowSignerRecord mine = wf.signer();
+        String ownerId = wf.createdBy();
+        WorkflowDirectory.Profile ownerProfile = ownerId == null || directory == null
+                ? null : directory.profileOf(ownerId);
 
-        // Participant state: the slot's OWN signature first, then the
-        // workflow lifecycle, then the slot's invitation overlay (REVOKED /
-        // DECLINED / EXPIRED in database mode).
+        // The slot's OWN signature first, then the workflow lifecycle.
         //
-        // SIGNED is emitted for this participant ONLY when their own slot
-        // carries an accepted signature — never because the workflow is
-        // COMPLETED, never because an account/invitation exists, never
-        // because the document was opened.
+        // SIGNED is emitted ONLY when the slot carries an accepted signature
+        // — never because the workflow is COMPLETED, never because the
+        // document was opened.
         boolean slotSigned = mine.signed();
         ParticipantState label;
         boolean waitingForMe = false;
-        boolean waitingForClaim = false;
         if (slotSigned) {
             label = ParticipantState.SIGNED;
         } else if (wf.status() == WorkflowState.DRAFT && !mine.isBound()) {
             label = ParticipantState.CERTIFICATE_PENDING;
-        } else if (!isRegistered(mine.userId())) {
-            // An invitation exists for a recipient who has not registered
-            // yet: invitation state and account state, NOT a signature.
-            label = ParticipantState.INVITED;
         } else if (wf.status() == WorkflowState.CANCELLED) {
-            // The requester withdrew the request: shown (not hidden) so the
-            // participant learns why it disappeared from "Action required".
             label = ParticipantState.CANCELLED;
         } else if (wf.status() == WorkflowState.FAILED) {
             label = ParticipantState.BLOCKED;
         } else if (wf.status() == WorkflowState.WAITING_FOR_SIGNER) {
-            WorkflowSignerRecord current = wf.currentSigner();
-            if (current != null && mine.userId().equals(current.userId())) {
-                label = ParticipantState.YOUR_TURN;
-                waitingForMe = true;
-            } else if (current == null
-                    && wf.policy() == WorkflowSigningPolicy.FLEXIBLE
-                    && wf.isEligibleSigner(mine.userId())) {
-                label = ParticipantState.WAITING_FOR_CLAIM;
-                waitingForClaim = true;
-            } else {
-                label = ParticipantState.WAITING_FOR_OTHERS;
-            }
+            label = ParticipantState.YOUR_TURN;
+            waitingForMe = true;
         } else {
             label = ParticipantState.IN_PROGRESS;
         }
-        InvitationService.SlotInvitationState
-                slotInvitation = invitations == null ? null
-                : invitations.latestSlotState(wf.workflowId(), mine.userId());
-        if (!slotSigned) {
-            if (slotInvitation != null
-                    && InvitationStatus.parse(slotInvitation.status()) == InvitationStatus.REVOKED) {
-                label = ParticipantState.REVOKED;
-                waitingForMe = false;
-                waitingForClaim = false;
-            } else if (slotInvitation != null
-                    && InvitationStatus.parse(slotInvitation.status()) == InvitationStatus.DECLINED) {
-                label = ParticipantState.DECLINED;
-                waitingForMe = false;
-                waitingForClaim = false;
-            } else if (slotInvitation != null
-                    && InvitationStatus.parse(slotInvitation.status()) == InvitationStatus.EXPIRED) {
-                label = ParticipantState.EXPIRED;
-                waitingForMe = false;
-                waitingForClaim = false;
-            }
-        }
 
-        // Dates: created = the workflow's first audit event (WORKFLOW_CREATED
-        // or SIGNER_REGISTERED, whichever ran first); completed = the last
-        // audit event when the workflow is terminal.
+        // Dates: created = the workflow's first audit event; completed = when
+        // this slot's own signature was accepted.
         String createdAt = null;
         String completedAt = null;
         List<AuditEventRecord> audit = wf.audit();
         if (!audit.isEmpty()) {
             createdAt = audit.get(0).occurredAt().toString();
-            // Per-participant: the "completed" date is when THIS slot's own
-            // signature was accepted, so an unsigned participant is never
-            // shown as having completed the document. The workflow's last
-            // audit event is only a fallback for legacy rows.
             if (slotSigned) {
                 completedAt = mine.signedAt() != null
                         ? mine.signedAt().toString()
                         : audit.get(audit.size() - 1).occurredAt().toString();
             }
         }
-        int completed = (int) wf.signers().stream()
-                .filter(WorkflowSignerRecord::signed).count();
-
-        // Signing order as the participant sees it: names only (no emails),
-        // each slot SIGNED / CURRENT (holds the turn) / WAITING.
-        WorkflowSignerRecord current = wf.currentSigner();
-        List<ApiContracts.TaskParticipantView> participants =
-                new ArrayList<>();
-        for (WorkflowSignerRecord s : wf.signers()) {
-            WorkflowDirectory.Profile profile = directory == null ? null
-                    : directory.profileOf(s.userId());
-            String name = profile != null && profile.displayName() != null
-                    && !profile.displayName().isBlank() ? profile.displayName() : s.userId();
-            SlotState state = s.signed() ? SlotState.SIGNED
-                    : current != null && current.userId().equals(s.userId()) ? SlotState.CURRENT
-                    : SlotState.WAITING;
-            participants.add(new ApiContracts.TaskParticipantView(
-                    s.order(), name, s.userId().equals(mine.userId()), state));
-        }
-        String expiresAt = !slotSigned && slotInvitation != null
-                && (InvitationStatus.parse(slotInvitation.status()) == InvitationStatus.PENDING
-                        || InvitationStatus.parse(slotInvitation.status()) == InvitationStatus.ACCEPTED)
-                ? slotInvitation.expiresAt() : null;
         String updatedAt = audit.isEmpty() ? null
                 : audit.get(audit.size() - 1).occurredAt().toString();
         return new TaskItemView(
                 wf.workflowId(),
                 wf.documentName(),
-                senderId,
-                senderProfile == null ? null : senderProfile.displayName(),
+                ownerId,
+                ownerProfile == null ? null : ownerProfile.displayName(),
                 wf.status().name(),
                 createdAt,
                 completedAt,
-                new ParticipantStateView(label,
-                        mine.order(), slotSigned, waitingForMe, waitingForClaim),
-                wf.signers().size(),
-                completed,
-                wf.policy().name(),
-                participants,
-                expiresAt,
+                new ParticipantStateView(label, mine.order(), slotSigned, waitingForMe),
                 updatedAt);
     }
 
@@ -887,26 +625,16 @@ public class RemoteWorkflowService {
                 return replayResponse(wf, replayed);
             }
 
-            // ── state and turn ──
+            // ── state and slot ──
             if (wf.status() != WorkflowState.WAITING_FOR_SIGNER) {
                 throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
                         "The workflow is not waiting for a signature (status "
                                 + wf.status() + ")");
             }
             WorkflowSignerRecord current = wf.currentSigner();
-            if (current == null) {
+            if (current == null || !current.userId().equals(userId)) {
                 throw new ApiException(ApiErrorCode.NOT_YOUR_TURN,
-                        wf.policy() == WorkflowSigningPolicy.FLEXIBLE
-                                ? "No signing turn is claimed — claim the turn"
-                                        + " first (POST /claim)"
-                                : "It is not your turn to sign this workflow");
-            }
-            if (!current.userId().equals(userId)) {
-                throw new ApiException(ApiErrorCode.NOT_YOUR_TURN,
-                        wf.policy() == WorkflowSigningPolicy.FLEXIBLE
-                                ? "The signing turn is currently held by "
-                                        + current.userId()
-                                : "It is not your turn to sign this workflow");
+                        "This document is not waiting for your signature");
             }
 
             // ── optimistic concurrency: parent revision number AND hash ──
@@ -951,54 +679,35 @@ public class RemoteWorkflowService {
             byte[] pdfBytes, WorkflowSignerRecord current, int expectedRevision,
             int newRevision) {
         String workflowId = wf.workflowId();
-        {
-            wf.appendRevision(new DocumentRevisionRecord(newRevision,
-                    expectedRevision, WorkflowFileStore.sha256Hex(pdfBytes),
-                    pdfBytes.length, Instant.now(), userId));
-            wf.appendAudit(AuditEventType.REVISION_CREATED, userId,
-                    "Revision " + newRevision + " accepted ("
-                            + pdfBytes.length + " bytes)");
-            // Durable placement metadata (brief §33): read the accepted
-            // visible-signature geometry out of the accepted revision's
-            // embedded manifest. Metadata only — never a rejection reason.
-            SignaturePlacement acceptedPlacement =
-                    placementExtractor.extract(workflowId, pdfBytes, expectedRevision);
-            if (acceptedPlacement != null) {
-                wf.appendAudit(AuditEventType.SIGNATURE_PLACEMENT_RECORDED, userId,
-                        "Signer " + current.order() + " — page "
-                                + (acceptedPlacement.pageIndex() + 1) + " ("
-                                + (int) acceptedPlacement.x() + ", "
-                                + (int) acceptedPlacement.y() + ")");
-            }
-            WorkflowSignerRecord next = wf.markSignedByUser(userId,
-                    body.signingOperationId(), acceptedPlacement);
-            wf.appendAudit(AuditEventType.SIGNER_COMPLETED, userId,
-                    "Signer " + current.order() + " (" + current.userId()
-                            + ") completed");
-            wf.transition(WorkflowState.SIGNATURE_SUBMITTED);
-            wf.transition(WorkflowState.VALIDATING);
-            boolean completed = wf.allSigned();
-            wf.transition(completed
-                    ? WorkflowState.COMPLETED
-                    : WorkflowState.WAITING_FOR_SIGNER);
-            if (completed) {
-                wf.appendAudit(AuditEventType.WORKFLOW_COMPLETED, userId,
-                        "All " + wf.signers().size() + " signatures completed");
-            } else if (next != null) {
-                wf.appendAudit(AuditEventType.NEXT_SIGNER_ACTIVATED, userId,
-                        "Signer " + next.order() + " (" + next.userId()
-                                + ") is now current");
-            } else {
-                wf.appendAudit(AuditEventType.SIGNING_TURN_RELEASED, userId,
-                        "Flexible turn is open for claims ("
-                                + wf.pendingSigners().size() + " pending)");
-            }
-            store.save(wf);
-            log.info("Workflow {}: revision {} accepted from {} ({} signatures done)",
-                    workflowId, newRevision, userId,
-                    wf.signers().stream().filter(WorkflowSignerRecord::signed).count());
-            return currentResponse(wf);
+        wf.appendRevision(new DocumentRevisionRecord(newRevision,
+                expectedRevision, WorkflowFileStore.sha256Hex(pdfBytes),
+                pdfBytes.length, Instant.now(), userId));
+        wf.appendAudit(AuditEventType.REVISION_CREATED, userId,
+                "Revision " + newRevision + " accepted ("
+                        + pdfBytes.length + " bytes)");
+        // Durable placement metadata: read the accepted visible-signature
+        // geometry out of the accepted revision's embedded manifest.
+        // Metadata only — never a rejection reason.
+        SignaturePlacement acceptedPlacement =
+                placementExtractor.extract(workflowId, pdfBytes, expectedRevision);
+        if (acceptedPlacement != null) {
+            wf.appendAudit(AuditEventType.SIGNATURE_PLACEMENT_RECORDED, userId,
+                    "Page " + (acceptedPlacement.pageIndex() + 1) + " ("
+                            + (int) acceptedPlacement.x() + ", "
+                            + (int) acceptedPlacement.y() + ")");
         }
+        wf.markSignedByUser(userId, body.signingOperationId(), acceptedPlacement);
+        wf.appendAudit(AuditEventType.SIGNER_COMPLETED, userId,
+                current.userId() + " signed the document");
+        wf.transition(WorkflowState.SIGNATURE_SUBMITTED);
+        wf.transition(WorkflowState.VALIDATING);
+        wf.transition(WorkflowState.COMPLETED);
+        wf.appendAudit(AuditEventType.WORKFLOW_COMPLETED, userId,
+                "The document is signed");
+        store.save(wf);
+        log.info("Workflow {}: revision {} accepted from {} — completed",
+                workflowId, newRevision, userId);
+        return currentResponse(wf);
     }
 
     /* ------------------------------------------------------------------
@@ -1052,7 +761,7 @@ public class RemoteWorkflowService {
             }
 
             // 3. Fingerprint binding: the NEW (last) signature must come from
-            //    the certificate bound to this signer slot at creation.
+            //    the certificate bound to this signer slot.
             SignatureVerificationResult.SignatureDetail newest =
                     result.signatures().get(result.signatures().size() - 1);
             String actualFp = normalizeFingerprint(newest.signerCertFingerprint());
@@ -1061,7 +770,7 @@ public class RemoteWorkflowService {
                             newest.signerSubject(), actualFp)) {
                 wf.appendAudit(AuditEventType.SIGNATURE_VALIDATION_FAILED, userId,
                         "Rejected a signature made with a development mock-token"
-                                + " certificate (signer " + current.order() + ")");
+                                + " certificate");
                 store.save(wf);
                 throw new ApiException(ApiErrorCode.DEVELOPMENT_IDENTITY_REJECTED,
                         "This signature was created with the development mock"
@@ -1070,15 +779,14 @@ public class RemoteWorkflowService {
             String expectedFp = normalizeFingerprint(current.certificateSha256());
             if (actualFp == null || expectedFp == null || !actualFp.equals(expectedFp)) {
                 wf.appendAudit(AuditEventType.CERTIFICATE_MISMATCH_REJECTED, userId,
-                        "New signature does not match the certificate assigned to "
-                                + "signer " + current.order());
+                        "The new signature does not match the registered certificate");
                 store.save(wf);
                 throw new ApiException(ApiErrorCode.CERTIFICATE_MISMATCH,
-                        "The signature was not created by the certificate assigned "
-                                + "to this signing step");
+                        "The signature was not created by the certificate "
+                                + "registered for this document");
             }
             wf.appendAudit(AuditEventType.SIGNATURE_VALIDATED, userId,
-                    "Signature validated for signer " + current.order());
+                    "Signature validated");
         } catch (ApiException e) {
             throw e;
         } catch (IOException | SignerException e) {
@@ -1115,10 +823,8 @@ public class RemoteWorkflowService {
      * ------------------------------------------------------------------ */
 
     private SignatureSubmissionResponse currentResponse(SigningWorkflowAggregate wf) {
-        WorkflowSignerRecord next = wf.currentSigner();
         return new SignatureSubmissionResponse(wf.workflowId(),
                 wf.currentRevision().revisionNumber(), wf.status().name(),
-                next == null ? null : next.userId(),
                 wf.status() == WorkflowState.COMPLETED);
     }
 
@@ -1129,11 +835,9 @@ public class RemoteWorkflowService {
      */
     private static WorkflowSignerRecord acceptedOperationOf(SigningWorkflowAggregate wf,
                                                             String userId, String opId) {
-        return wf.signers().stream()
-                .filter(s -> s.signed() && opId.equals(s.signingOperationId())
-                        && s.userId().equals(userId))
-                .findFirst()
-                .orElse(null);
+        WorkflowSignerRecord slot = wf.signer();
+        return slot.signed() && opId.equals(slot.signingOperationId())
+                && slot.userId().equals(userId) ? slot : null;
     }
 
     /**
@@ -1148,10 +852,8 @@ public class RemoteWorkflowService {
                 .mapToInt(DocumentRevisionRecord::revisionNumber)
                 .findFirst()
                 .orElse(wf.currentRevision().revisionNumber());
-        WorkflowSignerRecord next = wf.currentSigner();
         return new SignatureSubmissionResponse(wf.workflowId(), acceptedRevision,
-                wf.status().name(), next == null ? null : next.userId(),
-                wf.status() == WorkflowState.COMPLETED);
+                wf.status().name(), wf.status() == WorkflowState.COMPLETED);
     }
 
     /**
@@ -1182,19 +884,16 @@ public class RemoteWorkflowService {
     }
 
     private WorkflowView toView(SigningWorkflowAggregate wf) {
+        WorkflowSignerRecord slot = wf.signer();
         WorkflowSignerRecord current = wf.currentSigner();
         return new WorkflowView(wf.workflowId(), wf.documentName(),
                 wf.status().name(), wf.currentRevision().revisionNumber(),
-                (int) wf.signers().stream().filter(WorkflowSignerRecord::signed).count(),
-                wf.signers().size(),
+                slot.signed() ? 1 : 0,
                 current == null ? null : current.userId(),
                 current == null || !current.isBound() ? null
                         : shortFingerprint(current.certificateSha256()),
                 wf.blockedReason(),
-                wf.policy().name(),
-                wf.status() == WorkflowState.WAITING_FOR_SIGNER && current == null,
-                wf.status() == WorkflowState.DRAFT
-                        && wf.signers().stream().anyMatch(s -> !s.isBound() && !s.signed()));
+                wf.status() == WorkflowState.DRAFT && !slot.isBound() && !slot.signed());
     }
 
     private static String shortFingerprint(String fp) {
@@ -1207,8 +906,7 @@ public class RemoteWorkflowService {
     }
 
     /**
-     * Loads the workflow and verifies {@code userId} is its owner or one of
-     * its signers.
+     * Loads the workflow and verifies it belongs to {@code userId}.
      *
      * <p>Security Phase 3: a workflow that exists but is not the caller's
      * gets exactly the same answer as one that does not exist (404, same
@@ -1216,11 +914,24 @@ public class RemoteWorkflowService {
      * nothing.
      */
     private SigningWorkflowAggregate requireAccessible(String workflowId, String userId) {
-        SigningWorkflowAggregate wf = store.load(workflowId);
-        boolean participant = wf != null && wf.signers().stream()
-                .anyMatch(s -> s.userId().equals(userId));
+        SigningWorkflowAggregate wf;
+        try {
+            wf = store.load(workflowId);
+        } catch (IllegalArgumentException legacy) {
+            // A workflow stored before SignFlow became single-signer: its
+            // extra signer slots hold real signatures, so V14 deliberately
+            // leaves it in the database rather than deleting it. It cannot be
+            // represented here, and guessing which slot to use would put a
+            // signature in the wrong place — so say so instead.
+            log.warn("Workflow {} cannot be opened: {}", workflowId, legacy.getMessage());
+            throw new ApiException(ApiErrorCode.INVALID_WORKFLOW_STATE,
+                    "This document was created when SignFlow supported several"
+                            + " signers, and can no longer be opened. Its signed"
+                            + " revisions are still on the server.");
+        }
+        boolean signer = wf != null && wf.signer().userId().equals(userId);
         boolean creator = wf != null && userId != null && userId.equals(wf.createdBy());
-        if (!participant && !creator) {
+        if (!signer && !creator) {
             throw notFound();
         }
         return wf;
@@ -1232,11 +943,9 @@ public class RemoteWorkflowService {
     }
 
     /**
-     * Cancels a workflow. Only the workflow OWNER (its creator) may cancel;
-     * signers decline their invitation instead. Terminal workflows
-     * (COMPLETED, CANCELLED, FAILED) can never be cancelled — a stale cancel
-     * that races the final signature gets a 409 and the workflow stays
-     * COMPLETED.
+     * Cancels a workflow. Terminal workflows (COMPLETED, CANCELLED, FAILED)
+     * can never be cancelled — a stale cancel that races the signature gets a
+     * 409 and the workflow stays COMPLETED.
      */
     public WorkflowView cancelWorkflow(String workflowId, String userId) {
         synchronized (store.lockFor(workflowId)) {
@@ -1252,7 +961,6 @@ public class RemoteWorkflowService {
                                 + " cancelled");
             }
             wf.transition(WorkflowState.CANCELLED);
-            wf.releaseTurn();
             wf.appendAudit(AuditEventType.WORKFLOW_CANCELLED, userId,
                     "Workflow cancelled");
             store.save(wf);
@@ -1261,18 +969,18 @@ public class RemoteWorkflowService {
         }
     }
 
-    private List<WorkflowSignerRecord> mapSigners(CreateWorkflowRequest request) {
-        return request.signers().stream()
-                .map(s -> {
-                    String fp = s.certificateSha256() == null
-                            || s.certificateSha256().isBlank()
-                            ? null
-                            : s.certificateSha256().replace(":", "").trim();
-                    return fp == null
-                            ? WorkflowSignerRecord.unbound(s.order(), s.userId())
-                            : WorkflowSignerRecord.bound(s.order(), s.userId(), fp);
-                })
-                .toList();
+    /**
+     * The one signer slot: the creator, with the certificate fingerprint they
+     * supplied, or UNBOUND when they will register it from their own machine.
+     */
+    private WorkflowSignerRecord mapSigner(CreateWorkflowRequest request, String creator) {
+        String fp = request.certificateSha256() == null
+                || request.certificateSha256().isBlank()
+                ? null
+                : request.certificateSha256().replace(":", "").trim();
+        return fp == null
+                ? WorkflowSignerRecord.unbound(1, creator)
+                : WorkflowSignerRecord.bound(1, creator, fp);
     }
 
     private void validate(CreateWorkflowRequest request, String creator) {
@@ -1280,59 +988,25 @@ public class RemoteWorkflowService {
             throw new ApiException(ApiErrorCode.BAD_REQUEST,
                     "documentName is required");
         }
-        try {
-            WorkflowSigningPolicy.parse(request.signingPolicy());
-        } catch (IllegalArgumentException e) {
-            throw new ApiException(ApiErrorCode.BAD_REQUEST, e.getMessage());
+        if (request.certificateSha256() != null
+                && !request.certificateSha256().isBlank()) {
+            String fingerprint = request.certificateSha256().replace(":", "").trim();
+            if (!fingerprint.matches("[0-9a-fA-F]{64}")) {
+                throw new ApiException(ApiErrorCode.BAD_REQUEST,
+                        "The certificate fingerprint is not a valid SHA-256 hash"
+                                + " (expected 64 hex characters, e.g. AB:CD:…)."
+                                + " Capture it from your USB token — or leave it"
+                                + " empty and register it when you sign.");
+            }
+            rejectDevelopmentFingerprint(fingerprint, "signer " + creator);
         }
-        if (request.signers() == null || request.signers().isEmpty()) {
+        // Account existence: the UserAccountService seam covers both
+        // YAML-config accounts (file mode) and the users table (database mode).
+        boolean known = properties.knowsUser(creator)
+                || (accounts != null && accounts.knowsUser(creator));
+        if (!known) {
             throw new ApiException(ApiErrorCode.BAD_REQUEST,
-                    "A workflow needs at least one signer");
-        }
-        for (int i = 0; i < request.signers().size(); i++) {
-            CreateWorkflowRequest.SignerSpec s = request.signers().get(i);
-            if (s.order() != i + 1) {
-                throw new ApiException(ApiErrorCode.BAD_REQUEST,
-                        "Signer order must be 1..N without gaps");
-            }
-            if (s.userId() == null || s.userId().isBlank()) {
-                throw new ApiException(ApiErrorCode.BAD_REQUEST,
-                        "Each signer needs a userId");
-            }
-            if (s.certificateSha256() != null && !s.certificateSha256().isBlank()) {
-                String fingerprint = s.certificateSha256().replace(":", "").trim();
-                if (!fingerprint.matches("[0-9a-fA-F]{64}")) {
-                    throw new ApiException(ApiErrorCode.BAD_REQUEST,
-                            "Signer " + s.order() + " (" + s.userId()
-                                    + "): the certificate fingerprint is not a valid"
-                                    + " SHA-256 hash (expected 64 hex characters, e.g."
-                                    + " AB:CD:…). Capture it from the signer's USB token"
-                                    + " — or leave it empty to let the signer bind"
-                                    + " their own certificate.");
-                }
-                rejectDevelopmentFingerprint(fingerprint,
-                        "signer " + s.order() + " (" + s.userId() + ")");
-                String normalized = fingerprint.toUpperCase(Locale.ROOT);
-                for (int j = 0; j < i; j++) {
-                    String earlier = request.signers().get(j).certificateSha256();
-                    if (earlier != null && normalized.equals(
-                            earlier.replace(":", "").trim().toUpperCase(Locale.ROOT))) {
-                        throw new ApiException(ApiErrorCode.BAD_REQUEST,
-                                "Signers " + (j + 1) + " and " + s.order() + " have the"
-                                        + " same certificate — each signer signs with"
-                                        + " their own certificate");
-                    }
-                }
-            }
-            // Account existence: the UserAccountService seam covers both
-            // YAML-config accounts (file mode) and the users table (database
-            // mode); the invitation coordinator pre-creates invited accounts.
-            boolean known = properties.knowsUser(s.userId())
-                    || (accounts != null && accounts.knowsUser(s.userId()));
-            if (!known) {
-                throw new ApiException(ApiErrorCode.BAD_REQUEST,
-                        "Unknown workflow user: " + s.userId());
-            }
+                    "Unknown workflow user: " + creator);
         }
     }
 }

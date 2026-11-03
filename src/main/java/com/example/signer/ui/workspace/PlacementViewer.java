@@ -51,7 +51,7 @@ import java.util.List;
  * on the page to draw the box, drag the box to move it, drag its
  * bottom-right corner to resize it. Earlier signatures are drawn as
  * read-only boxes. Same styles ({@code mws-*}) and same coordinate mapping
- * ({@link CoordinateMapper}) as {@link MultiSignerWorkspaceFlow}.
+ * ({@link CoordinateMapper}) as {@link SigningWorkspaceFlow}.
  *
  * <p>Pure presentation: it only reads the PDF to render it and exposes the
  * chosen {@link SignaturePlacement} in PDF points. Rendering runs off the FX

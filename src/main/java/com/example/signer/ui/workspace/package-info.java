@@ -2,7 +2,7 @@
  * The signing workspaces — the document-centric views where signers review,
  * place and create signatures.
  *
- * <p>{@link MultiSignerWorkspaceFlow} is the local signing workspace for
+ * <p>{@link SigningWorkspaceFlow} is the local signing workspace for
  * one, two or three signers on this computer (one turn at a time);
  * {@link WorkflowContinuationDialog} continues a workflow PDF in the same
  * layout, and both show documents through {@link PlacementViewer}.

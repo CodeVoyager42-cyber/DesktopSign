@@ -3,88 +3,56 @@ package com.example.signer.workflow;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Unit tests for the multi-signing workflow domain model: mode/signer-count
- * consistency, status-transition legality, sequential ordering and reset.
+ * Unit tests for the local signing workflow domain model: one signer,
+ * status-transition legality, and reset after a failure.
  */
 class SigningWorkflowTests {
 
-    // ---- mode / signer count ------------------------------------------------
+    // ---- shape ---------------------------------------------------------
 
     @Test
-    void singleModeCreatesExactlyOneSigner() {
-        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.SINGLE);
+    void aWorkflowHasExactlyOneSigner() {
+        SigningWorkflow workflow = SigningWorkflow.create();
         assertThat(workflow.signerCount()).isEqualTo(1);
         assertThat(workflow.getSigners()).hasSize(1);
+        assertThat(workflow.getSigners().get(0).getOrder()).isEqualTo(1);
     }
 
     @Test
-    void twoSignerModeCreatesExactlyTwoSigners() {
-        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.TWO_SIGNERS);
-        assertThat(workflow.signerCount()).isEqualTo(2);
-        assertThat(workflow.getSigners())
-                .extracting(Signer::getOrder)
-                .containsExactly(1, 2);
+    void thereIsNoSecondSigner() {
+        SigningWorkflow workflow = SigningWorkflow.create();
+        assertThatThrownBy(() -> workflow.getSigner(2))
+                .isInstanceOf(IndexOutOfBoundsException.class);
     }
 
-    @Test
-    void threeSignerModeCreatesExactlyThreeSigners() {
-        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.THREE_SIGNERS);
-        assertThat(workflow.signerCount()).isEqualTo(3);
-        assertThat(workflow.getSigners())
-                .extracting(Signer::getOrder)
-                .containsExactly(1, 2, 3);
-    }
+    // ---- initial state -------------------------------------------------
 
     @Test
-    void selectableModesAreTheThreeUiOptions() {
-        assertThat(SigningMode.selectableModes())
-                .containsExactly(SigningMode.SINGLE,
-                        SigningMode.TWO_SIGNERS, SigningMode.THREE_SIGNERS);
-    }
-
-    @Test
-    void signerCountsMatchModeNames() {
-        assertThat(SigningMode.SINGLE.signerCount()).isEqualTo(1);
-        assertThat(SigningMode.TWO_SIGNERS.signerCount()).isEqualTo(2);
-        assertThat(SigningMode.THREE_SIGNERS.signerCount()).isEqualTo(3);
-        assertThat(SigningMode.SINGLE.isSingle()).isTrue();
-        assertThat(SigningMode.TWO_SIGNERS.isMultiSigner()).isTrue();
-    }
-
-    // ---- initial state --------------------------------------------------------
-
-    @Test
-    void allSignersStartPending() {
-        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.THREE_SIGNERS);
-        assertThat(workflow.getSigners())
-                .extracting(Signer::getStatus)
-                .containsOnly(SigningStatus.PENDING);
+    void theSignerStartsPending() {
+        SigningWorkflow workflow = SigningWorkflow.create();
+        assertThat(workflow.getSigner(1).getStatus()).isEqualTo(SigningStatus.PENDING);
         assertThat(workflow.isComplete()).isFalse();
         assertThat(workflow.hasFailed()).isFalse();
     }
 
     @Test
-    void currentSignerIsTheFirstSignerBeforeStart() {
-        // The first signer is always "current" from creation; start() only
-        // marks them READY (the transition rules block any early action).
-        assertThat(SigningWorkflow.of(SigningMode.SINGLE).getCurrentSigner().getOrder())
-                .isEqualTo(1);
+    void currentSignerIsTheSignerBeforeStart() {
+        // The signer is "current" from creation; start() only marks them
+        // READY (the transition rules block any early action).
+        assertThat(SigningWorkflow.create().getCurrentSigner().getOrder()).isEqualTo(1);
     }
 
     @Test
-    void startReadiesOnlyTheFirstSigner() {
-        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.THREE_SIGNERS);
+    void startReadiesTheSigner() {
+        SigningWorkflow workflow = SigningWorkflow.create();
         workflow.start();
         assertThat(workflow.getSigner(1).getStatus()).isEqualTo(SigningStatus.READY);
-        assertThat(workflow.getSigner(2).getStatus()).isEqualTo(SigningStatus.PENDING);
-        assertThat(workflow.getSigner(3).getStatus()).isEqualTo(SigningStatus.PENDING);
     }
 
-    // ---- display names --------------------------------------------------------
+    // ---- display names -------------------------------------------------
 
     @Test
     void displayNameFallsBackToGeneratedLabel() {
@@ -103,63 +71,36 @@ class SigningWorkflowTests {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    // ---- status transitions ---------------------------------------------------
+    // ---- status transitions --------------------------------------------
 
     @Test
-    void fullSequentialLifecycleForThreeSigners() {
-        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.THREE_SIGNERS);
+    void theFullLifecycleCompletesTheWorkflow() {
+        SigningWorkflow workflow = SigningWorkflow.create();
         workflow.start();
 
-        // signer 1 runs the full pipeline
         workflow.updateSignerStatus(1, SigningStatus.AUTHENTICATING);
         workflow.updateSignerStatus(1, SigningStatus.SIGNING);
         workflow.updateSignerStatus(1, SigningStatus.SIGNED);
+
         assertThat(workflow.getSigner(1).getStatus()).isEqualTo(SigningStatus.SIGNED);
-
-        // the baton passes to signer 2 automatically
-        assertThat(workflow.getSigner(2).getStatus()).isEqualTo(SigningStatus.READY);
-        assertThat(workflow.getCurrentSigner().getOrder()).isEqualTo(2);
-
-        workflow.updateSignerStatus(2, SigningStatus.AUTHENTICATING);
-        workflow.updateSignerStatus(2, SigningStatus.SIGNING);
-        workflow.updateSignerStatus(2, SigningStatus.SIGNED);
-        assertThat(workflow.getSigner(3).getStatus()).isEqualTo(SigningStatus.READY);
-
-        workflow.updateSignerStatus(3, SigningStatus.AUTHENTICATING);
-        workflow.updateSignerStatus(3, SigningStatus.SIGNING);
-        workflow.updateSignerStatus(3, SigningStatus.SIGNED);
-
         assertThat(workflow.isComplete()).isTrue();
-        assertThat(workflow.getCurrentSigner()).isNull();
-        assertThat(WorkflowSigningEngine.signedOrders(workflow)).containsExactly(1, 2, 3);
+        assertThat(workflow.getCurrentSigner()).as("nothing is left to do").isNull();
+        assertThat(WorkflowSigningEngine.signedOrders(workflow)).containsExactly(1);
     }
 
     @Test
-    void signerCannotBeReadyWhileEarlierSignerStillPending() {
-        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.THREE_SIGNERS);
-        workflow.start();
-        assertThatThrownBy(() -> workflow.updateSignerStatus(2, SigningStatus.READY))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("READY");
-        assertThatThrownBy(() -> workflow.updateSignerStatus(3, SigningStatus.READY))
+    void theSignerCannotSkipAStep() {
+        SigningWorkflow workflow = SigningWorkflow.create();
+        // PENDING: no forward transition may start from it but READY.
+        assertThatThrownBy(() -> workflow.updateSignerStatus(1, SigningStatus.AUTHENTICATING))
                 .isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
-    void signerCannotSignOutOfOrder() {
-        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.TWO_SIGNERS);
-        workflow.start();
-        // signer 2 is PENDING: no forward transition may start from it
-        assertThatThrownBy(() ->
-                workflow.updateSignerStatus(2, SigningStatus.AUTHENTICATING))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> workflow.updateSignerStatus(2, SigningStatus.SIGNED))
+        assertThatThrownBy(() -> workflow.updateSignerStatus(1, SigningStatus.SIGNED))
                 .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
     void illegalBackwardTransitionIsRejected() {
-        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.SINGLE);
+        SigningWorkflow workflow = SigningWorkflow.create();
         workflow.start();
         workflow.updateSignerStatus(1, SigningStatus.AUTHENTICATING);
         assertThatThrownBy(() -> workflow.updateSignerStatus(1, SigningStatus.READY))
@@ -169,8 +110,16 @@ class SigningWorkflowTests {
     }
 
     @Test
-    void failingASignerMarksTheWorkflowAsFailed() {
-        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.TWO_SIGNERS);
+    void repeatingTheSameStatusIsAHarmlessNoOp() {
+        SigningWorkflow workflow = SigningWorkflow.create();
+        workflow.start();
+        workflow.updateSignerStatus(1, SigningStatus.READY);
+        assertThat(workflow.getSigner(1).getStatus()).isEqualTo(SigningStatus.READY);
+    }
+
+    @Test
+    void failingTheSignerMarksTheWorkflowAsFailed() {
+        SigningWorkflow workflow = SigningWorkflow.create();
         workflow.start();
         workflow.updateSignerStatus(1, SigningStatus.AUTHENTICATING);
         workflow.updateSignerStatus(1, SigningStatus.FAILED);
@@ -180,18 +129,19 @@ class SigningWorkflowTests {
 
     @Test
     void cancellingIsPossibleFromActiveStates() {
-        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.SINGLE);
+        SigningWorkflow workflow = SigningWorkflow.create();
         workflow.start();
         workflow.updateSignerStatus(1, SigningStatus.AUTHENTICATING);
         workflow.updateSignerStatus(1, SigningStatus.CANCELLED);
         assertThat(workflow.getSigner(1).getStatus()).isEqualTo(SigningStatus.CANCELLED);
+        assertThat(workflow.hasFailed()).isTrue();
     }
 
-    // ---- reset / retry --------------------------------------------------------
+    // ---- reset / retry -------------------------------------------------
 
     @Test
-    void failedSignerCanBeResetAndRetried() {
-        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.TWO_SIGNERS);
+    void aFailedSignerCanBeResetAndRetried() {
+        SigningWorkflow workflow = SigningWorkflow.create();
         workflow.start();
         workflow.updateSignerStatus(1, SigningStatus.AUTHENTICATING);
         workflow.updateSignerStatus(1, SigningStatus.FAILED);
@@ -202,18 +152,18 @@ class SigningWorkflowTests {
         workflow.updateSignerStatus(1, SigningStatus.AUTHENTICATING);
         workflow.updateSignerStatus(1, SigningStatus.SIGNING);
         workflow.updateSignerStatus(1, SigningStatus.SIGNED);
-        assertThat(workflow.getSigner(2).getStatus()).isEqualTo(SigningStatus.READY);
+        assertThat(workflow.isComplete()).isTrue();
     }
 
     @Test
     void resettingAHealthySignerIsRejected() {
-        SigningWorkflow workflow = SigningWorkflow.of(SigningMode.SINGLE);
+        SigningWorkflow workflow = SigningWorkflow.create();
         workflow.start();
         assertThatThrownBy(() -> workflow.resetSigner(1))
                 .isInstanceOf(IllegalStateException.class);
     }
 
-    // ---- helpers ----------------------------------------------------------------
+    // ---- helpers -------------------------------------------------------
 
     @Test
     void statusHelpersReflectTheLifecycle() {
@@ -222,11 +172,5 @@ class SigningWorkflowTests {
         assertThat(SigningStatus.READY.isActive()).isFalse();
         assertThat(SigningStatus.FAILED.isTerminal()).isTrue();
         assertThat(SigningStatus.PENDING.isTerminal()).isFalse();
-    }
-
-    @Test
-    void workflowRejectsNullMode() {
-        assertThatCode(() -> new SigningWorkflow(null))
-                .isInstanceOf(NullPointerException.class);
     }
 }

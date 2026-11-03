@@ -12,7 +12,7 @@ import java.util.List;
 
 /**
  * What a SIGNER does against the coordination server: list tasks, read a
- * task and its document, take the turn, bind a certificate, submit the
+ * task and its document, register a certificate, submit the
  * signed revision. Code that only signs depends on this, not on the whole
  * {@link WorkflowApiClient} (interface segregation).
  */
@@ -34,9 +34,6 @@ public interface SignerTasksApi {
 
     List<AuditView> audit(String workflowId);
 
-    TaskView claimTurn(String workflowId);
-
-    List<String> eligibleSigners(String workflowId);
 
     WorkflowView bindMyCertificate(String workflowId, String certificateSha256);
 }

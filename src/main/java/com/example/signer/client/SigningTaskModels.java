@@ -1,9 +1,7 @@
 package com.example.signer.client;
 
 import com.example.signer.server.api.ApiContracts;
-import com.example.signer.server.workflow.WorkflowState;
 import com.example.signer.server.api.ApiStates.ParticipantState;
-import com.example.signer.server.api.ApiStates.SlotState;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -15,11 +13,15 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Presentation-model mapping for the Signing Tasks workspace: converts the
- * raw backend contracts ({@code TaskItemView} etc.) into human-facing
- * models — status labels, readable document titles, relative dates — and
- * provides the search / filter / sort behaviour. Pure logic, no JavaFX, so
- * it is unit-testable without the FX toolkit.
+ * Presentation-model mapping for the documents workspace: converts the raw
+ * backend contracts ({@code TaskItemView} etc.) into human-facing models —
+ * status labels, readable document titles, relative dates — and provides the
+ * search / filter / sort behaviour. Pure logic, no JavaFX, so it is
+ * unit-testable without the FX toolkit.
+ *
+ * <p>Every document belongs to one person, who is also its signer, so none
+ * of this describes anybody else: there is no signing order, no waiting for
+ * a co-signer and no expiry to watch.
  *
  * <p>The raw workflow id and revision numbers never reach these models:
  * the UI shows them only via the explicit "Details" support panel.
@@ -34,69 +36,43 @@ public final class SigningTaskModels {
      * ------------------------------------------------------------------ */
 
     /**
-     * One signing task as the UI renders it. Built exclusively from a
-     * backend {@code TaskItemView} — no invented data.
+     * One document as the UI renders it. Built exclusively from a backend
+     * {@code TaskItemView} — no invented data.
      */
     public record SigningTask(
             String workflowId,
             String title,
-            String senderName,
-            String senderEmail,
             String statusLabel,
             String statusStyle,
             String dateText,
-            /** Epoch second of the task's date (creation or completion). */
+            /** Epoch second of the document's date (upload or signature). */
             Long dateEpochSecond,
             String dateKind,
-            String progressText,
             boolean needsAction,
             boolean canSign,
-            boolean waitingForClaim,
             boolean certificatePending,
             String myStateRaw,
             /** The one state the screen is organised around. */
             TaskState state,
-            /** One plain sentence: what is going on / who we are waiting for. */
+            /** One plain sentence: what is going on. */
             String explanation,
             /** Label of the single primary action for this state. */
             String primaryAction,
-            /** Signing order, every slot (empty when the server did not send it). */
-            List<Participant> participants,
-            /** True for FLEXIBLE workflows: signers sign in any order. */
-            boolean anyOrder,
-            /** "You are signer #2 of 3", or null. */
-            String yourRole,
-            /** "Expires Oct 12, 2026" style text, or null when unknown. */
-            String expiresText,
-            Long expiresEpochSecond,
-            /** Expires within 48 hours. */
-            boolean expiresSoon,
             Long updatedEpochSecond) {
 
-        /** Search: document, requester, and the signers' names. */
+        /** Search: the document title and its id. */
         public String searchHaystack() {
-            StringBuilder people = new StringBuilder();
-            if (participants != null) {
-                for (Participant p : participants) {
-                    people.append(' ').append(p.name() == null ? "" : p.name());
-                }
-            }
             return String.join(" ",
                     title == null ? "" : title.toLowerCase(Locale.ROOT),
-                    senderName == null ? "" : senderName.toLowerCase(Locale.ROOT),
-                    senderEmail == null ? "" : senderEmail.toLowerCase(Locale.ROOT),
-                    people.toString().toLowerCase(Locale.ROOT),
                     workflowId == null ? "" : workflowId.toLowerCase(Locale.ROOT));
         }
     }
 
-    /** The states the Signing Tasks screen shows. */
+    /** The states the documents screen shows. */
     public enum TaskState {
-        ACTION_REQUIRED("Action required", "action"),
-        WAITING("Waiting", "waiting"),
-        COMPLETED("Completed", "done"),
-        EXPIRED("Expired", "muted"),
-        DECLINED("Declined", "bad"),
+        ACTION_REQUIRED("Ready to sign", "action"),
+        IN_PROGRESS("In progress", "waiting"),
+        COMPLETED("Signed", "done"),
         CANCELLED("Cancelled", "muted"),
         ERROR("Needs attention", "bad");
 
@@ -118,27 +94,14 @@ public final class SigningTaskModels {
         }
     }
 
-    /** One signer slot in the signing order. */
-    public record Participant(int order, String name, boolean you, SlotState state) {
-        public boolean signed() {
-            return state == SlotState.SIGNED;
-        }
-
-        public boolean current() {
-            return state == SlotState.CURRENT;
-        }
-    }
-
     /** The simple filter set of the workspace toolbar. */
     public enum TaskFilter {
-        ALL, NEEDS_ACTION, WAITING, COMPLETED, DECLINED, EXPIRED,
-        /** Cancelled / withdrawn by the requester. */
-        REVOKED
+        ALL, NEEDS_ACTION, IN_PROGRESS, COMPLETED, CANCELLED
     }
 
     /** Sort options of the workspace toolbar. */
     public enum TaskSort {
-        NEEDS_ACTION_FIRST, RECENTLY_UPDATED, NEWEST, OLDEST, EXPIRING_SOON
+        NEEDS_ACTION_FIRST, RECENTLY_UPDATED, NEWEST, OLDEST
     }
 
     /* ------------------------------------------------------------------
@@ -146,102 +109,44 @@ public final class SigningTaskModels {
      * ------------------------------------------------------------------ */
 
     /** Maps one backend task item to the presentation model. */
-    public static SigningTask from(ApiContracts
-            .TaskItemView item) {
+    public static SigningTask from(ApiContracts.TaskItemView item) {
         ParticipantState raw = item.myState() == null
                 ? ParticipantState.UNKNOWN : item.myState().state();
         boolean waitingForMe = item.myState() != null
                 && item.myState().waitingForMe();
-        boolean waitingForClaim = item.myState() != null
-                && item.myState().waitingForClaim();
         boolean certificatePending = raw == ParticipantState.CERTIFICATE_PENDING;
-        // A slot is signed ONLY when the server says so for this slot.
+        // A document is signed ONLY when the server says so.
         boolean selfSigned = raw == ParticipantState.SIGNED
                 && item.myState() != null && item.myState().signed();
 
-        boolean needsAction = waitingForMe || waitingForClaim || certificatePending;
+        boolean needsAction = waitingForMe || certificatePending;
         boolean canSign = needsAction;
-        String label;
-        String style;
-        if (waitingForMe) {
-            label = "Action required";
-            style = "action";
-        } else if (certificatePending) {
-            label = "Set up to sign";
-            style = "action";
-        } else if (waitingForClaim) {
-            label = "Ready for you to sign";
-            style = "action";
+
+        TaskState state;
+        if (certificatePending) {
+            state = TaskState.ACTION_REQUIRED;
+        } else if (waitingForMe) {
+            state = TaskState.ACTION_REQUIRED;
         } else {
-            switch (raw) {
-                case SIGNED -> {
-                    // The label is shown only when the server also reports
-                    // THIS slot's signature as accepted — never inferred from
-                    // registration, sign-in, opening the document or the
-                    // workflow being completed by others.
-                    if (selfSigned) {
-                        label = "Completed";
-                        style = "done";
-                    } else {
-                        label = "Awaiting signature";
-                        style = "waiting";
-                    }
-                }
-                case INVITED -> {
-                    // An invitation exists; the recipient has no account yet.
-                    // Invitation state, not a signature.
-                    label = "Invited — not signed";
-                    style = "waiting";
-                }
-                case DECLINED -> {
-                    label = "Declined";
-                    style = "bad";
-                }
-                case EXPIRED -> {
-                    label = "Expired";
-                    style = "warn";
-                }
-                case REVOKED -> {
-                    label = "Withdrawn";
-                    style = "bad";
-                }
-                case BLOCKED -> {
-                    label = "Needs attention";
-                    style = "bad";
-                }
-                case WAITING_FOR_OTHERS -> {
-                    label = "Waiting for others";
-                    style = "waiting";
-                }
-                case IN_PROGRESS -> {
-                    label = "In progress";
-                    style = "waiting";
-                }
-                case WAITING_FOR_CLAIM -> {
-                    label = "Ready for you to sign";
-                    style = "action";
-                }
-                default -> {
-                    label = "In progress";
-                    style = "waiting";
-                }
-            }
+            state = switch (raw) {
+                case SIGNED -> selfSigned ? TaskState.COMPLETED : TaskState.IN_PROGRESS;
+                case CANCELLED -> TaskState.CANCELLED;
+                case BLOCKED -> TaskState.ERROR;
+                default -> TaskState.IN_PROGRESS;
+            };
         }
+        String label = certificatePending ? "Set up to sign" : state.label();
+        String style = state.style();
 
-        String sender = item.senderDisplayName();
-        if (sender == null || sender.isBlank()) {
-            sender = item.senderId();
-        }
-
-        // Completed tasks show the completion date; everything else shows
-        // when the document was sent (creation).
+        // Signed documents show the signature date; everything else shows
+        // when the document was uploaded.
         String dateText = null;
         Long dateEpoch = null;
-        String dateKind = "Sent";
+        String dateKind = "Uploaded";
         String iso = item.completedAt() != null ? item.completedAt()
                 : item.createdAt();
         if (item.completedAt() != null) {
-            dateKind = "Completed";
+            dateKind = "Signed";
         }
         if (iso != null) {
             try {
@@ -252,63 +157,16 @@ public final class SigningTaskModels {
                 dateText = null; // never surface a raw timestamp on a card
             }
         }
-
-        String progress = item.totalSignatures() > 1
-                ? item.completedSignatures() + " of "
-                        + item.totalSignatures() + " signatures complete"
-                : null;
-
-        // ---- redesigned presentation (real server data only) ----------
-        List<Participant> participants = new ArrayList<>();
-        if (item.participants() != null) {
-            for (var p : item.participants()) {
-                participants.add(new Participant(p.order(), p.name(), p.you(), p.slotState()));
-            }
-        }
-        boolean anyOrder = "FLEXIBLE".equals(item.signingPolicy());
-        boolean allSigned = item.totalSignatures() > 0
-                && item.completedSignatures() >= item.totalSignatures();
-        TaskState state;
-        if (needsAction) {
-            state = TaskState.ACTION_REQUIRED;
-        } else {
-            state = switch (raw) {
-                case EXPIRED -> TaskState.EXPIRED;
-                case DECLINED -> TaskState.DECLINED;
-                case REVOKED, CANCELLED -> TaskState.CANCELLED;
-                case BLOCKED -> TaskState.ERROR;
-                default -> WorkflowState.COMPLETED.name().equals(item.status()) || (selfSigned && allSigned)
-                        ? TaskState.COMPLETED : TaskState.WAITING;
-            };
-        }
-        Instant expires = parse(item.expiresAt());
         Instant updated = parse(item.updatedAt());
-        String expiresText = expires == null ? null
-                : (expires.isBefore(Instant.now()) ? "Expired " : "Expires ")
-                        + DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.ENGLISH)
-                                .withZone(ZoneId.systemDefault()).format(expires);
-        boolean expiresSoon = expires != null && expires.isAfter(Instant.now())
-                && expires.isBefore(Instant.now().plus(48, ChronoUnit.HOURS));
-        Participant me = participants.stream().filter(Participant::you).findFirst().orElse(null);
-        String role = me == null || participants.isEmpty() ? null
-                : anyOrder ? "You are one of " + participants.size() + " signers"
-                : "You are signer #" + me.order() + " of " + participants.size();
 
         return new SigningTask(item.workflowId(),
                 readableTitle(item.documentName()),
-                sender,
-                null, // sender email is not exposed in the task list
                 label, style, dateText, dateEpoch, dateKind,
-                progress,
-                needsAction, canSign,
-                waitingForClaim, certificatePending,
+                needsAction, canSign, certificatePending,
                 item.myState() == null ? null : item.myState().myStateLabel(),
                 state,
-                explanation(state, certificatePending, selfSigned, participants, anyOrder,
-                        expires),
+                explanation(state, certificatePending),
                 primaryAction(state, certificatePending),
-                List.copyOf(participants), anyOrder, role,
-                expiresText, expires == null ? null : expires.getEpochSecond(), expiresSoon,
                 updated == null ? dateEpoch : Long.valueOf(updated.getEpochSecond()));
     }
 
@@ -324,43 +182,15 @@ public final class SigningTaskModels {
     }
 
     /** One plain sentence for the card and the details page. */
-    static String explanation(TaskState state, boolean certificatePending, boolean selfSigned,
-                              List<Participant> participants, boolean anyOrder,
-                              Instant expires) {
+    static String explanation(TaskState state, boolean certificatePending) {
         return switch (state) {
             case ACTION_REQUIRED -> certificatePending
-                    ? "Register your signing key to take part in this request."
-                    : "Your signature is required.";
-            case WAITING -> {
-                Participant current = participants.stream().filter(Participant::current)
-                        .findFirst().orElse(null);
-                if (selfSigned) {
-                    Participant next = current != null ? current : participants.stream()
-                            .filter(p -> !p.signed() && !p.you()).findFirst().orElse(null);
-                    yield next == null || anyOrder && current == null
-                            ? "You signed this document. Waiting for the other signers."
-                            : "You signed this document. Waiting for " + next.name() + ".";
-                }
-                if (current != null && !current.you()) {
-                    yield "Waiting for " + current.name() + " to sign"
-                            + (anyOrder ? "." : " first.");
-                }
-                Participant me = participants.stream().filter(Participant::you)
-                        .findFirst().orElse(null);
-                Participant before = me == null ? null : participants.stream()
-                        .filter(p -> p.order() < me.order() && !p.signed())
-                        .findFirst().orElse(null);
-                yield before == null ? "Waiting for the other signers."
-                        : "Waiting for " + before.name() + " to sign first.";
-            }
-            case COMPLETED -> "All required signatures have been completed.";
-            case EXPIRED -> expires == null ? "This signing request has expired."
-                    : "This signing request expired on " + DateTimeFormatter
-                            .ofPattern("MMMM d, yyyy", Locale.ENGLISH).withZone(ZoneId.systemDefault())
-                            .format(expires) + ".";
-            case DECLINED -> "This signing request was declined.";
-            case CANCELLED -> "The requester withdrew this signing request.";
-            case ERROR -> "This signing request stopped because of a problem.";
+                    ? "Register your signing key, then sign this document."
+                    : "This document is ready for your signature.";
+            case IN_PROGRESS -> "This document is being prepared.";
+            case COMPLETED -> "You signed this document.";
+            case CANCELLED -> "You cancelled this document.";
+            case ERROR -> "Signing stopped because of a problem.";
         };
     }
 
@@ -368,7 +198,6 @@ public final class SigningTaskModels {
     static String primaryAction(TaskState state, boolean certificatePending) {
         return switch (state) {
             case ACTION_REQUIRED -> certificatePending ? "Set up to sign" : "Review & Sign";
-            case WAITING -> "View Workflow";
             case COMPLETED -> "Open Document";
             default -> "View Details";
         };
@@ -385,7 +214,7 @@ public final class SigningTaskModels {
      * search / filter / sort
      * ------------------------------------------------------------------ */
 
-    /** Case-insensitive search across title, sender and workflow id. */
+    /** Case-insensitive search across title and workflow id. */
     public static List<SigningTask> search(List<SigningTask> tasks,
                                            String query) {
         if (query == null || query.isBlank()) {
@@ -411,14 +240,9 @@ public final class SigningTaskModels {
         for (SigningTask task : tasks) {
             boolean match = switch (filter) {
                 case NEEDS_ACTION -> task.state() == TaskState.ACTION_REQUIRED;
-                // "Waiting" = waiting for someone else. Documents that need
-                // the user's own signature live under "Action required" only,
-                // so the filters never overlap.
-                case WAITING -> task.state() == TaskState.WAITING;
+                case IN_PROGRESS -> task.state() == TaskState.IN_PROGRESS;
                 case COMPLETED -> task.state() == TaskState.COMPLETED;
-                case DECLINED -> task.state() == TaskState.DECLINED;
-                case EXPIRED -> task.state() == TaskState.EXPIRED;
-                case REVOKED -> task.state() == TaskState.CANCELLED;
+                case CANCELLED -> task.state() == TaskState.CANCELLED;
                 default -> true;
             };
             if (match) {
@@ -428,7 +252,7 @@ public final class SigningTaskModels {
         return result;
     }
 
-    /** Sorts tasks: needs-action first (then newest), newest, or oldest. */
+    /** Sorts documents: needs-action first (then newest), newest, or oldest. */
     public static List<SigningTask> sort(List<SigningTask> tasks,
                                          TaskSort sort) {
         Comparator<SigningTask> byDate = comparatorByDate();
@@ -440,10 +264,6 @@ public final class SigningTaskModels {
                     (SigningTask t) -> t.updatedEpochSecond() == null
                             ? Long.MIN_VALUE : t.updatedEpochSecond(),
                     Comparator.reverseOrder());
-            // Soonest expiry first; tasks without an expiry go last.
-            case EXPIRING_SOON -> Comparator.comparing(
-                    (SigningTask t) -> t.expiresEpochSecond() == null
-                            ? Long.MAX_VALUE : t.expiresEpochSecond());
             case NEEDS_ACTION_FIRST -> Comparator
                     .comparing((SigningTask t) -> !t.needsAction())
                     .thenComparing(byDate);
@@ -460,19 +280,19 @@ public final class SigningTaskModels {
                 Comparator.reverseOrder());
     }
 
-    /** How many tasks a filter would show (the counts on the filter buttons). */
+    /** How many documents a filter would show (the counts on the filter buttons). */
     public static int count(List<SigningTask> tasks, TaskFilter filter) {
         return filter(tasks, filter).size();
     }
 
-    /** The task the "Sign next" button opens: the oldest one needing action. */
+    /** The document the "Sign next" button opens: the oldest one needing action. */
     public static SigningTask nextToSign(List<SigningTask> tasks) {
         return sort(tasks, TaskSort.OLDEST).stream()
                 .filter(SigningTask::needsAction)
                 .findFirst().orElse(null);
     }
 
-    /** Count of tasks that need the user's action (section header). */
+    /** Count of documents that need the user's action (section header). */
     public static long needsActionCount(List<SigningTask> tasks) {
         return tasks.stream().filter(SigningTask::needsAction).count();
     }

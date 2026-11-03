@@ -1,7 +1,5 @@
 package com.example.signer.server.workflow;
 
-import com.example.signer.workflow.WorkflowSigningPolicy;
-
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -54,8 +52,8 @@ class WorkflowFileStoreCreatorTests {
     private static SnapshotDto snapshot(String createdBy,
                                         List<DocumentRevisionRecord> revisions,
                                         List<AuditEventRecord> audit) {
-        return new SnapshotDto("contract.pdf", WorkflowSigningPolicy.SEQUENTIAL,
-                WorkflowState.WAITING_FOR_SIGNER, null, null, null, createdBy,
+        return new SnapshotDto("contract.pdf",
+                WorkflowState.WAITING_FOR_SIGNER, null, createdBy,
                 List.of(new WorkflowSignerRecord(1, "alice", null, null, false,
                         null, null, null)),
                 revisions, audit);

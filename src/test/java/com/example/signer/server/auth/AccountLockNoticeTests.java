@@ -4,8 +4,8 @@ import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.LoginFailureRepository;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.AccountEmailTemplate;
-import com.example.signer.server.invites.EmailService;
+import com.example.signer.server.email.AccountEmailTemplate;
+import com.example.signer.server.email.EmailService;
 import com.example.signer.server.security.InMemoryRateLimitStore;
 import com.example.signer.server.security.RateLimitStore;
 
@@ -61,7 +61,6 @@ class AccountLockNoticeTests {
         email = mock(EmailService.class);
         rateLimits = new InMemoryRateLimitStore(Clock.systemUTC());
         when(repo.findByUsername(anyString())).thenReturn(Optional.empty());
-        when(repo.findByUsernameIgnoreCase(anyString())).thenReturn(Optional.empty());
         when(repo.findByEmail(anyString())).thenReturn(Optional.empty());
         when(failures.findByUsernameAndClientAddress(anyString(), anyString()))
                 .thenReturn(Optional.empty());
@@ -75,7 +74,7 @@ class AccountLockNoticeTests {
         if (verified) {
             user.setEmailVerifiedAt(Instant.parse("2026-10-01T09:00:00Z"));
         }
-        when(repo.findByUsernameIgnoreCase("ada")).thenReturn(Optional.of(user));
+        when(repo.findByUsername("ada")).thenReturn(Optional.of(user));
         when(repo.lockIfTooManyFailures(any(), anyInt(), any()))
                 .thenReturn(accountLockFires ? 1 : 0);
         return user;

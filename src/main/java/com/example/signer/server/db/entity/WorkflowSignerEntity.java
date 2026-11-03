@@ -58,9 +58,6 @@ public class WorkflowSignerEntity {
     @Column(name = "signing_operation_id", length = 64)
     private String signingOperationId;
 
-    @Column(name = "invited_at")
-    private Instant invitedAt;
-
     // ── reserved: signature placement in PDF coordinates (Phase 8) ──────
     @Column(name = "signature_page")
     private Integer signaturePage;
@@ -156,14 +153,6 @@ public class WorkflowSignerEntity {
 
     public void setSigningOperationId(String signingOperationId) {
         this.signingOperationId = signingOperationId;
-    }
-
-    public Instant getInvitedAt() {
-        return invitedAt;
-    }
-
-    public void setInvitedAt(Instant invitedAt) {
-        this.invitedAt = invitedAt;
     }
 
     public Integer getSignaturePage() {

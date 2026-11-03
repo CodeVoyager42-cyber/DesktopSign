@@ -1,12 +1,10 @@
 package com.example.signer.ui;
 
-import com.example.signer.ui.dialog.InvitationDialog;
 import com.example.signer.ui.dialog.LoginDialog;
 import com.example.signer.ui.dialog.WorkflowSelectionDialog;
 import com.example.signer.ui.remote.RemoteWorkflowDialog;
-import com.example.signer.ui.workspace.MultiSignerWorkspaceFlow;
+import com.example.signer.ui.workspace.SigningWorkspaceFlow;
 import com.example.signer.ui.workspace.WorkflowContinuationDialog;
-import com.example.signer.workflow.SigningMode;
 
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
@@ -48,13 +46,13 @@ final class AppNavigator {
     }
 
     /**
-     * The home screen loop. Returns when the user leaves the app (Back on
+     * The home screen loop. Returns when the user leaves the app (Quit on
      * the home screen, closing it, or cancelling sign-in after signing out).
      */
     void runHome() {
         while (true) {
-            WorkflowSelectionDialog home = new WorkflowSelectionDialog(services.serverAddress());
-            SigningMode mode = home.showAndWait(owner);
+            WorkflowSelectionDialog home = new WorkflowSelectionDialog();
+            home.showAndWait(owner);
 
             if (home.isSignOutRequested()) {
                 if (!signIn()) {
@@ -63,47 +61,21 @@ final class AppNavigator {
             } else if (home.isOpenWorkflowRequested()) {
                 openWorkflowContinuation();
             } else if (home.isRemoteWorkflowRequested()) {
-                remoteWorkflowDialog()
-                        .startWithNewWorkflow(home.isSendForSignatureRequested())
-                        .showAndWait(owner);
-            } else if (home.isAcceptInvitationRequested()) {
-                acceptInvitation(owner, null);
-            } else if (mode == null) {
+                remoteWorkflowDialog().showAndWait(owner);
+            } else if (home.isSignHereRequested()) {
+                openSigningWorkspace();
+            } else {
                 log.info("Home screen closed — exiting");
                 return;
-            } else {
-                openSigningWorkspace(mode);
             }
         }
     }
 
     /**
-     * Invitation flow: the invitation screen (pre-filled with {@code token}
-     * when the app was opened from a link), then straight into that one
-     * signing task as a guest — no account, no task lists.
-     */
-    void acceptInvitation(Window parent, String token) {
-        InvitationDialog invitation = new InvitationDialog(services.remoteBaseUrl(), token);
-        invitation.showAndWait(parent);
-        InvitationDialog.Result result = invitation.getResult();
-        if (result == null) {
-            return;
-        }
-        log.info("Guest signing session opened for workflow {}", result.workflowId());
-        try {
-            remoteWorkflowDialog().showGuestAndWait(owner, result.client(), result.signerId(),
-                    result.workflowId(), result.email(), result.documentName());
-        } finally {
-            // Wipes the guest token from memory (nothing to revoke server-side).
-            result.client().close();
-        }
-    }
-
-    /**
      * Phase B: opened from a website launch link. The one-time code is
-     * exchanged for a session limited to that one signing task, then the
-     * same signing screens as an invited guest's open — no sign-in, no task
-     * lists. Local PKCS#11 signing is unchanged.
+     * exchanged for a session limited to that one signing task, then
+     * straight to the signing screens — no sign-in, no document list. Local
+     * PKCS#11 signing is unchanged.
      */
     void openLaunch(Window parent, String code) {
         com.example.signer.ui.dialog.LaunchDialog.Result result =
@@ -115,26 +87,21 @@ final class AppNavigator {
         var session = result.session();
         log.info("Desktop task session opened for workflow {}", session.workflowId());
         try {
-            remoteWorkflowDialog().showGuestAndWait(owner, result.client(), session.signerId(),
-                    session.workflowId(), null, session.documentName());
+            remoteWorkflowDialog().showTaskSessionAndWait(owner, result.client(),
+                    session.signerId(), session.workflowId(), session.documentName());
         } finally {
             // Wipes the task token from memory.
             result.client().close();
         }
     }
 
-    /**
-     * One, two or three people sign a PDF on this computer, one after the
-     * other. One signer uses the very same workspace, so every local signing
-     * looks and works the same way.
-     */
-    private void openSigningWorkspace(SigningMode mode) {
-        Path pdf = choosePdf(mode.signerCount() == 1 ? "Choose the PDF to sign"
-                : "Choose the PDF for the " + mode.signerCount() + "-signer workflow");
+    /** The signer signs a PDF on this computer with their own USB token. */
+    private void openSigningWorkspace() {
+        Path pdf = choosePdf("Choose the PDF to sign");
         if (pdf == null) {
             return;
         }
-        new MultiSignerWorkspaceFlow(mode, pdf, services.workflowEngine(), services.tokens(),
+        new SigningWorkspaceFlow(pdf, services.workflowEngine(), services.tokens(),
                 services.pdfRender(), services.pdfDocuments())
                 .showAndWait(owner);
     }

@@ -1,13 +1,10 @@
 package com.example.signer.server.security;
 
-import com.example.signer.server.api.ApiErrorType;
 import com.example.signer.server.auth.AccessTokenDenyList;
-import com.example.signer.server.auth.GuestAccessPolicy;
 import com.example.signer.server.auth.SigningActionPolicy;
 import com.example.signer.server.auth.TaskAccessPolicy;
 import com.example.signer.server.auth.UserAccountService;
 import com.example.signer.server.auth.JwtService;
-import com.example.signer.server.invites.InvitationService;
 import com.example.signer.server.launch.LaunchCodeService;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 
@@ -38,36 +35,30 @@ import java.io.IOException;
  *       before the account's password changed — Phase D1 risk D7. For the
  *       requests in {@link SigningActionPolicy} it must also have a verified
  *       e-mail address (403 otherwise) — Phase D1 risk D4.</li>
- *   <li><b>Guest token</b>: only the requests in {@link GuestAccessPolicy},
- *       on its own workflow, while its invitation is still active (403
- *       otherwise).</li>
+ *   <li><b>Task token</b> (Phase B launch code): only the requests in
+ *       {@link TaskAccessPolicy}, on its own workflow, while its launch code
+ *       is not revoked (403 otherwise).</li>
  * </ul>
  *
- * Then it exposes the identity as request attribute {@link #USER_ATTR}
- * (and {@link #GUEST_ATTR} for guests), which controllers read through
- * {@code AuthController.requireUser}.
+ * Then it exposes the identity as request attribute {@link #USER_ATTR},
+ * which controllers read through {@code AuthController.requireUser}.
  */
 public final class AuthenticatedRequestFilter extends OncePerRequestFilter {
 
     /** Request attribute carrying the authenticated user id. */
     public static final String USER_ATTR = "auth.user";
-    /** Request attribute set only for guest signing sessions. */
-    public static final String GUEST_ATTR = "auth.guest";
 
     private static final Logger log = LoggerFactory.getLogger(AuthenticatedRequestFilter.class);
 
     private final UserAccountService accounts;
     private final AccessTokenDenyList deniedTokens;
-    private final ObjectProvider<InvitationService> invitations;
     private final ObjectProvider<LaunchCodeService> launches;
 
     public AuthenticatedRequestFilter(UserAccountService accounts,
                                       AccessTokenDenyList deniedTokens,
-                                      ObjectProvider<InvitationService> invitations,
                                       ObjectProvider<LaunchCodeService> launches) {
         this.accounts = accounts;
         this.deniedTokens = deniedTokens;
-        this.invitations = invitations;
         this.launches = launches;
     }
 
@@ -75,33 +66,11 @@ public final class AuthenticatedRequestFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth instanceof GuestSessionAuthentication guest) {
-            if (!GuestAccessPolicy.allows(request.getMethod(), request.getRequestURI(),
-                    guest.guest())) {
-                log.info("Guest session refused {} {} (outside its signing task)",
-                        request.getMethod(), request.getRequestURI());
-                JsonSecurityErrors.forbidden(response, "WORKFLOW_NOT_ACCESSIBLE",
-                        "This signing link only gives access to its own signing task");
-                return;
-            }
-            InvitationService service = invitations.getIfAvailable();
-            if (service == null) {
-                JsonSecurityErrors.unauthorized(response);
-                return;
-            }
-            try {
-                service.requireGuestSessionActive(guest.guest());
-            } catch (ApiErrorType.ApiException e) {
-                JsonSecurityErrors.forbidden(response, e.code().name(), e.getMessage());
-                return;
-            }
-            request.setAttribute(USER_ATTR, guest.guest().principal());
-            request.setAttribute(GUEST_ATTR, guest.guest());
-        } else if (auth instanceof TaskSessionAuthentication taskSession) {
+        if (auth instanceof TaskSessionAuthentication taskSession) {
             // Phase B: the launch code's single task, while the code is not
             // revoked and the account can still sign in.
             JwtService.TaskAuthentication task = taskSession.task();
-            // Its own allow-list, not the guest one: no certificate binding.
+            // A narrow allow-list of its own: no certificate binding.
             if (!TaskAccessPolicy.allows(request.getMethod(), request.getRequestURI(),
                     task.workflowId())) {
                 log.info("Desktop task session refused {} {} (outside its signing task)",

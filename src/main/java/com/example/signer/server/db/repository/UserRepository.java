@@ -20,15 +20,6 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
 
     Optional<UserEntity> findByUsername(String username);
 
-    /**
-     * Sign-in lookup, letter case ignored — the same rule the
-     * {@code uq_users_username_ci} uniqueness index enforces, so what the
-     * schema accepts as one name, sign-in accepts as that name too. The
-     * typed identifier may carry any case; usernames are stored as created
-     * (lowercase system slugs, or the case the registrant chose).
-     */
-    Optional<UserEntity> findByUsernameIgnoreCase(String username);
-
     Optional<UserEntity> findByEmail(String email);
 
     /**
@@ -89,13 +80,12 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
      * <ul>
      *   <li>{@code email_verified_at IS NULL} — the address was never proved;</li>
      *   <li>{@code status = 'ACTIVE'} — which <b>excludes
-     *       {@code PENDING_INVITE}</b>, the invitation identities that also
-     *       have no verified address and must never be swept, and
-     *       {@code DISABLED}, which an operator chose;</li>
+     *       {@code PLACEHOLDER}</b>, the identities the file→DB importer
+     *       creates, which also have no verified address and must never be
+     *       swept, and {@code DISABLED}, which an operator chose;</li>
      *   <li>{@code last_login_at IS NULL} — it was never signed in to;</li>
      *   <li>it is older than {@code cutoff};</li>
-     *   <li>it holds no signer slot, owns no workflow and holds no claimed
-     *       turn.</li>
+     *   <li>it holds no signer slot and owns no workflow.</li>
      * </ul>
      *
      * <p>Those last three are also protected by foreign keys that are
@@ -122,8 +112,6 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                                 WHERE s.username = u.username)
                AND NOT EXISTS (SELECT 1 FROM workflows w
                                 WHERE w.created_by = u.username)
-               AND NOT EXISTS (SELECT 1 FROM workflows w
-                                WHERE w.claimed_turn_username = u.username)
             """)
     int deleteNeverVerifiedBefore(@Param("cutoff") Instant cutoff);
 }

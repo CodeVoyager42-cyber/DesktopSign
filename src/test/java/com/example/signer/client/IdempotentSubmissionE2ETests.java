@@ -81,11 +81,7 @@ class IdempotentSubmissionE2ETests {
     void aRetryAfterALostResponseReturnsTheOriginalRevisionWithoutASecondOne()
             throws Exception {
         String fp = fingerprint(MockSigningToken.DEFAULT_ALIAS);
-        String bobFp = fingerprint(MockSigningToken.THIRD_ALIAS);
-        String id = service.createWorkflow(new CreateWorkflowRequest("contract.pdf",
-                "SEQUENTIAL", List.of(
-                        new CreateWorkflowRequest.SignerSpec(1, "alice", fp),
-                        new CreateWorkflowRequest.SignerSpec(2, "bob", bobFp))),
+        String id = service.createWorkflow(new CreateWorkflowRequest("contract.pdf", fp),
                 pdf(), "alice").workflowId();
         byte[] signed = sign(service.getDocument(id, "alice"));
 
@@ -103,7 +99,7 @@ class IdempotentSubmissionE2ETests {
         assertThat(proxy.droppedResponses).hasValue(1);
         assertThat(proxy.submissions).hasValue(2);
         assertThat(response.acceptedRevision()).isEqualTo(1);
-        assertThat(response.nextSignerUserId()).isEqualTo("bob");
+        assertThat(response.completed()).as("one signer, so it is finished").isTrue();
         assertThat(store.load(id).revisions()).hasSize(2);
         assertThat(store.existsRevision(id, 2)).isFalse();
         assertThat(store.load(id).signers().get(0).signingOperationId())

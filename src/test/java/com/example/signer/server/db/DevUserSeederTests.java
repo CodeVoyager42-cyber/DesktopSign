@@ -22,9 +22,9 @@ import static org.mockito.Mockito.when;
 
 /**
  * The dev seed, without a database. {@code FileStoreImporter} runs before the
- * seeder and creates PENDING_INVITE placeholders (no e-mail, no password) for
- * the signers of imported legacy workflows, so a dev account can already
- * exist as an unusable stub.
+ * seeder and creates PLACEHOLDER rows (no e-mail, no password) for the
+ * signers of imported legacy workflows, so a dev account can already exist
+ * as an unusable stub.
  */
 class DevUserSeederTests {
 
@@ -49,7 +49,7 @@ class DevUserSeederTests {
         UserEntity user = new UserEntity();
         user.setUsername(username);
         user.setDisplayName(username);
-        user.setStatus(AccountStatus.PENDING_INVITE);
+        user.setStatus(AccountStatus.PLACEHOLDER);
         return user;
     }
 
@@ -88,8 +88,8 @@ class DevUserSeederTests {
 
     @Test
     void anInvitedAccountThatAlreadySetItsPasswordIsNotTouched() {
-        // PENDING_INVITE but WITH a password: a registration in progress, not
-        // an importer stub. Both conditions are required to complete a row.
+        // PLACEHOLDER but WITH a password: a password already chosen, not an
+        // importer stub. Both conditions are required to complete a row.
         String ownHash = PasswordHashing.hash("chosen-at-registration");
         UserEntity invited = placeholder("charlie");
         invited.changePasswordHash(ownHash, Instant.now());
@@ -97,7 +97,7 @@ class DevUserSeederTests {
 
         seeder(true, "charlie").run(null);
 
-        assertThat(invited.getStatus()).isEqualTo(AccountStatus.PENDING_INVITE);
+        assertThat(invited.getStatus()).isEqualTo(AccountStatus.PLACEHOLDER);
         assertThat(invited.getEmail()).isNull();
         assertThat(invited.getPasswordHash()).isEqualTo(ownHash);
     }
@@ -116,7 +116,7 @@ class DevUserSeederTests {
 
         seeder(false, "alice").run(null);
 
-        assertThat(existing.getStatus()).isEqualTo(AccountStatus.PENDING_INVITE);
+        assertThat(existing.getStatus()).isEqualTo(AccountStatus.PLACEHOLDER);
         assertThat(existing.getPasswordHash()).isNull();
         assertThat(existing.getEmail()).isNull();
         verify(users, never()).save(any());

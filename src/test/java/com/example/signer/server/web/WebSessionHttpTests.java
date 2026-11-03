@@ -452,7 +452,7 @@ class WebSessionHttpTests {
         String name = "p" + UUID.randomUUID().toString().substring(0, 8);
         UserEntity placeholder = new UserEntity();
         placeholder.setUsername(name);
-        placeholder.setStatus(AccountStatus.PENDING_INVITE);
+        placeholder.setStatus(AccountStatus.PLACEHOLDER);
         users.save(placeholder);
         Csrf csrf = bootstrapCsrf();
 
@@ -559,7 +559,7 @@ class WebSessionHttpTests {
         // Regressing the account to an invitation identity (no password) is
         // the other way isRegistered() turns false.
         UserEntity account = users.findByUsername(user).orElseThrow();
-        account.setStatus(AccountStatus.PENDING_INVITE);
+        account.setStatus(AccountStatus.PLACEHOLDER);
         users.save(account);
 
         assertThat(get("/web/api/auth/me", session, null).statusCode()).isEqualTo(401);

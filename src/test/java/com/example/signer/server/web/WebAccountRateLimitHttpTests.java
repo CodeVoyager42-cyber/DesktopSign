@@ -1,7 +1,7 @@
 package com.example.signer.server.web;
 
 import com.example.signer.server.WorkflowServerApplication;
-import com.example.signer.server.invites.ConsoleEmailService;
+import com.example.signer.server.email.ConsoleEmailService;
 
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;

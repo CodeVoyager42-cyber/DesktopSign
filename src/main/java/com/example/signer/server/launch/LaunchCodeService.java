@@ -11,7 +11,6 @@ import com.example.signer.server.db.entity.WorkflowEntity;
 import com.example.signer.server.db.repository.LaunchCodeRepository;
 import com.example.signer.server.db.repository.UserRepository;
 import com.example.signer.server.db.repository.WorkflowRepository;
-import com.example.signer.server.invites.InvitationService;
 import com.example.signer.server.workflow.AuditEventType;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 
@@ -44,7 +43,7 @@ import java.util.regex.Pattern;
  *
  * <ul>
  *   <li>Issue: re-checks the user's slot and turn ({@link
- *       RemoteWorkflowService#requireLaunchableSlot}), the invitation state
+ *       RemoteWorkflowService#requireLaunchableSlot})
  *       and a verified e-mail; 32 random bytes from {@link SecureRandom};
  *       only SHA-256 stored; 2 minutes; bound to user, workflow, slot,
  *       purpose and the minimum desktop version; replaces unused codes for
@@ -83,7 +82,6 @@ public class LaunchCodeService {
     private final UserRepository users;
     private final UserAccountService accounts;
     private final RemoteWorkflowService workflowService;
-    private final ObjectProvider<InvitationService> invitations;
     private final JwtService jwtService;
     private final AuditLog auditLog;
     private final TransactionTemplate tx;
@@ -98,7 +96,6 @@ public class LaunchCodeService {
     public LaunchCodeService(LaunchCodeRepository codes, WorkflowRepository workflows,
                              UserRepository users, UserAccountService accounts,
                              RemoteWorkflowService workflowService,
-                             ObjectProvider<InvitationService> invitations,
                              JwtService jwtService, AuditLog auditLog,
                              PlatformTransactionManager transactionManager,
                              @Value("${signature.remote-server.desktop.min-version:0.1.0-SNAPSHOT}")
@@ -112,7 +109,6 @@ public class LaunchCodeService {
         this.users = users;
         this.accounts = accounts;
         this.workflowService = workflowService;
-        this.invitations = invitations;
         this.jwtService = jwtService;
         this.auditLog = auditLog;
         this.tx = new TransactionTemplate(transactionManager);
@@ -154,10 +150,6 @@ public class LaunchCodeService {
                     "Verify your e-mail address before signing documents");
         }
         int slot = workflowService.requireLaunchableSlot(workflowPublicId, username);
-        InvitationService invitationService = invitations.getIfAvailable();
-        if (invitationService != null) {
-            invitationService.requireSigningAllowed(workflowPublicId, username);
-        }
         Instant now = Instant.now();
         if (codes.countByUsernameAndCreatedAtAfter(username, now.minusSeconds(60))
                 >= MAX_ISSUED_PER_MINUTE) {
@@ -240,10 +232,6 @@ public class LaunchCodeService {
             int slot = workflowService.requireLaunchableSlot(wf.getWorkflowId(), row.getUsername());
             if (slot != row.getSignerOrder()) {
                 throw new LaunchRejected();
-            }
-            InvitationService invitationService = invitations.getIfAvailable();
-            if (invitationService != null) {
-                invitationService.requireSigningAllowed(wf.getWorkflowId(), row.getUsername());
             }
         } catch (LaunchRejected e) {
             log.info("Launch code for workflow {} refused at exchange", wf.getWorkflowId());

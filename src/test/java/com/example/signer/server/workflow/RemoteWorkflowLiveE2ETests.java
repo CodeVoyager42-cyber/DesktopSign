@@ -3,8 +3,6 @@ package com.example.signer.server.workflow;
 import com.example.signer.server.WorkflowServerApplication;
 import com.example.signer.exception.SignerException;
 import com.example.signer.client.WorkflowApiClient;
-import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
-import com.example.signer.server.api.ApiContracts.CreateWorkflowResponse;
 import com.example.signer.server.api.ApiContracts.RevisionView;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionRequest;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionResponse;
@@ -41,10 +39,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *
  * <pre>
  * JWT login → DRAFT workflow with an unbound signer → own-certificate
- * binding → server-side preparation (revision 0) → flexible turn claim →
- * document download → local PKCS#11 (mock) signing → upload → server-side
- * signature validation → second signer → completion → revision chain +
- * audit trail.
+ * binding → server-side preparation (revision 0) → document download →
+ * local PKCS#11 (mock) signing → upload → server-side signature
+ * validation → completion → revision chain + audit trail.
  * </pre>
  *
  * <p>Skipped (JUnit assumption) when the live server is not reachable, so
@@ -96,78 +93,47 @@ class RemoteWorkflowLiveE2ETests {
 
         Map<String, String> fingerprints = liveFingerprints();
         String aliceFp = fingerprints.get(MockSigningToken.DEFAULT_ALIAS);
-        String bobFp = fingerprints.get(MockSigningToken.THIRD_ALIAS);
 
-        // ── B: FLEXIBLE workflow — alice bound, bob owes a certificate ──
-        CreateWorkflowResponse createResponse = alice.createWorkflow(
-                "live-e2e-smoke-" + System.currentTimeMillis() + ".pdf",
-                "FLEXIBLE",
-                List.of(
-                        new CreateWorkflowRequest.SignerSpec(1, "alice", aliceFp),
-                        new CreateWorkflowRequest.SignerSpec(2, "bob", null)),
-                minimalPdf());
-        WorkflowView created = createResponse.workflow();
+        // ── B: a DRAFT document of alice's, with no certificate yet ─────
+        WorkflowView created = alice.createWorkflow(
+                "live-e2e-smoke-" + System.currentTimeMillis() + ".pdf", minimalPdf());
         String id = created.workflowId();
-        assertThat(created.signingPolicy()).isEqualTo("FLEXIBLE");
         assertThat(created.status()).isEqualTo("DRAFT");
         assertThat(created.awaitingYourCertificate()).isTrue();
-        // alice and bob are existing accounts, not email invitees, so this
-        // flow emails nobody — and the response must not invent links for
-        // them. (The emailed-link contract is covered where invitations are
-        // actually sent: PostgresWorkflowStoreLiveTests.)
-        assertThat(createResponse.invitations()).isEmpty();
+        assertThat(created.totalSignatures()).as("one document, one signer").isEqualTo(1);
 
-        // ── C: bob sees the DRAFT task and binds HIS certificate ────────
-        assertThat(bob.myTasks()).anyMatch(w -> w.workflowId().equals(id));
-        WorkflowView prepared = bob.bindMyCertificate(id, bobFp);
+        // ── C: it is hers alone — bob has no part in it at all ──────────
+        assertThat(bob.myTasks()).noneMatch(w -> w.workflowId().equals(id));
+        assertThatThrownBy(() -> bob.task(id)).isInstanceOf(SignerException.class);
+
+        // ── D: alice binds HER certificate, which prepares revision 0 ───
+        assertThat(alice.myTasks()).anyMatch(w -> w.workflowId().equals(id));
+        WorkflowView prepared = alice.bindMyCertificate(id, aliceFp);
         assertThat(prepared.status()).isEqualTo("WAITING_FOR_SIGNER");
 
-        // ── D: atomic flexible turn claim (bob must not steal it) ───────
-        // Before a claim, the task names every pending signer as eligible.
-        TaskView beforeClaim = alice.task(id);
-        assertThat(beforeClaim.waitingForClaim()).isTrue();
-        assertThat(beforeClaim.eligibleSignerUserIds())
-                .containsExactlyInAnyOrder("alice", "bob");
-        TaskView aliceTask = alice.claimTurn(id);
-        assertThat(aliceTask.waitingForClaim()).isFalse();
+        TaskView aliceTask = alice.task(id);
         assertThat(aliceTask.signerOrder()).isEqualTo(1);
-        assertThatThrownBy(() -> bob.claimTurn(id))
-                .isInstanceOf(SignerException.class);
+        assertThat(aliceTask.documentRevision()).isEqualTo(0);
 
         // ── E: download + LOCAL PKCS#11 (mock) signing by alice ─────────
-        assertThat(aliceTask.documentRevision()).isEqualTo(0);
         Path signed1 = signLocally(alice.document(id), aliceTask.signerOrder());
 
-        // ── F: upload + server-side signature validation ────────────────
+        // ── F: upload, server-side validation, and that is the document ─
         SignatureSubmissionResponse r1 = alice.submitSignature(id,
                 new SignatureSubmissionRequest(0, null,
                         "live-e2e-alice-" + UUID.randomUUID()),
                 Files.readAllBytes(signed1));
         assertThat(r1.acceptedRevision()).isEqualTo(1);
-        assertThat(r1.nextSignerUserId()).isNull(); // flexible: turn reopens
+        assertThat(r1.completed()).as("the one signature finishes it").isTrue();
 
-        // ── G: bob claims, downloads, signs and completes ───────────────
-        TaskView bobTask = bob.claimTurn(id);
-        assertThat(bobTask.waitingForClaim()).isFalse();
-        assertThat(bobTask.signerOrder()).isEqualTo(2);
-        assertThat(bobTask.documentRevision()).isEqualTo(1);
-        Path signed2 = signLocally(bob.document(id), bobTask.signerOrder());
-        SignatureSubmissionResponse r2 = bob.submitSignature(id,
-                new SignatureSubmissionRequest(1, null,
-                        "live-e2e-bob-" + UUID.randomUUID()),
-                Files.readAllBytes(signed2));
-        assertThat(r2.completed()).isTrue();
-
-        // ── H: end state — revision chain, audit, task lists ────────────
+        // ── G: end state — revision chain, audit, task lists ────────────
         assertThat(alice.revisions(id))
                 .extracting(RevisionView::revisionNumber)
-                .containsExactly(0, 1, 2);
+                .containsExactly(0, 1);
         assertThat(alice.audit(id))
                 .extracting(a -> a.eventType())
-                .contains("CERTIFICATE_BOUND", "WORKFLOW_PREPARED",
-                        "SIGNING_TURN_CLAIMED", "SIGNATURE_VALIDATED");
+                .contains("CERTIFICATE_BOUND", "WORKFLOW_PREPARED", "SIGNATURE_VALIDATED");
         assertThat(alice.myTasks()).noneMatch(w -> w.workflowId().equals(id));
-        assertThat(bob.myTasks()).noneMatch(w -> w.workflowId().equals(id));
     }
 
     /* ── helpers ───────────────────────────────────────────────────────── */

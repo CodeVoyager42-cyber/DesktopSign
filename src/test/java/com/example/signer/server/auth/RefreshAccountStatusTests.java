@@ -7,7 +7,6 @@ import com.example.signer.server.api.ApiContracts.TokenPairResponse;
 import com.example.signer.server.api.ApiErrorType;
 import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
 import com.example.signer.server.api.ApiErrorType.ApiException;
-import com.example.signer.server.invites.InvitationRestController;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -21,8 +20,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * P0.13: the account status is re-checked on every refresh, so an account
  * that is disabled or removed after login cannot keep minting access tokens
- * from its refresh token. Also: invitation mutations answer 401 (not 403)
- * for a missing/expired token so the client refreshes and retries.
+ * from its refresh token. Also: a request without an
+ * authenticated identity answers 401 (not 403), so the client refreshes its
+ * token and retries.
  */
 @SpringBootTest(classes = WorkflowServerApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.NONE)
@@ -33,9 +33,6 @@ class RefreshAccountStatusTests {
 
     @Autowired
     private RemoteServerProperties properties;
-
-    @Autowired
-    private JwtService jwtService;
 
     @Test
     void aRemovedAccountCannotRefreshItsSession() {
@@ -67,17 +64,16 @@ class RefreshAccountStatusTests {
     }
 
     /**
-     * Spring Security answers 401 before these controllers run (see
-     * SecurityHttpTests). As a second line, a request that reaches them
-     * without an authenticated identity is still refused with 401.
+     * Spring Security answers 401 before the controllers run (see
+     * SecurityHttpTests). As a second line, a request that reaches one
+     * without an authenticated identity is still refused with 401 — never
+     * 403, so the client refreshes its token and retries.
      */
     @Test
-    void invitationMutationsAnswer401WithoutAnAuthenticatedIdentity() {
-        InvitationRestController controller =
-                new InvitationRestController(null, null, null, null, jwtService);
+    void aRequestWithoutAnAuthenticatedIdentityAnswers401() {
         MockHttpServletRequest anonymous = new MockHttpServletRequest();
 
-        assertThatThrownBy(() -> controller.claim("token", anonymous))
+        assertThatThrownBy(() -> auth.me(anonymous))
                 .isInstanceOf(ApiException.class)
                 .satisfies(e -> {
                     ApiException api = (ApiException) e;
@@ -85,13 +81,7 @@ class RefreshAccountStatusTests {
                     assertThat(new ApiErrorType.Handler().handle(api)
                             .getStatusCode().value()).isEqualTo(401);
                 });
-        assertThatThrownBy(() -> controller.decline("token", anonymous))
-                .isInstanceOf(ApiException.class);
-        assertThatThrownBy(() -> controller.accept("token", anonymous))
-                .isInstanceOf(ApiException.class);
-        assertThatThrownBy(() -> controller.revoke(1L, anonymous))
-                .isInstanceOf(ApiException.class);
-        assertThatThrownBy(() -> controller.resend(1L, anonymous))
+        assertThatThrownBy(() -> AuthController.requireUser(null))
                 .isInstanceOf(ApiException.class);
     }
 }

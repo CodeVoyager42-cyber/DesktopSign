@@ -130,7 +130,9 @@ class AccountIdentityMigrationLiveTests {
 
         assertThat(one("SELECT count(*) FROM users")).isEqualTo("3");
         assertThat(one("SELECT password_hash FROM users WHERE username = 'alice'")).isEqualTo(hash);
-        assertThat(one("SELECT status FROM users WHERE username = 'pending'")).isEqualTo("PENDING_INVITE");
+        // V14 renames the invitation placeholder state it inherits.
+        assertThat(one("SELECT status FROM users WHERE username = 'pending'"))
+                .isEqualTo("PLACEHOLDER");
         assertThat(one("SELECT count(*) FROM users WHERE role = 'USER'")).isEqualTo("3");
         assertThat(one("SELECT count(*) FROM users WHERE failed_login_count = 0 AND locked_until IS NULL")).isEqualTo("3");
         // Nothing proves existing addresses, so none is marked verified.
@@ -144,13 +146,13 @@ class AccountIdentityMigrationLiveTests {
     @Test
     void constraintsRejectBadRolesNegativeCountsAndCaseOnlyDuplicates() throws SQLException {
         flyway(null).migrate();
-        insertV4User("alice", null, "PENDING_INVITE");
+        insertV4User("alice", null, "PLACEHOLDER");
         assertThatThrownBy(() -> sql("UPDATE users SET role = 'ROOT' WHERE username = 'alice'"))
                 .isInstanceOf(SQLException.class).hasMessageContaining("ck_users_role");
         assertThatThrownBy(() -> sql("UPDATE users SET failed_login_count = -1 WHERE username = 'alice'"))
                 .isInstanceOf(SQLException.class).hasMessageContaining("ck_users_failed_login_count");
         assertThatThrownBy(() -> sql("INSERT INTO users (username, status, created_at, updated_at)"
-                + " VALUES ('Alice', 'PENDING_INVITE', now(), now())"))
+                + " VALUES ('Alice', 'PLACEHOLDER', now(), now())"))
                 .isInstanceOf(SQLException.class).hasMessageContaining("uq_users_username_ci");
     }
 

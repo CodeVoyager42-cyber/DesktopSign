@@ -10,7 +10,7 @@ import {
   KeyRound,
   LogOut,
   Menu,
-  Send,
+  PenLine,
   UserCog,
 } from "lucide-react";
 import { Initials } from "@/components/blocks";
@@ -145,9 +145,9 @@ function MobileMenu({ me }: { me: Profile | null }) {
               </SheetClose>
               <SheetClose asChild>
                 <Button asChild className="justify-start">
-                  <Link href="/send">
-                    <Send aria-hidden="true" />
-                    Send a document
+                  <Link href="/upload">
+                    <PenLine aria-hidden="true" />
+                    Sign a document
                   </Link>
                 </Button>
               </SheetClose>
@@ -208,9 +208,9 @@ export function AppHeader({ me }: { me: Profile | null }) {
           <Link href="/documents">Documents</Link>
         </Button>
         <Button asChild className="hidden sm:inline-flex">
-          <Link href="/send">
-            <Send aria-hidden="true" />
-            Send a document
+          <Link href="/upload">
+            <PenLine aria-hidden="true" />
+            Sign a document
           </Link>
         </Button>
         {me ? (

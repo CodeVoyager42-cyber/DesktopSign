@@ -32,23 +32,12 @@ public class WorkflowEntity {
     @Column(name = "document_name", nullable = false, length = 500)
     private String documentName;
 
-    /** SEQUENTIAL | FLEXIBLE. */
-    @Column(nullable = false, length = 20)
-    private String policy;
-
     /** {@code WorkflowState} name. */
     @Column(nullable = false, length = 30)
     private String status;
 
     @Column(name = "blocked_reason", columnDefinition = "text")
     private String blockedReason;
-
-    /** FLEXIBLE: who currently holds the turn (null when unclaimed). */
-    @Column(name = "claimed_turn_username", length = 100)
-    private String claimedTurnUsername;
-
-    @Column(name = "claimed_turn_at")
-    private Instant claimedTurnAt;
 
     @Column(name = "created_by", nullable = false, length = 100)
     private String createdBy;
@@ -118,14 +107,6 @@ public class WorkflowEntity {
         this.documentName = documentName;
     }
 
-    public String getPolicy() {
-        return policy;
-    }
-
-    public void setPolicy(String policy) {
-        this.policy = policy;
-    }
-
     public String getStatus() {
         return status;
     }
@@ -140,22 +121,6 @@ public class WorkflowEntity {
 
     public void setBlockedReason(String blockedReason) {
         this.blockedReason = blockedReason;
-    }
-
-    public String getClaimedTurnUsername() {
-        return claimedTurnUsername;
-    }
-
-    public void setClaimedTurnUsername(String claimedTurnUsername) {
-        this.claimedTurnUsername = claimedTurnUsername;
-    }
-
-    public Instant getClaimedTurnAt() {
-        return claimedTurnAt;
-    }
-
-    public void setClaimedTurnAt(Instant claimedTurnAt) {
-        this.claimedTurnAt = claimedTurnAt;
     }
 
     public String getCreatedBy() {

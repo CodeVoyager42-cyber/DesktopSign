@@ -94,28 +94,14 @@ public class WorkflowSigningService {
     public WorkflowManifest createWorkflow(Path originalPdf,
                                            String documentName,
                                            List<WorkflowSignerStep> orderedSteps) {
-        return createWorkflow(originalPdf, documentName,
-                WorkflowSigningPolicy.SEQUENTIAL, orderedSteps);
-    }
-
-    /**
-     * As {@link #createWorkflow(Path, String, List)} with an explicit signing
-     * policy. The policy is embedded in the manifest so offline verification
-     * and local signing enforce the same turn rules as the server.
-     */
-    public WorkflowManifest createWorkflow(Path originalPdf,
-                                           String documentName,
-                                           WorkflowSigningPolicy signingPolicy,
-                                           List<WorkflowSignerStep> orderedSteps) {
         if (orderedSteps == null || orderedSteps.isEmpty()) {
             throw new SignerException(ErrorCode.WORKFLOW_INVALID,
-                    "A workflow needs at least one signer");
+                    "A workflow needs its signer");
         }
         Instant now = Instant.now();
         return new WorkflowManifest(WorkflowManifest.CURRENT,
                 UUID.randomUUID().toString(), now, now,
                 sha256Hex(originalPdf),
-                signingPolicy == null ? WorkflowSigningPolicy.SEQUENTIAL : signingPolicy,
                 List.copyOf(orderedSteps));
     }
 
@@ -201,10 +187,9 @@ public class WorkflowSigningService {
 
     /**
      * As {@link #requireCanSignNow(WorkflowDocument, EffectiveWorkflowState)}
-     * but with an optional expected signer order — the signer named by the
-     * coordination server's claimed turn — used to disambiguate when the
-     * connected token carries several certificates that match different
-     * pending steps.
+     * but with an optional expected signer order — the slot named by the
+     * coordination server, asserted against the document's own pending
+     * step so a mismatched document is refused rather than signed.
      */
     public WorkflowSignerStep requireCanSignNow(WorkflowDocument document,
                                                 EffectiveWorkflowState state,
@@ -220,52 +205,21 @@ public class WorkflowSigningService {
                             : String.join(" ", state.signingBlockers()));
         }
         WorkflowSignerStep step = state.currentStep();
-        if (step == null
-                && state.manifest().policy() == WorkflowSigningPolicy.FLEXIBLE) {
-            // FLEXIBLE: no manifest-defined turn — the connected token's
-            // certificate selects which pending step may sign now. When the
-            // server has named the claimed signer, that order wins over the
-            // manifest's step order (one token can carry several certs).
-            step = flexibleStepForConnectedToken(state, expectedSignerOrder);
-        }
         if (step == null) {
             throw new SignerException(ErrorCode.WORKFLOW_OUT_OF_TURN,
-                    "There is no pending signature step for the connected"
-                            + " signing certificate in this workflow");
+                    "There is no pending signature step in this document");
+        }
+        // The server named the slot it expects: a mismatch means this
+        // document is not the one the session was opened for, and signing it
+        // anyway would put a signature in the wrong place.
+        if (expectedSignerOrder != null && !expectedSignerOrder.equals(step.order())) {
+            throw new SignerException(ErrorCode.WORKFLOW_OUT_OF_TURN,
+                    "This document's pending signature step is not the one the"
+                            + " server expects");
         }
         // Identity check against the CONNECTED token, not a UI selection.
         certificateForStep(step);
         return step;
-    }
-
-    /**
-     * The pending step fulfilled by a certificate on the connected token, or
-     * {@code null} when the token holds none of the pending signers.
-     */
-    private WorkflowSignerStep flexibleStepForConnectedToken(
-            EffectiveWorkflowState state, Integer expectedSignerOrder) {
-        List<SigningCertificate> certs = connectedCertificates();
-        List<WorkflowSignerStep> pending = state.manifest().stepsInOrder().stream()
-                .filter(s -> s.revisionIndex() == null)
-                .toList();
-        if (expectedSignerOrder != null) {
-            // The claimed turn names the signer: a multi-certificate token can
-            // match several pending steps, so the claim disambiguates.
-            return pending.stream()
-                    .filter(s -> expectedSignerOrder.equals(s.order()))
-                    .filter(s -> certs.stream().anyMatch(c -> s.certificate()
-                            .matchesFingerprint(c.getSha256Fingerprint())))
-                    .findFirst()
-                    .orElse(null);
-        }
-        for (WorkflowSignerStep step : pending) {
-            boolean claimed = certs.stream().anyMatch(c ->
-                    step.certificate().matchesFingerprint(c.getSha256Fingerprint()));
-            if (claimed) {
-                return step;
-            }
-        }
-        return null;
     }
 
     /**
@@ -350,9 +304,8 @@ public class WorkflowSigningService {
 
     /**
      * As {@link #signNextStep(Path, SignatureAppearanceHint, Path)} but with
-     * the signer order expected by the coordination server's claimed turn —
-     * required when one token carries certificates for several pending
-     * signers and a FLEXIBLE policy leaves the signing order open.
+     * the signer order the coordination server expects, so a document that
+     * is not the one this session was opened for is refused.
      */
     public EffectiveWorkflowState signNextStep(Path workflowPdf,
                                                SignatureAppearanceHint appearanceHint,
@@ -525,7 +478,7 @@ public class WorkflowSigningService {
         }
         return new WorkflowManifest(manifest.version(), manifest.workflowId(),
                 manifest.createdAt(), Instant.now(),
-                manifest.originalDocumentSha256(), manifest.policy(), updated);
+                manifest.originalDocumentSha256(), updated);
     }
 
     private String keyAliasFor(WorkflowSignerStep step) {

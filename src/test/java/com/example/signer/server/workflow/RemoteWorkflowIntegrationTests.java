@@ -1,12 +1,12 @@
 package com.example.signer.server.workflow;
 
 import com.example.signer.server.WorkflowServerApplication;
-import com.example.signer.config.LoginProperties;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionRequest;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionResponse;
 import com.example.signer.server.api.ApiContracts.TaskView;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
+import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
 import com.example.signer.server.api.ApiErrorType.ApiException;
 import com.example.signer.token.TokenService;
 import com.example.signer.token.mock.MockSigningToken;
@@ -18,13 +18,9 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import org.springframework.test.context.ActiveProfiles;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,10 +28,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /**
- * End-to-end multi-"machine" simulation (§33, §38) WITHOUT HTTP: three
- * signers in three isolated signing sessions (fresh disk load each time —
- * the same contract the real client satisfies), coordinated through the
- * {@link RemoteWorkflowService}.
+ * End-to-end simulation of one signing session WITHOUT HTTP: the document is
+ * loaded from disk, signed locally and submitted, the same contract the real
+ * client satisfies, coordinated through the {@link RemoteWorkflowService}.
+ *
+ * <p>A document has exactly one signer — the account that uploaded it — so
+ * what is checked here is that one signature's lifecycle, the refusals
+ * around it, and what the task list says about it.
  */
 @SpringBootTest(classes = WorkflowServerApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.NONE)
@@ -63,23 +62,20 @@ class RemoteWorkflowIntegrationTests {
     }
 
     @Test
-    void aliceBobCharlieSignAcrossThreeIsolatedSessions() throws Exception {
+    void aliceUploadsSignsAndTheDocumentIsFinished() throws Exception {
         Path dir = Files.createTempDirectory("remote-e2e");
         byte[] original = originalPdf(dir);
 
-        // ── Computer A: Alice creates the workflow and signs ─────────────
         WorkflowView created = service.createWorkflow(
-                new CreateWorkflowRequest("contract.pdf", List.of(
-                        new CreateWorkflowRequest.SignerSpec(1, "alice", fp("alice")),
-                        new CreateWorkflowRequest.SignerSpec(2, "bob", fp("bob")),
-                        new CreateWorkflowRequest.SignerSpec(3, "charlie", fp("charlie")))),
-                original, "alice");
+                new CreateWorkflowRequest("contract.pdf", fp("alice")), original, "alice");
         String workflowId = created.workflowId();
         assertThat(created.status()).isEqualTo("WAITING_FOR_SIGNER");
+        assertThat(created.totalSignatures()).isEqualTo(1);
 
-        TaskView taskA = service.getTask(workflowId, "alice");
-        assertThat(taskA.signerOrder()).isEqualTo(1);
-        assertThat(taskA.documentRevision()).isEqualTo(0);
+        TaskView task = service.getTask(workflowId, "alice");
+        assertThat(task.signerOrder()).isEqualTo(1);
+        assertThat(task.documentRevision()).isEqualTo(0);
+        assertThat(task.signers()).hasSize(1);
 
         Path rev1 = dir.resolve("rev1.pdf");
         signLocally(workflowId, 0, dir, rev1);
@@ -88,85 +84,57 @@ class RemoteWorkflowIntegrationTests {
                 Files.readAllBytes(rev1),
                 new SignatureSubmissionRequest(0, null, "op-alice"));
         assertThat(r1.acceptedRevision()).isEqualTo(1);
-        assertThat(r1.nextSignerUserId()).isEqualTo("bob");
-
-        // ── Computer B: Bob downloads revision 1 and signs ───────────────
-        assertThat(service.myTasks("bob").stream()
-                .anyMatch(w -> w.workflowId().equals(workflowId))).isTrue();
-
-        Path rev2 = dir.resolve("rev2.pdf");
-        signLocally(workflowId, 1, dir, rev2);
-        SignatureSubmissionResponse r2 = service.submitSignature(workflowId, "bob",
-                Files.readAllBytes(rev2),
-                new SignatureSubmissionRequest(1, null, "op-bob"));
-        assertThat(r2.nextSignerUserId()).isEqualTo("charlie");
-
-        // ── Computer C: Charlie signs; workflow completes ────────────────
-        Path rev3 = dir.resolve("rev3.pdf");
-        signLocally(workflowId, 2, dir, rev3);
-        SignatureSubmissionResponse r3 = service.submitSignature(workflowId, "charlie",
-                Files.readAllBytes(rev3),
-                new SignatureSubmissionRequest(2, null, "op-charlie"));
-        assertThat(r3.completed()).isTrue();
-        assertThat(service.getWorkflow(workflowId, "alice").status())
-                .isEqualTo("COMPLETED");
+        assertThat(r1.completed()).isTrue();
+        assertThat(service.getWorkflow(workflowId, "alice").status()).isEqualTo("COMPLETED");
 
         // Revisions are immutable and contiguous on the server.
         assertThat(service.getRevisions(workflowId, "alice"))
-                .hasSize(4)
-                .extracting(com.example.signer.server.api.ApiContracts.RevisionView::revisionNumber)
-                .containsExactly(0, 1, 2, 3);
+                .hasSize(2)
+                .extracting(com.example.signer.server.api.ApiContracts.RevisionView
+                        ::revisionNumber)
+                .containsExactly(0, 1);
 
-        // Audit trail reconstructs the whole workflow.
+        // The audit trail reconstructs the whole workflow.
         assertThat(service.getAudit(workflowId, "alice").stream()
                 .map(com.example.signer.server.api.ApiContracts.AuditView::eventType))
-                .contains("WORKFLOW_CREATED", "SIGNATURE_VALIDATED",
-                        "WORKFLOW_COMPLETED");
+                .contains("WORKFLOW_CREATED", "SIGNATURE_VALIDATED", "WORKFLOW_COMPLETED");
+
+        // And it is out of the actionable list.
+        assertThat(service.myTasks("alice")).noneMatch(w -> w.workflowId().equals(workflowId));
     }
 
     @Test
     void staleRevisionSubmissionIsRejectedAndWorkflowUnchanged() throws Exception {
         Path dir = Files.createTempDirectory("remote-stale");
-        byte[] original = originalPdf(dir);
-
         WorkflowView created = service.createWorkflow(
-                new CreateWorkflowRequest("contract.pdf", List.of(
-                        new CreateWorkflowRequest.SignerSpec(1, "alice", fp("alice")),
-                        new CreateWorkflowRequest.SignerSpec(2, "bob", fp("bob")))),
-                original, "alice");
+                new CreateWorkflowRequest("contract.pdf", fp("alice")),
+                originalPdf(dir), "alice");
         String workflowId = created.workflowId();
 
-        // Alice signs revision 0 → server current becomes revision 1.
         Path rev1 = dir.resolve("rev1.pdf");
         signLocally(workflowId, 0, dir, rev1);
-        service.submitSignature(workflowId, "alice", Files.readAllBytes(rev1),
-                new SignatureSubmissionRequest(0, null, "op-alice"));
 
-        // Bob's submission claims parent revision 1 but carries a hash that
-        // does not match the server's revision 1 — a downloaded-then-branched
+        // The submission claims parent revision 0 but carries a hash that
+        // does not match the server's revision 0 — a downloaded-then-branched
         // or tampered document. Must be rejected as stale.
-        Path rev2 = dir.resolve("rev2.pdf");
-        signLocally(workflowId, 1, dir, rev2);
         String wrongHash = "0".repeat(64);
-        assertThatThrownBy(() -> service.submitSignature(workflowId, "bob",
-                Files.readAllBytes(rev2),
-                new SignatureSubmissionRequest(1, wrongHash, "op-bob")))
+        assertThatThrownBy(() -> service.submitSignature(workflowId, "alice",
+                Files.readAllBytes(rev1),
+                new SignatureSubmissionRequest(0, wrongHash, "op-stale")))
                 .isInstanceOf(ApiException.class)
-                .extracting(e -> ((com.example.signer.server.api.ApiErrorType.ApiException) e)
-                        .code())
-                .isEqualTo(com.example.signer.server.api.ApiErrorType.ApiErrorCode.STALE_REVISION);
+                .extracting(e -> ((ApiException) e).code())
+                .isEqualTo(ApiErrorCode.STALE_REVISION);
 
-        // Workflow state unchanged: still waiting for Bob on revision 1.
-        assertThat(service.getWorkflow(workflowId, "bob").status())
+        // Workflow state unchanged: still waiting for its signature on rev 0.
+        assertThat(service.getWorkflow(workflowId, "alice").status())
                 .isEqualTo("WAITING_FOR_SIGNER");
-        assertThat(service.getWorkflow(workflowId, "bob").currentRevision())
-                .isEqualTo(1);
+        assertThat(service.getWorkflow(workflowId, "alice").currentRevision()).isZero();
 
         // The honest submission (correct hash) still succeeds afterwards.
         String correctHash = store.load(workflowId).currentRevision().sha256();
-        SignatureSubmissionResponse ok = service.submitSignature(workflowId, "bob",
-                Files.readAllBytes(rev2),
-                new SignatureSubmissionRequest(1, correctHash, "op-bob-2"));
+        SignatureSubmissionResponse ok = service.submitSignature(workflowId, "alice",
+                Files.readAllBytes(rev1),
+                new SignatureSubmissionRequest(0, correctHash, "op-honest"));
         assertThat(ok.completed()).isTrue();
     }
 
@@ -174,9 +142,7 @@ class RemoteWorkflowIntegrationTests {
     void duplicateSubmissionIsIdempotent() throws Exception {
         Path dir = Files.createTempDirectory("remote-idem");
         WorkflowView created = service.createWorkflow(
-                new CreateWorkflowRequest("contract.pdf", List.of(
-                        new CreateWorkflowRequest.SignerSpec(1, "alice", fp("alice")),
-                        new CreateWorkflowRequest.SignerSpec(2, "bob", fp("bob")))),
+                new CreateWorkflowRequest("contract.pdf", fp("alice")),
                 originalPdf(dir), "alice");
         String workflowId = created.workflowId();
 
@@ -189,21 +155,17 @@ class RemoteWorkflowIntegrationTests {
         SignatureSubmissionResponse retry = service.submitSignature(workflowId,
                 "alice", signed, new SignatureSubmissionRequest(0, null, "op-X"));
 
-        assertThat(retry.acceptedRevision())
-                .isEqualTo(first.acceptedRevision());
-        // No second transition happened: still waiting for bob on revision 1.
-        assertThat(service.getWorkflow(workflowId, "bob").currentRevision())
-                .isEqualTo(1);
-        assertThat(service.getWorkflow(workflowId, "bob").status())
-                .isEqualTo("WAITING_FOR_SIGNER");
+        assertThat(retry.acceptedRevision()).isEqualTo(first.acceptedRevision());
+        // No second transition happened: one revision was added, not two.
+        assertThat(service.getWorkflow(workflowId, "alice").currentRevision()).isEqualTo(1);
+        assertThat(service.getRevisions(workflowId, "alice")).hasSize(2);
     }
 
     @Test
     void nonParticipantCannotAccessTheWorkflow() throws Exception {
         Path dir = Files.createTempDirectory("remote-authz");
         WorkflowView created = service.createWorkflow(
-                new CreateWorkflowRequest("contract.pdf", List.of(
-                        new CreateWorkflowRequest.SignerSpec(1, "alice", fp("alice")))),
+                new CreateWorkflowRequest("contract.pdf", fp("alice")),
                 originalPdf(dir), "alice");
         // Security Phase 3: an outsider gets exactly the answer for a
         // workflow that does not exist, so ids cannot be probed.
@@ -211,8 +173,7 @@ class RemoteWorkflowIntegrationTests {
                 () -> service.getTask(created.workflowId(), "mallory"));
         ApiException missing = catchThrowableOfType(ApiException.class,
                 () -> service.getTask("WF-999999", "mallory"));
-        assertThat(outsider.code())
-                .isEqualTo(com.example.signer.server.api.ApiErrorType.ApiErrorCode.WORKFLOW_NOT_FOUND);
+        assertThat(outsider.code()).isEqualTo(ApiErrorCode.WORKFLOW_NOT_FOUND);
         assertThat(outsider.code()).isEqualTo(missing.code());
         assertThat(outsider.getMessage()).isEqualTo(missing.getMessage());
         assertThatThrownBy(() -> service.getDocument(created.workflowId(), "mallory"))
@@ -220,77 +181,86 @@ class RemoteWorkflowIntegrationTests {
     }
 
     @Test
-    void wrongSignerCannotSubmitOutOfTurn() throws Exception {
+    void nobodyButTheSignerCanSubmitASignature() throws Exception {
         Path dir = Files.createTempDirectory("remote-turn");
         WorkflowView created = service.createWorkflow(
-                new CreateWorkflowRequest("contract.pdf", List.of(
-                        new CreateWorkflowRequest.SignerSpec(1, "alice", fp("alice")),
-                        new CreateWorkflowRequest.SignerSpec(2, "bob", fp("bob")))),
+                new CreateWorkflowRequest("contract.pdf", fp("alice")),
                 originalPdf(dir), "alice");
         String workflowId = created.workflowId();
 
         Path rev1 = dir.resolve("rev1.pdf");
         signLocally(workflowId, 0, dir, rev1);
 
-        // Bob (not the current signer) tries to submit before Alice.
+        // Another account — holding the signed bytes — is still a stranger to
+        // this document, and is told what a stranger is told.
         assertThatThrownBy(() -> service.submitSignature(workflowId, "bob",
                 Files.readAllBytes(rev1),
-                new SignatureSubmissionRequest(0, null, "op-bob-early")))
+                new SignatureSubmissionRequest(0, null, "op-bob")))
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).code())
-                .isEqualTo(com.example.signer.server.api.ApiErrorType.ApiErrorCode.NOT_YOUR_TURN);
+                .isEqualTo(ApiErrorCode.WORKFLOW_NOT_FOUND);
+        assertThat(store.load(workflowId).signer().signed()).isFalse();
+    }
+
+    /**
+     * The task list carries the signer's own state, and a cancelled request
+     * stays visible (as CANCELLED) instead of silently disappearing.
+     */
+    @Test
+    void theTaskListCarriesTheSignersOwnStateAndKeepsCancelledDocuments()
+            throws Exception {
+        Path dir = Files.createTempDirectory("tasks-order");
+        String workflowId = service.createWorkflow(
+                new CreateWorkflowRequest("order.pdf", fp("alice")),
+                originalPdf(dir), "alice").workflowId();
+
+        var mine = participating(workflowId);
+        assertThat(mine.senderId()).isEqualTo("alice");
+        assertThat(mine.myState().myStateLabel()).isEqualTo("YOUR_TURN");
+        assertThat(mine.myState().waitingForMe()).isTrue();
+        assertThat(mine.myState().participantOrder()).isEqualTo(1);
+        assertThat(mine.updatedAt()).isNotNull();
+
+        Path rev1 = dir.resolve("rev1.pdf");
+        signLocally(workflowId, 0, dir, rev1);
+        service.submitSignature(workflowId, "alice", Files.readAllBytes(rev1),
+                new SignatureSubmissionRequest(0, null, "op-order-alice"));
+
+        var signed = participating(workflowId);
+        assertThat(signed.myState().myStateLabel()).isEqualTo("SIGNED");
+        assertThat(signed.myState().signed()).isTrue();
+        assertThat(signed.myState().waitingForMe()).isFalse();
+        assertThat(signed.completedAt()).isNotNull();
+    }
+
+    @Test
+    void aCancelledDocumentStaysInTheTaskList() throws Exception {
+        Path dir = Files.createTempDirectory("tasks-cancelled");
+        String workflowId = service.createWorkflow(
+                new CreateWorkflowRequest("cancelled.pdf", fp("alice")),
+                originalPdf(dir), "alice").workflowId();
+
+        service.cancelWorkflow(workflowId, "alice");
+
+        var cancelled = participating(workflowId);
+        assertThat(cancelled.myState().myStateLabel()).isEqualTo("CANCELLED");
+        assertThat(cancelled.myState().waitingForMe()).isFalse();
+        assertThat(cancelled.myState().signed()).isFalse();
     }
 
     /* ------------------------------------------------------------------
      * helpers
      * ------------------------------------------------------------------ */
 
-    /** Simulates one desktop signing session: download → sign locally. */
-    /**
-     * The Signing Tasks list carries the REAL signing order, the current
-     * signer and the policy for each participant — and a cancelled request
-     * stays visible (as CANCELLED) instead of silently disappearing.
-     */
-    @Test
-    void signingTaskListCarriesTheRealSigningOrderAndCurrentSigner() throws Exception {
-        Path dir = Files.createTempDirectory("tasks-order");
-        String workflowId = service.createWorkflow(
-                new CreateWorkflowRequest("order.pdf", List.of(
-                        new CreateWorkflowRequest.SignerSpec(1, "alice", fp("alice")),
-                        new CreateWorkflowRequest.SignerSpec(2, "bob", fp("bob")))),
-                originalPdf(dir), "alice").workflowId();
-
-        var bobsView = service.listParticipating("bob").tasks().stream()
-                .filter(t -> t.workflowId().equals(workflowId)).findFirst().orElseThrow();
-        assertThat(bobsView.signingPolicy()).isEqualTo("SEQUENTIAL");
-        assertThat(bobsView.participants()).extracting(
-                        com.example.signer.server.api.ApiContracts.TaskParticipantView::order,
-                        com.example.signer.server.api.ApiContracts.TaskParticipantView::you,
-                        com.example.signer.server.api.ApiContracts.TaskParticipantView::state)
-                .containsExactly(
-                        org.assertj.core.groups.Tuple.tuple(1, false, "CURRENT"),
-                        org.assertj.core.groups.Tuple.tuple(2, true, "WAITING"));
-        assertThat(bobsView.myState().myStateLabel()).isEqualTo("WAITING_FOR_OTHERS");
-        assertThat(bobsView.updatedAt()).isNotNull();
-
-        Path rev1 = dir.resolve("rev1.pdf");
-        signLocally(workflowId, 0, dir, rev1);
-        service.submitSignature(workflowId, "alice", Files.readAllBytes(rev1),
-                new SignatureSubmissionRequest(0, null, "op-order-alice"));
-        bobsView = service.listParticipating("bob").tasks().stream()
-                .filter(t -> t.workflowId().equals(workflowId)).findFirst().orElseThrow();
-        assertThat(bobsView.participants()).extracting(
-                        com.example.signer.server.api.ApiContracts.TaskParticipantView::state)
-                .containsExactly("SIGNED", "CURRENT");
-        assertThat(bobsView.myState().waitingForMe()).isTrue();
-
-        service.cancelWorkflow(workflowId, "alice");
-        var cancelled = service.listParticipating("bob").tasks().stream()
-                .filter(t -> t.workflowId().equals(workflowId)).findFirst().orElseThrow();
-        assertThat(cancelled.myState().myStateLabel()).isEqualTo("CANCELLED");
-        assertThat(cancelled.myState().waitingForMe()).isFalse();
+    /** alice's item for {@code workflowId} in the participating list. */
+    private com.example.signer.server.api.ApiContracts.TaskItemView participating(
+            String workflowId) {
+        return service.listParticipating("alice").tasks().stream()
+                .filter(t -> t.workflowId().equals(workflowId))
+                .findFirst().orElseThrow();
     }
 
+    /** Simulates one desktop signing session: download → sign locally. */
     private void signLocally(String workflowId, int expectedParent,
                              Path dir, Path output) throws Exception {
         TaskView task = service.getTask(workflowId, currentUserId(workflowId));

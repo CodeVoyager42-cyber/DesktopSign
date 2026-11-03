@@ -12,8 +12,8 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 /**
  * Turns a token that already passed signature, algorithm, issuer, audience
  * and expiry checks into a Spring Security identity, by its {@code typ}
- * claim: {@code access} → account ({@code ROLE_USER}), {@code guest} →
- * guest signing session ({@code ROLE_GUEST}). Any other type is refused
+ * claim: {@code access} → account ({@code ROLE_USER}), {@code task} →
+ * desktop task session ({@code ROLE_TASK}). Any other type is refused
  * with a 401, like an invalid token.
  */
 final class TokenAuthenticationConverter implements Converter<Jwt, AbstractAuthenticationToken> {
@@ -22,9 +22,6 @@ final class TokenAuthenticationConverter implements Converter<Jwt, AbstractAuthe
     public AbstractAuthenticationToken convert(Jwt jwt) {
         try {
             String type = jwt.getClaimAsString(JwtService.TYPE_CLAIM);
-            if (JwtService.TYPE_GUEST.equals(type)) {
-                return new GuestSessionAuthentication(jwt, JwtService.toGuest(jwt));
-            }
             if (JwtService.TYPE_TASK.equals(type)) {
                 return new TaskSessionAuthentication(jwt, JwtService.toTask(jwt));
             }

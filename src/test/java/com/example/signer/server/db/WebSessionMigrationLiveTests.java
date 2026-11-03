@@ -150,10 +150,16 @@ class WebSessionMigrationLiveTests {
                 .isEqualTo("keepme@example.test");
         String after = one("SELECT string_agg(table_name, ',' ORDER BY table_name)"
                 + " FROM information_schema.tables WHERE table_schema = 'public'");
-        // Only additions: every pre-V9 table is still there.
+        // Only additions: every pre-V9 table is still there — apart from the
+        // one a later migration deliberately drops (V14 removes
+        // `invitations` with the signing-invitation feature).
         for (String table : before.split(",")) {
+            if ("invitations".equals(table)) {
+                continue;
+            }
             assertThat(after).contains(table);
         }
+        assertThat(after).doesNotContain("invitations");
         assertThat(after).contains("spring_session", "spring_session_attributes");
     }
 }

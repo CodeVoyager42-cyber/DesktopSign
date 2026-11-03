@@ -664,7 +664,7 @@ public final class WorkflowContinuationDialog {
                     || te.getErrorCode() == ErrorCode.TOKEN_LOGIN_FAILED);
             showAlert("The smart card could not be unlocked", pinProblem
                     ? "Check the PIN and try again. Careful: cards lock after a few wrong PINs."
-                    : MultiSignerWorkspaceFlow.detectionProblem(t));
+                    : SigningWorkspaceFlow.detectionProblem(t));
         });
         Background.run("wf-auth", task);
     }

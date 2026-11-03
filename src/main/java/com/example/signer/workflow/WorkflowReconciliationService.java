@@ -75,9 +75,9 @@ public class WorkflowReconciliationService {
         boolean duplicateSigner = false;
         boolean outOfOrder = false;
         int highestFulfilledOrder = 0;
-        // FLEXIBLE workflows legitimately produce signatures in any order;
-        // only SEQUENTIAL makes out-of-order evidence inconsistent.
-        boolean orderEnforced = manifest.policy() != WorkflowSigningPolicy.FLEXIBLE;
+        // Signatures are expected in step order: a signature out of order is
+        // evidence that does not match the manifest.
+        boolean orderEnforced = true;
 
         for (int r = 0; r < signatures.size(); r++) {
             var sig = signatures.get(r);
@@ -166,18 +166,12 @@ public class WorkflowReconciliationService {
                     + "allow additional signatures.");
         }
 
-        // ── whose turn ──
-        // SEQUENTIAL: the first unfulfilled step in manifest order.
-        // FLEXIBLE: no server-independent "current" step exists — any pending
-        // signer may take the turn; the local domain resolves the step from
-        // the CONNECTED token's certificate (see WorkflowSigningService).
+        // ── whose turn ── the first unfulfilled step in manifest order.
         Integer current = null;
-        if (manifest.policy() != WorkflowSigningPolicy.FLEXIBLE) {
-            for (int i = 0; i < fulfilled.length; i++) {
-                if (!fulfilled[i]) {
-                    current = manifest.stepsInOrder().get(i).order();
-                    break;
-                }
+        for (int i = 0; i < fulfilled.length; i++) {
+            if (!fulfilled[i]) {
+                current = manifest.stepsInOrder().get(i).order();
+                break;
             }
         }
 

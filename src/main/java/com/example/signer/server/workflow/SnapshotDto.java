@@ -1,8 +1,5 @@
 package com.example.signer.server.workflow;
 
-import com.example.signer.workflow.WorkflowSigningPolicy;
-
-import java.time.Instant;
 import java.util.List;
 
 /**
@@ -12,11 +9,8 @@ import java.util.List;
  */
 public record SnapshotDto(
         String documentName,
-        WorkflowSigningPolicy policy,
         WorkflowState status,
         String blockedReason,
-        String claimedTurnUserId,
-        Instant claimedTurnAt,
         String createdBy,
         List<WorkflowSignerRecord> signers,
         List<DocumentRevisionRecord> revisions,
@@ -24,13 +18,12 @@ public record SnapshotDto(
         Long version) {
 
     /** Snapshot written before versioning existed (version 0 on load). */
-    public SnapshotDto(String documentName, WorkflowSigningPolicy policy,
-                       WorkflowState status, String blockedReason,
-                       String claimedTurnUserId, Instant claimedTurnAt,
-                       String createdBy, List<WorkflowSignerRecord> signers,
+    public SnapshotDto(String documentName, WorkflowState status,
+                       String blockedReason, String createdBy,
+                       List<WorkflowSignerRecord> signers,
                        List<DocumentRevisionRecord> revisions,
                        List<AuditEventRecord> audit) {
-        this(documentName, policy, status, blockedReason, claimedTurnUserId,
-                claimedTurnAt, createdBy, signers, revisions, audit, null);
+        this(documentName, status, blockedReason, createdBy, signers,
+                revisions, audit, null);
     }
 }

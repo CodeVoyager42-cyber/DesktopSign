@@ -38,7 +38,6 @@ public final class ApiErrorType {
         SIGNATURE_FIELD_ALREADY_SIGNED,
         CERTIFICATE_REQUIRED,
         CERTIFICATE_ALREADY_BOUND,
-        TURN_ALREADY_CLAIMED,
         INVALID_SIGNATURE,
         DOCUMENT_MODIFIED,
         CERTIFICATE_MISMATCH,
@@ -46,11 +45,6 @@ public final class ApiErrorType {
         VALIDATION_FAILED,
         UNAUTHORIZED,
         BAD_REQUEST,
-        INVITATION_NOT_FOUND,
-        INVITATION_EXPIRED,
-        INVITATION_ALREADY_USED,
-        INVITATION_REVOKED,
-        EMAIL_MISMATCH,
         EMAIL_DELIVERY_FAILED,
         UPLOAD_TOO_LARGE,
         /** No (valid) access token: the client should refresh or sign in. */
@@ -65,14 +59,6 @@ public final class ApiErrorType {
          * and this server does not run in the {@code dev} profile.
          */
         DEVELOPMENT_IDENTITY_REJECTED,
-        /** The invitation was used and its signer slot is already signed. */
-        INVITATION_COMPLETED,
-        /** A guest session needs the one-time code e-mailed to the invitee. */
-        GUEST_VERIFICATION_REQUIRED,
-        /** The guest verification code is wrong. */
-        GUEST_CODE_INVALID,
-        /** No usable code: expired, used up, or too many wrong entries. */
-        GUEST_CODE_EXPIRED,
         /**
          * Phase B: a launch code that cannot be used — unknown, malformed,
          * expired, already used, revoked or no longer matching its task. One
@@ -165,21 +151,13 @@ public final class ApiErrorType {
                 case NOT_YOUR_TURN, INVALID_WORKFLOW_STATE -> HttpStatus.CONFLICT; // 409
                 case STALE_REVISION, REVISION_CONFLICT -> HttpStatus.CONFLICT;      // 409
                 case DUPLICATE_OPERATION -> HttpStatus.OK;                // idempotent replay
-                case SIGNATURE_FIELD_ALREADY_SIGNED, CERTIFICATE_ALREADY_BOUND,
-                     TURN_ALREADY_CLAIMED -> HttpStatus.CONFLICT;
+                case SIGNATURE_FIELD_ALREADY_SIGNED,
+                     CERTIFICATE_ALREADY_BOUND -> HttpStatus.CONFLICT;
                 case CERTIFICATE_REQUIRED -> HttpStatus.UNPROCESSABLE_ENTITY;
                 case INVALID_SIGNATURE, DOCUMENT_MODIFIED, CERTIFICATE_MISMATCH,
                      VALIDATION_FAILED, DEVELOPMENT_IDENTITY_REJECTED
                         -> HttpStatus.UNPROCESSABLE_ENTITY; // 422
                 case BAD_REQUEST -> HttpStatus.BAD_REQUEST;
-                case INVITATION_NOT_FOUND -> HttpStatus.NOT_FOUND;     // 404
-                case INVITATION_EXPIRED -> HttpStatus.GONE;            // 410
-                case INVITATION_ALREADY_USED, INVITATION_REVOKED,
-                     INVITATION_COMPLETED -> HttpStatus.CONFLICT; // 409
-                case EMAIL_MISMATCH -> HttpStatus.FORBIDDEN;           // 403
-                case GUEST_VERIFICATION_REQUIRED, GUEST_CODE_INVALID
-                        -> HttpStatus.FORBIDDEN;                       // 403
-                case GUEST_CODE_EXPIRED -> HttpStatus.GONE;            // 410
                 case LAUNCH_CODE_INVALID -> HttpStatus.BAD_REQUEST;    // 400
                 case UPGRADE_REQUIRED -> HttpStatus.UPGRADE_REQUIRED;  // 426
                 case EMAIL_NOT_VERIFIED -> HttpStatus.FORBIDDEN;       // 403

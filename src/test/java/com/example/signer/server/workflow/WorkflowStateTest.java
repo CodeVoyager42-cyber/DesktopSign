@@ -1,7 +1,5 @@
 package com.example.signer.server.workflow;
 
-import com.example.signer.workflow.WorkflowSigningPolicy;
-
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -10,7 +8,13 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** State machine + aggregate invariant tests (§38 unit level). */
+/**
+ * State machine + aggregate invariant tests at the unit level.
+ *
+ * <p>A document has exactly one signer, so there is no signing order, no
+ * turn to claim and no next signer: the invariants here are about that one
+ * slot, and about refusing anything that pretends there are more.
+ */
 class WorkflowStateTest {
 
     private static final String FP_A =
@@ -21,6 +25,13 @@ class WorkflowStateTest {
         return WorkflowSignerRecord.bound(order, userId, FP_A);
     }
 
+    private static SigningWorkflowAggregate workflow(String id,
+                                                     WorkflowSignerRecord signer) {
+        return SigningWorkflowAggregate.create(id, "doc.pdf", signer, signer.userId());
+    }
+
+    /* ── the state machine ────────────────────────────────────────────── */
+
     @Test
     void happyPathTransitionsAreLegal() {
         assertThat(WorkflowState.DRAFT.canTransitionTo(WorkflowState.READY_FOR_SIGNING))
@@ -30,8 +41,6 @@ class WorkflowStateTest {
         assertThat(WorkflowState.WAITING_FOR_SIGNER.canTransitionTo(WorkflowState.SIGNATURE_SUBMITTED))
                 .isTrue();
         assertThat(WorkflowState.SIGNATURE_SUBMITTED.canTransitionTo(WorkflowState.VALIDATING))
-                .isTrue();
-        assertThat(WorkflowState.VALIDATING.canTransitionTo(WorkflowState.WAITING_FOR_SIGNER))
                 .isTrue();
         assertThat(WorkflowState.VALIDATING.canTransitionTo(WorkflowState.COMPLETED))
                 .isTrue();
@@ -46,154 +55,120 @@ class WorkflowStateTest {
                 .isFalse();
         assertThat(WorkflowState.READY_FOR_SIGNING.canTransitionTo(WorkflowState.COMPLETED))
                 .isFalse();
+        SigningWorkflowAggregate wf = workflow("WF-T1", bound(1, "alice"));
+        assertThatThrownBy(() -> wf.transition(WorkflowState.COMPLETED))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    /* ── one signer, slot 1 ───────────────────────────────────────────── */
+
+    /**
+     * A stored workflow with more than one slot predates single-signer
+     * signing. It must fail loudly rather than have a signature silently
+     * dropped.
+     */
+    @Test
+    void aggregateRefusesMoreThanOneSigner() {
+        List<WorkflowSignerRecord> two = List.of(bound(1, "alice"), bound(2, "bob"));
+        List<DocumentRevisionRecord> zero = List.of(new DocumentRevisionRecord(
+                0, -1, "0".repeat(64), 0, Instant.now(), "system"));
+        assertThatThrownBy(() -> SigningWorkflowAggregate.rehydrate(
+                "WF-1", "doc.pdf", two, zero, List.of(),
+                WorkflowState.DRAFT, null, "alice"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("exactly one signer");
     }
 
     @Test
-    void aggregateRejectsNonContiguousSignerOrder() {
-        List<WorkflowSignerRecord> bad = List.of(
-                bound(1, "alice"),
-                bound(3, "bob"));
-        assertThatThrownBy(() -> SigningWorkflowAggregate.create(
-                "WF-1", "doc.pdf", WorkflowSigningPolicy.SEQUENTIAL, bad, "alice"))
-                .isInstanceOf(IllegalArgumentException.class);
+    void aggregateRefusesASlotThatIsNotOrderOne() {
+        assertThatThrownBy(() -> workflow("WF-2", bound(2, "alice")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("order 1");
     }
 
     @Test
-    void markSignedAdvancesToNextSigner() {
-        SigningWorkflowAggregate wf = SigningWorkflowAggregate.create(
-                "WF-2", "doc.pdf", WorkflowSigningPolicy.SEQUENTIAL,
-                List.of(bound(1, "alice"), bound(2, "bob")), "alice");
+    void theSignerHoldsTheTurnUntilTheSignatureIsAccepted() {
+        SigningWorkflowAggregate wf = workflow("WF-3", bound(1, "alice"));
         assertThat(wf.currentSigner().userId()).isEqualTo("alice");
-        WorkflowSignerRecord next = wf.markSignedByUser("alice", "op-1");
-        assertThat(next.userId()).isEqualTo("bob");
-        assertThat(wf.signers().get(0).signed()).isTrue();
-        assertThat(wf.signers().get(0).signingOperationId()).isEqualTo("op-1");
+        assertThat(wf.maySubmit("alice")).isTrue();
+        assertThat(wf.maySubmit("bob")).isFalse();
+        assertThat(wf.allSigned()).isFalse();
+
+        wf.markSignedByUser("alice", "op-1");
+
+        assertThat(wf.allSigned()).isTrue();
+        assertThat(wf.currentSigner()).as("nobody signs after the one signer").isNull();
+        assertThat(wf.maySubmit("alice")).isFalse();
+        assertThat(wf.signer().signed()).isTrue();
+        assertThat(wf.signer().signingOperationId()).isEqualTo("op-1");
     }
+
+    @Test
+    void onlyThePendingSlotsOwnerCanSign() {
+        SigningWorkflowAggregate wf = workflow("WF-4", bound(1, "alice"));
+        assertThatThrownBy(() -> wf.markSignedByUser("mallory", "op-x"))
+                .isInstanceOf(IllegalStateException.class);
+        wf.markSignedByUser("alice", "op-1");
+        assertThatThrownBy(() -> wf.markSignedByUser("alice", "op-2"))
+                .as("a slot is signed once").isInstanceOf(IllegalStateException.class);
+    }
+
+    /* ── revisions ────────────────────────────────────────────────────── */
 
     @Test
     void revisionNumbersMustBeContiguous() {
-        SigningWorkflowAggregate wf = SigningWorkflowAggregate.create(
-                "WF-3", "doc.pdf", WorkflowSigningPolicy.SEQUENTIAL,
-                List.of(bound(1, "alice")), "alice");
+        SigningWorkflowAggregate wf = workflow("WF-5", bound(1, "alice"));
         assertThatThrownBy(() -> wf.appendRevision(new DocumentRevisionRecord(
                 5, 4, "0".repeat(64), 1, Instant.now(), "x")))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    /* ── flexible policy: atomic turn claim (§11, §33) ─────────────────── */
+    /* ── certificate binding ──────────────────────────────────────────── */
 
     @Test
-    void flexibleWithoutClaimHasNoCurrentSigner() {
-        SigningWorkflowAggregate wf = SigningWorkflowAggregate.create(
-                "WF-F1", "doc.pdf", WorkflowSigningPolicy.FLEXIBLE,
-                List.of(bound(1, "alice"), bound(2, "bob")), "alice");
-        wf.transition(WorkflowState.READY_FOR_SIGNING);
-        wf.transition(WorkflowState.WAITING_FOR_SIGNER);
-        assertThat(wf.currentSigner()).isNull();
-        assertThat(wf.pendingSigners()).extracting(WorkflowSignerRecord::userId)
-                .containsExactly("alice", "bob");
-        // Still eligible to claim, but not (yet) allowed to submit.
-        assertThat(wf.isEligibleSigner("bob")).isTrue();
-        assertThat(wf.maySubmit("bob")).isFalse();
-    }
-
-    @Test
-    void flexibleClaimGivesExclusiveTurnAndIdempotentReclaim() {
-        SigningWorkflowAggregate wf = SigningWorkflowAggregate.create(
-                "WF-F2", "doc.pdf", WorkflowSigningPolicy.FLEXIBLE,
-                List.of(bound(1, "alice"), bound(2, "bob")), "alice");
-        wf.transition(WorkflowState.READY_FOR_SIGNING);
-        wf.transition(WorkflowState.WAITING_FOR_SIGNER);
-
-        wf.claimTurn("bob");
-        assertThat(wf.currentSigner().userId()).isEqualTo("bob");
-        assertThat(wf.maySubmit("bob")).isTrue();
-        assertThat(wf.maySubmit("alice")).isFalse();
-
-        // Re-claiming your own turn refreshes it instead of failing.
-        assertThat(wf.claimTurn("bob").userId()).isEqualTo("bob");
-
-        // The other signer cannot take the turn while it is held.
-        assertThatThrownBy(() -> wf.claimTurn("alice"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("held by bob");
-    }
-
-    @Test
-    void flexibleMarkSignedReleasesTheTurn() {
-        SigningWorkflowAggregate wf = SigningWorkflowAggregate.create(
-                "WF-F3", "doc.pdf", WorkflowSigningPolicy.FLEXIBLE,
-                List.of(bound(1, "alice"), bound(2, "bob")), "alice");
-        wf.transition(WorkflowState.READY_FOR_SIGNING);
-        wf.transition(WorkflowState.WAITING_FOR_SIGNER);
-
-        wf.claimTurn("alice");
-        WorkflowSignerRecord next = wf.markSignedByUser("alice", "op-a");
-        assertThat(next).isNull(); // flexible: no predefined next signer
-        assertThat(wf.currentSigner()).isNull(); // turn released
-        assertThat(wf.isEligibleSigner("bob")).isTrue();
-
-        wf.claimTurn("bob");
-        wf.markSignedByUser("bob", "op-b");
-        assertThat(wf.allSigned()).isTrue();
-    }
-
-    @Test
-    void sequentialRejectsClaimByNonCurrentSigner() {
-        SigningWorkflowAggregate wf = SigningWorkflowAggregate.create(
-                "WF-S1", "doc.pdf", WorkflowSigningPolicy.SEQUENTIAL,
-                List.of(bound(1, "alice"), bound(2, "bob")), "alice");
-        wf.transition(WorkflowState.READY_FOR_SIGNING);
-        wf.transition(WorkflowState.WAITING_FOR_SIGNER);
-        assertThat(wf.currentSigner().userId()).isEqualTo("alice");
-        assertThatThrownBy(() -> wf.claimTurn("bob"))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("held by alice");
-    }
-
-    /* ── certificate binding (§14/§17) ────────────────────────────────── */
-
-    @Test
-    void unboundSlotsBlockRevision0Preparation() {
-        SigningWorkflowAggregate wf = SigningWorkflowAggregate.create(
-                "WF-B1", "doc.pdf", WorkflowSigningPolicy.SEQUENTIAL,
-                List.of(WorkflowSignerRecord.bound(1, "alice", FP_A),
-                        WorkflowSignerRecord.unbound(2, "bob")),
-                "alice");
+    void anUnboundSlotBlocksRevision0Preparation() {
+        SigningWorkflowAggregate wf = workflow("WF-B1",
+                WorkflowSignerRecord.unbound(1, "alice"));
         assertThat(wf.allBound()).isFalse();
         assertThat(wf.status()).isEqualTo(WorkflowState.DRAFT);
 
-        wf.bindCertificate("bob", "AB".repeat(32));
+        wf.bindCertificate("alice", "AB".repeat(32));
+
         assertThat(wf.allBound()).isTrue();
-        assertThat(wf.signers().get(1).isBound()).isTrue();
-        assertThat(wf.signers().get(1).boundAt()).isNotNull();
+        assertThat(wf.signer().isBound()).isTrue();
+        assertThat(wf.signer().boundAt()).isNotNull();
     }
 
     @Test
-    void bindRejectsUnknownUser() {
-        SigningWorkflowAggregate wf = SigningWorkflowAggregate.create(
-                "WF-B2", "doc.pdf", WorkflowSigningPolicy.SEQUENTIAL,
-                List.of(WorkflowSignerRecord.unbound(1, "alice")), "alice");
+    void bindRejectsUnknownUserAndASecondCertificate() {
+        SigningWorkflowAggregate wf = workflow("WF-B2",
+                WorkflowSignerRecord.unbound(1, "alice"));
         assertThatThrownBy(() -> wf.bindCertificate("mallory", "AB".repeat(32)))
+                .isInstanceOf(IllegalStateException.class);
+        wf.bindCertificate("alice", "AB".repeat(32));
+        assertThatThrownBy(() -> wf.bindCertificate("alice", "CD".repeat(32)))
+                .as("a slot's certificate is set once")
                 .isInstanceOf(IllegalStateException.class);
     }
 
+    /* ── snapshot round trip ──────────────────────────────────────────── */
+
     @Test
-    void persistedClaimSurvivesRehydration() {
-        SigningWorkflowAggregate wf = SigningWorkflowAggregate.create(
-                "WF-F4", "doc.pdf", WorkflowSigningPolicy.FLEXIBLE,
-                List.of(bound(1, "alice"), bound(2, "bob")), "alice");
+    void theSignedSlotSurvivesRehydration() {
+        SigningWorkflowAggregate wf = workflow("WF-S1", bound(1, "alice"));
         wf.transition(WorkflowState.READY_FOR_SIGNING);
         wf.transition(WorkflowState.WAITING_FOR_SIGNER);
-        wf.claimTurn("bob");
+        wf.markSignedByUser("alice", "op-1");
 
         SigningWorkflowAggregate.Snapshot snap = wf.snapshot();
         SigningWorkflowAggregate restored = SigningWorkflowAggregate.rehydrate(
-                snap.workflowId(), snap.documentName(), snap.policy(),
-                snap.signers(), snap.revisions(), snap.audit(),
-                snap.status(), snap.blockedReason(),
-                snap.claimedTurnUserId(), snap.claimedTurnAt(),
-                snap.createdBy());
-        assertThat(restored.currentSigner().userId()).isEqualTo("bob");
+                snap.workflowId(), snap.documentName(), snap.signers(),
+                snap.revisions(), snap.audit(), snap.status(),
+                snap.blockedReason(), snap.createdBy());
+
+        assertThat(restored.allSigned()).isTrue();
+        assertThat(restored.currentSigner()).isNull();
+        assertThat(restored.signer().signingOperationId()).isEqualTo("op-1");
+        assertThat(restored.createdBy()).isEqualTo("alice");
     }
 }

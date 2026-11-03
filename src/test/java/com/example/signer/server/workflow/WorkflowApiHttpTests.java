@@ -119,9 +119,11 @@ class WorkflowApiHttpTests {
             pdf = out.toByteArray();
         }
         String boundary = "test-" + System.nanoTime();
-        String json = "{\"documentName\":\"contract.pdf\",\"signers\":["
-                + "{\"order\":1,\"userId\":\"alice\",\"certificateSha256\":\"" + fp("alice") + "\"},"
-                + "{\"order\":2,\"userId\":\"bob\",\"certificateSha256\":\"" + fp("bob") + "\"}]}";
+        // One document, one signer: the account that uploads it. The
+        // certificate travels with the request here, so the document is
+        // prepared at once instead of waiting for enrollment.
+        String json = "{\"documentName\":\"contract.pdf\",\"certificateSha256\":\""
+                + fp("alice") + "\"}";
         byte[] body = concat(
                 part(boundary, "request", "application/json", json),
                 filePart(boundary, "file", "contract.pdf", pdf),
@@ -148,10 +150,11 @@ class WorkflowApiHttpTests {
         assertThat(document.statusCode()).isEqualTo(200);
         assertThat(document.body()).isNotEmpty();
 
-        // A signer whose turn it is NOT cannot download it.
+        // Anybody else is told the workflow does not exist — the same answer
+        // an unknown id gets, so ids cannot be probed.
         HttpResponse<byte[]> denied = getBytes(
                 "/api/workflows/" + workflowId + "/document", "bob");
-        assertThat(denied.statusCode()).isEqualTo(409);
+        assertThat(denied.statusCode()).isEqualTo(404);
 
         // Unknown workflows are 404 for authenticated users.
         HttpResponse<String> missing = get("/api/workflows/WF-999999/task", "alice");

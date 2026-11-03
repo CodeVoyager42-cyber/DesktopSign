@@ -36,7 +36,6 @@ import com.example.signer.pdf.PdfRenderService;
 import com.example.signer.server.api.ApiContracts.TaskView;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
 import com.example.signer.token.SigningCertificate;
-import com.example.signer.ui.dialog.InviterDialog;
 import com.example.signer.token.TokenService;
 import com.example.signer.workflow.WorkflowSigningService;
 
@@ -160,8 +159,8 @@ public final class RemoteWorkflowDialog {
         }
 
         @Override
-        public boolean guestMode() {
-            return guestMode;
+        public boolean taskSessionMode() {
+            return taskSessionMode;
         }
 
         @Override
@@ -241,61 +240,43 @@ public final class RemoteWorkflowDialog {
         focusWorkflowIdParam = null;
     }
 
-    /**
-     * When true, the dialog opens the "Send for signature" wizard right after
-     * sign-in (the home screen's "Send for signature" action); Back from the
-     * wizard lands on the signing tasks.
-     */
-    private boolean startWithNewWorkflow;
-
-    /** See {@link #startWithNewWorkflow}; returns this dialog for chaining. */
-    public RemoteWorkflowDialog startWithNewWorkflow(boolean value) {
-        this.startWithNewWorkflow = value;
-        return this;
-    }
-
     /* ------------------------------------------------------------------
-     * guest signing (invited signer, no account)
+     * single-task session (opened from a website launch link)
      * ------------------------------------------------------------------ */
 
-    /** True when this dialog runs a guest signing session (no account). */
-    private boolean guestMode;
-    private String guestEmail;
-    private String guestWorkflowId;
+    /** True when this dialog runs a single-task session from a launch link. */
+    private boolean taskSessionMode;
+    private String taskWorkflowId;
+    private String taskDocumentName;
 
     /**
-     * Opens the dialog for an INVITED SIGNER with a guest signing session:
-     * no sign-in screen, no task lists, no owner tools — straight to the
-     * one signing task the invitation is for.
+     * Opens the dialog for a session scoped to ONE signing task: no sign-in
+     * screen, no document list — straight to the document the launch link
+     * was issued for.
      *
      * @param signerId the slot's signer id (as listed in the task)
-     * @param email    the invited address, shown as "Signing as"
      */
-    public void showGuestAndWait(Window owner, WorkflowApiClient guestClient,
-                                 String signerId, String workflowId, String email,
-                                 String documentName) {
-        guestMode = true;
-        guestEmail = email;
-        guestWorkflowId = workflowId;
-        guestDocumentName = documentName;
+    public void showTaskSessionAndWait(Window owner, WorkflowApiClient taskClient,
+                                       String signerId, String workflowId,
+                                       String documentName) {
+        taskSessionMode = true;
+        taskWorkflowId = workflowId;
+        taskDocumentName = documentName;
         try {
-            showAndWait(owner, guestClient, signerId, workflowId);
+            showAndWait(owner, taskClient, signerId, workflowId);
         } finally {
-            guestMode = false;
-            guestEmail = null;
-            guestWorkflowId = null;
+            taskSessionMode = false;
+            taskWorkflowId = null;
         }
     }
 
-    private String guestDocumentName;
-
-    /** Guest: open the task — straight into the workspace when it is their turn. */
-    private void openGuestTask() {
+    /** Opens the task — straight into the workspace when it can be signed. */
+    private void openLaunchedTask() {
         content.getChildren().setAll(RemoteScreens.centered(RemoteScreens.loadingCard("Opening your signing task…")));
         runInBackground(new Task<TaskView>() {
             @Override
             protected TaskView call() {
-                return client.task(guestWorkflowId);
+                return client.task(taskWorkflowId);
             }
 
             @Override
@@ -305,33 +286,29 @@ public final class RemoteWorkflowDialog {
                         .filter(s -> signedInUser.equals(s.userId()))
                         .findFirst().orElse(null);
                 boolean canSign = !"DRAFT".equals(task.status()) && mine != null
-                        && !mine.signed() && (mine.yourTurn() || task.waitingForClaim());
+                        && !mine.signed() && mine.yourTurn();
                 if (canSign) {
                     journey.showReview(task);
                 } else {
-                    showTask(guestWorkflowId);
+                    showTask(taskWorkflowId);
                 }
             }
 
             @Override
             protected void failed() {
-                journey.showFailure(getException(), null, RemoteWorkflowDialog.this::openGuestTask);
+                journey.showFailure(getException(), null, RemoteWorkflowDialog.this::openLaunchedTask);
             }
         });
     }
 
-    /** "Signing as": the invited address for a guest, else the account. */
+    /** "Signing as": the signed-in account. */
     private String signingAsLabel() {
-        return guestMode && guestEmail != null ? guestEmail : signedInUser;
+        return signedInUser;
     }
 
-    /** Opens the wizard once, if the home screen asked for it. */
+    /** Lands on the document list after sign-in. */
     private void afterSignedIn() {
         showTasks();
-        if (startWithNewWorkflow) {
-            startWithNewWorkflow = false;
-            showCreateWorkflow();
-        }
     }
 
     /** Shows the dialog; returns when it is closed. */
@@ -385,11 +362,11 @@ public final class RemoteWorkflowDialog {
             client = preClient;
             signedInUser = preUsername;
             focusWorkflowId = focusWorkflowIdParam;
-            if (guestMode) {
+            if (taskSessionMode) {
                 dialog.setTitle("SignFlow — Sign "
-                        + SigningTaskModels.readableTitle(guestDocumentName));
+                        + SigningTaskModels.readableTitle(taskDocumentName));
                 statusLabel.setText("");
-                openGuestTask();
+                openLaunchedTask();
             } else {
                 afterSignedIn();
             }
@@ -502,10 +479,10 @@ public final class RemoteWorkflowDialog {
     private String focusWorkflowId;
 
     private void showTasks() {
-        if (guestMode) {
-            // A guest session only reaches its own task (the server refuses
-            // the task lists): the "home" of a guest is that task.
-            showTask(guestWorkflowId);
+        if (taskSessionMode) {
+            // A single-task session only reaches its own task (the server
+            // refuses the document list): its "home" is that task.
+            showTask(taskWorkflowId);
             return;
         }
         navigateTo(this::showTasks);
@@ -527,16 +504,6 @@ public final class RemoteWorkflowDialog {
                         @Override
                         public void newWorkflow() {
                             showCreateWorkflow();
-                        }
-
-                        @Override
-                        public void inviteSigner() {
-                            openInviter();
-                        }
-
-                        @Override
-                        public void manageWorkflows() {
-                            showManaged();
                         }
 
                         @Override
@@ -641,138 +608,7 @@ public final class RemoteWorkflowDialog {
     }
 
     /* ------------------------------------------------------------------
-     * 2b. workflows I manage (the owner's tracking view)
-     * ------------------------------------------------------------------ */
-
-    /** The signed-in user's own workflows: open one to track progress. */
-    private void showManaged() {
-        navigateTo(this::showManaged);
-        runInBackground(new Task<List<WorkflowView>>() {
-            private List<WorkflowView> owned;
-
-            @Override
-            protected List<WorkflowView> call() {
-                owned = client.myWorkflows();
-                return owned;
-            }
-
-            @Override
-            protected void succeeded() {
-                statusLabel.setText("Workflows you created — open one to track"
-                        + " its signing progress and invitations.");
-                VBox list = new VBox(10);
-                if (owned.isEmpty()) {
-                    VBox empty = new VBox(8);
-                    empty.getStyleClass().add("empty-state");
-                    empty.setAlignment(Pos.CENTER);
-                    Label icon = new Label();
-                    icon.setGraphic(new FontIcon(FontAwesomeSolid.FOLDER_OPEN));
-                    icon.getStyleClass().add("empty-state-icon");
-                    Label title = new Label("No workflows yet");
-                    title.getStyleClass().add("empty-state-title");
-                    Label hint = new Label("Create a signing workflow and invite"
-                            + " signers by email — everything lands here for"
-                            + " tracking.");
-                    hint.getStyleClass().add("empty-state-hint");
-                    hint.setWrapText(true);
-                    empty.getChildren().addAll(icon, title, hint);
-                    Button create = new Button("New signing workflow…",
-                            new FontIcon(FontAwesomeSolid.PLUS));
-                    create.getStyleClass().add("btn-primary");
-                    create.setOnAction(e -> showCreateWorkflow());
-                    empty.getChildren().add(create);
-                    list.getChildren().add(empty);
-                } else {
-                    for (WorkflowView wf : owned) {
-                        Button row = new Button(
-                                wf.documentName() + "  —  "
-                                        + wf.completedSignatures() + "/"
-                                        + wf.totalSignatures() + " signed  —  "
-                                        + wf.status(),
-                                new FontIcon(FontAwesomeSolid.FILE_SIGNATURE));
-                        row.getStyleClass().add("btn-secondary");
-                        row.setMaxWidth(Double.MAX_VALUE);
-                        row.setOnAction(e -> showTask(wf.workflowId()));
-                        list.getChildren().add(row);
-                    }
-                }
-                content.getChildren().setAll(
-                        sectionTitle("Workflows I manage"), list);
-            }
-
-            @Override
-            protected void failed() {
-                showError(getException());
-            }
-        });
-    }
-
-    /* ------------------------------------------------------------------
-     * invitation invite (server-side) + deep link
-     * ------------------------------------------------------------------ */
-
-    /** Opens the inviter bound to the signed-in session (JWT on every call). */
-    private void openInviter() {
-        InviterDialog inviter = new InviterDialog(client);
-        inviter.showAndWait(dialog);
-        InviterDialog.Result result = inviter.getResult();
-        if (result == null) {
-            // Closed without sending. The inviter reports its own refusals
-            // (and logs them), so adding a second message here would only
-            // guess at a reason the dialog already showed.
-            return;
-        }
-        if (result.workflowId() != null) {
-            statusLabel.setText("Invitation sent for signer slot "
-                    + result.signerOrder() + ".");
-            // The link exists only in the response that sent it, so show it
-            // now — there is no later read that can reproduce it.
-            if (result.inviteUrl() != null) {
-                showInviteLink(result.workflowId(), result.signerOrder(),
-                        result.inviteUrl());
-            }
-        } else if (result.token() != null) {
-            statusLabel.setText("Invite link ready: " + result.inviteUrl()
-                    + " — hand it to the signer to paste into the"
-                    + " Invitation dialog.");
-        } else {
-            statusLabel.setText("No invitation was sent.");
-        }
-    }
-
-    /**
-     * Shows a just-emailed invitation link with a copy action. The server
-     * returns the link once, when it sends it, and keeps only the token
-     * hash — so this dialog is the sender's only look at what went out.
-     */
-    private void showInviteLink(String workflowId, int signerOrder, String url) {
-        Alert alert = new Alert(
-                Alert.AlertType.INFORMATION);
-        alert.initOwner(dialog);
-        alert.setTitle("Invitation sent");
-        alert.setHeaderText("The invitation email for signer slot "
-                + signerOrder + " of " + workflowId + " is on its way.");
-
-        Label urlLabel = new Label(url);
-        urlLabel.setWrapText(true);
-        urlLabel.getStyleClass().add("mono-text");
-        Label note = new Label("This is the exact link that was emailed."
-                + " Keep it private — anyone who opens it can sign.");
-        note.setWrapText(true);
-        Button copy = new Button("Copy link",
-                new FontIcon(FontAwesomeSolid.COPY));
-        copy.setOnAction(e -> {
-            NewWorkflowWizard.copyToClipboard(url);
-            copy.setText("Copied");
-        });
-        alert.getDialogPane().setContent(new VBox(10, urlLabel, note, copy));
-        alert.getDialogPane().getButtonTypes().add(
-                ButtonType.CLOSE);
-        alert.showAndWait();
-    }
-
-    /* ------------------------------------------------------------------
-     * 3. task detail: signer progress + pre-sign review
+     * 3. document detail: state + pre-sign review
      * ------------------------------------------------------------------ */
 
     private void showTask(String workflowId) {
@@ -786,24 +622,20 @@ public final class RemoteWorkflowDialog {
             protected TaskView call() {
                 task = client.task(workflowId);
                 return task;
-            }            @Override
+            }
+
+            @Override
             protected void succeeded() {
-                // Human header: document title + friendly progress; the
-                // workflow id stays in the Details panel only (§4).
+                // Human header: document title + state; the workflow id stays
+                // in the Details panel only (§4).
                 statusLabel.setText("");
-                SignFlowUi.Tone toneOk =
-                        SignFlowUi.Tone.OK;
-                long done = task.signers().stream()
-                        .filter(TaskView.StepView::signed).count();
-                int total = task.signers().size();
-                TaskView.StepView mine = task.signers().stream()
-                        .filter(s -> signedInUser.equals(s.userId()))
-                        .findFirst().orElse(null);
+                TaskView.StepView mine = task.signers().isEmpty() ? null
+                        : task.signers().get(0);
                 boolean draft = "DRAFT".equals(task.status());
                 boolean needsKey = draft && mine != null && !mine.bound() && !mine.signed();
+                boolean signed = mine != null && mine.signed();
                 boolean canSign = !draft && mine != null && !mine.signed()
-                        && (mine.yourTurn() || task.waitingForClaim());
-                boolean completed = total > 0 && done == total;
+                        && mine.yourTurn();
 
                 // ---- header: document + one status chip --------------------
                 FontIcon pdfIcon = new FontIcon(FontAwesomeSolid.FILE_PDF);
@@ -813,20 +645,17 @@ public final class RemoteWorkflowDialog {
                 name.setWrapText(true);
                 String chipText;
                 SignFlowUi.Tone chipTone;
-                if (completed) {
-                    chipText = "Completed";
-                    chipTone = toneOk;
+                if (signed) {
+                    chipText = "Signed";
+                    chipTone = SignFlowUi.Tone.OK;
                 } else if (needsKey) {
                     chipText = "Set up needed";
                     chipTone = SignFlowUi.Tone.WARN;
                 } else if (canSign) {
-                    chipText = "Your turn to sign";
+                    chipText = "Ready to sign";
                     chipTone = SignFlowUi.Tone.INFO;
-                } else if (mine != null && mine.signed()) {
-                    chipText = "Signed by you";
-                    chipTone = toneOk;
                 } else {
-                    chipText = "Waiting for others";
+                    chipText = "Being prepared";
                     chipTone = SignFlowUi.Tone.WARN;
                 }
                 Label chip = SignFlowUi.chip(chipText, chipTone);
@@ -834,44 +663,14 @@ public final class RemoteWorkflowDialog {
                 HBox header = new HBox(14, pdfIcon, titleBox);
                 header.setAlignment(Pos.TOP_LEFT);
 
-                // ---- progress ---------------------------------------------
-                Label progressText = new Label(completed
-                        ? "All " + total + " signatures complete"
-                        : done + " of " + total + " signatures complete");
-                progressText.getStyleClass().add("sf-detail-key");
-                ProgressBar bar = new ProgressBar(total == 0 ? 0 : (double) done / total);
-                bar.setMaxWidth(Double.MAX_VALUE);
-                bar.getStyleClass().add("task-progress-bar");
-
-                // ---- the request, from the Signing Tasks list (real data) ----
-                SigningTaskModels.SigningTask summary = guestMode || tasksView == null
+                // ---- the document, as the list already described it --------
+                SigningTaskModels.SigningTask summary = taskSessionMode || tasksView == null
                         ? null : tasksView.summaryOf(workflowId);
                 VBox requestBox = new VBox(10);
                 if (summary != null) {
-                    Label who = new Label(summary.senderName() == null ? summary.explanation()
-                            : summary.state() == SigningTaskModels.TaskState.ACTION_REQUIRED
-                            ? summary.senderName() + " requested your signature."
-                            : "Requested by " + summary.senderName() + ".");
-                    who.getStyleClass().add("sf-text");
-                    who.setWrapText(true);
-                    requestBox.getChildren().addAll(who,
-                            SignFlowUi.details(
-                                    "Status", summary.explanation(),
-                                    "Your role", summary.yourRole(),
-                                    "Signing order", summary.anyOrder()
-                                            ? "Any order (one signer at a time)"
-                                            : summary.participants().isEmpty() ? null
-                                            : "Fixed order, as listed below",
-                                    "Created", summary.dateKind().equals("Sent")
-                                            ? summary.dateText() : null,
-                                    "Expires", summary.expiresText() == null ? null
-                                            : summary.expiresText().replaceFirst("^Expire[sd] ", "")));
-                }
-
-                // ---- signers timeline --------------------------------------
-                VBox signers = new VBox(8);
-                for (TaskView.StepView step : task.signers()) {
-                    signers.getChildren().add(signerRow(step, task));
+                    requestBox.getChildren().add(SignFlowUi.details(
+                            "Status", summary.explanation(),
+                            summary.dateKind(), summary.dateText()));
                 }
 
                 // ---- what happens next + the one action --------------------
@@ -881,73 +680,34 @@ public final class RemoteWorkflowDialog {
                             "Register my signing key", FontAwesomeSolid.ID_BADGE);
                     bind.setMaxWidth(Region.USE_PREF_SIZE);
                     bind.setOnAction(e -> captureAndBind(workflowId));
-                    card = SignFlowUi.card(header, progressText, bar,
-                            RemoteScreens.sectionLabel("Signing order"), signers,
+                    card = SignFlowUi.card(header,
                             SignFlowUi.note(FontAwesomeSolid.ID_CARD,
                                     SignFlowUi.Tone.WARN,
                                     "One-time setup: plug in your smart card and register"
                                             + " your signing key. The document is prepared"
-                                            + " once every signer has done this."),
+                                            + " as soon as you have."),
                             bind);
                 } else {
-                    String nextText = draft
-                            ? "Nothing to do for now: waiting for the other signers to"
-                                    + " register their signing keys. You'll be able to sign"
-                                    + " afterwards."
-                            : canSign
+                    String nextText = canSign
                             ? "Open the document, place your signature where you want it,"
                                     + " then sign with your smart card. The document is"
                                     + " checked on this computer before you sign."
-                            : mine == null
-                            ? completed ? "Everyone has signed. The signed document is"
-                                            + " available from the SignFlow server."
-                                    : "You sent this document. You can follow the"
-                                            + " signatures here."
-                            : mine.signed()
-                            ? completed ? "Everyone has signed. Nothing else to do."
-                                    : "Your signature is recorded. The others will be"
-                                            + " asked in turn — nothing else to do."
-                            : "Nothing to do for now: it isn't your turn yet. You'll see"
-                                    + " this document under \"Needs your action\" when it is.";
+                            : signed
+                            ? "This document is signed. You can open it from here."
+                            : "The document is being prepared. Refresh in a moment.";
                     HBox nextNote = SignFlowUi.note(
                             canSign ? FontAwesomeSolid.PEN_NIB
-                                    : completed || (mine != null && mine.signed())
-                                    ? FontAwesomeSolid.CHECK_CIRCLE : FontAwesomeSolid.HOURGLASS_HALF,
+                                    : signed ? FontAwesomeSolid.CHECK_CIRCLE
+                                    : FontAwesomeSolid.HOURGLASS_HALF,
                             canSign ? SignFlowUi.Tone.INFO
-                                    : completed || (mine != null && mine.signed()) ? toneOk
-                                    : SignFlowUi.Tone.WARN,
+                                    : signed ? SignFlowUi.Tone.OK : SignFlowUi.Tone.WARN,
                             nextText);
-                    card = SignFlowUi.card(header, progressText, bar,
-                            RemoteScreens.sectionLabel("Signing order"), signers, nextNote);
+                    card = SignFlowUi.card(header, nextNote);
                     if (canSign) {
                         Button signButton = SignFlowUi.primary(
                                 "Review & Sign", FontAwesomeSolid.ARROW_RIGHT);
                         signButton.setMaxWidth(Region.USE_PREF_SIZE);
-                        signButton.setOnAction(e -> {
-                            if (!task.waitingForClaim()) {
-                                journey.showReview(task);
-                                return;
-                            }
-                            // Flexible order: reserve the turn for this signer
-                            // first (one signer at a time), then continue
-                            // straight to signing — one click for the user.
-                            runInBackground(new Task<TaskView>() {
-                                @Override
-                                protected TaskView call() {
-                                    return client.claimTurn(workflowId);
-                                }
-
-                                @Override
-                                protected void succeeded() {
-                                    journey.showReview(getValue());
-                                }
-
-                                @Override
-                                protected void failed() {
-                                    showError(getException());
-                                }
-                            });
-                        });
+                        signButton.setOnAction(e -> journey.showReview(task));
                         card.getChildren().add(signButton);
                     }
                 }
@@ -957,20 +717,18 @@ public final class RemoteWorkflowDialog {
                 HBox footer = new HBox(refresh);
                 footer.setAlignment(Pos.CENTER_RIGHT);
                 card.getChildren().add(footer);
-
                 if (!requestBox.getChildren().isEmpty()) {
                     card.getChildren().add(1, requestBox);
                 }
                 taskColumn = new VBox(12, card);
-                if (!guestMode) {
-                    Hyperlink backToTasks = new Hyperlink("← Back to Signing Tasks");
+                if (!taskSessionMode) {
+                    Hyperlink backToTasks = new Hyperlink("← Back to my documents");
                     backToTasks.setOnAction(e -> showTasks());
                     taskColumn.getChildren().add(0, backToTasks);
                 }
                 taskColumn.setMaxWidth(720);
                 card.setMaxWidth(720);
                 content.getChildren().setAll(RemoteScreens.centered(taskColumn));
-                loadInvitations(workflowId);
             }
 
             @Override
@@ -980,133 +738,19 @@ public final class RemoteWorkflowDialog {
         });
     }
 
-    /** One signer row: number/check, name (you), and a plain state chip. */
-    private HBox signerRow(TaskView.StepView step, TaskView task) {
-        // "Signed" is reserved for the server's own signature verdict on THIS
-        // slot. An invited recipient who has not registered is shown as
-        // invited, never as signed.
-        String text;
-        SignFlowUi.Tone tone;
-        if (step.signed()) {
-            text = "Signed";
-            tone = SignFlowUi.Tone.OK;
-        } else if ("INVITED".equals(step.signerState())) {
-            text = "Invited — not signed yet";
-            tone = SignFlowUi.Tone.WARN;
-        } else if (step.yourTurn()) {
-            text = signedInUser.equals(step.userId()) ? "Your turn" : "Signing now";
-            tone = SignFlowUi.Tone.INFO;
-        } else if (!step.bound()) {
-            text = "Signing key not registered";
-            tone = SignFlowUi.Tone.WARN;
-        } else {
-            text = "Waiting";
-            tone = SignFlowUi.Tone.INFO;
-        }
-        Label number = new Label(step.signed() ? "" : String.valueOf(step.order()));
-        if (step.signed()) {
-            number.setGraphic(new FontIcon(FontAwesomeSolid.CHECK));
-        }
-        number.getStyleClass().addAll("sf-step-number", "task-signer-number",
-                step.signed() ? "task-signer-number--done" : "task-signer-number--todo");
-        boolean me = signedInUser.equals(step.userId());
-        Label name = new Label(me ? step.userId() + " (you)" : step.userId());
-        name.getStyleClass().add("sf-detail-value");
-        if (me) {
-            name.setStyle("-fx-font-weight: 700;");
-        }
-        Region gap = new Region();
-        HBox.setHgrow(gap, Priority.ALWAYS);
-        HBox row = new HBox(12, number, name, gap,
-                SignFlowUi.chip(text, tone));
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.getStyleClass().add("task-signer-row");
-        return row;
-    }
-
     /* ------------------------------------------------------------------
-     * 3b. create workflow (file picker + signer rows + token capture)
+     * 3b. upload a document to sign
      * ------------------------------------------------------------------ */
 
     /**
-     * The New-Workflow screen: pick the document, add one signer row per
-     * participant (user id + certificate fingerprint), optionally capture
-     * the fingerprint of the currently connected token, and submit.
-     */
-    /* ------------------------------------------------------------------
-     * 3d. invitation tracking (owner only)
-     * ------------------------------------------------------------------ */
-
-    /**
-     * Appends the per-slot invitation status card for the workflow's creator:
-     * sent/accepted timestamps, status badges and a Resend action. Signers
-     * who do not own the workflow simply never see the card (the server
-     * answers 4xx and the section is skipped silently).
-     */
-    private void loadInvitations(String workflowId) {
-        if (guestMode) {
-            return; // owner-only information
-        }
-        runInBackground(new Task<List<ApiContracts.InvitationStatusView>>() {
-            private ApiContracts.InvitationLinkInfo linkInfo;
-
-            @Override
-            protected List<ApiContracts.InvitationStatusView> call() {
-                List<ApiContracts.InvitationStatusView> invitations =
-                        client.workflowInvitations(workflowId);
-                try {
-                    linkInfo = client.invitationLinkInfo();
-                } catch (RuntimeException ignored) {
-                    linkInfo = null; // a server without the endpoint still shows the card
-                }
-                return invitations;
-            }
-
-            @Override
-            protected void succeeded() {
-                List<ApiContracts.InvitationStatusView> invitations = getValue();
-                if (invitations == null || invitations.isEmpty()
-                        || taskColumn == null || taskColumn.getScene() == null) {
-                    return;
-                }
-                taskColumn.getChildren().add(InvitationsCard.build(
-                        invitations, linkInfo, RemoteWorkflowDialog.this::resendInvitation));
-            }
-        });
-    }
-
-    /** Resend: invalidates the emailed link and emails a fresh one. */
-    private void resendInvitation(ApiContracts.InvitationStatusView invitation,
-                                  Consumer<ApiContracts.InvitationLinkView> onSent) {
-        runInBackground(new Task<ApiContracts.InvitationLinkView>() {
-            @Override
-            protected ApiContracts.InvitationLinkView call() {
-                return client.resendInvitation(invitation.invitationId());
-            }
-
-            @Override
-            protected void succeeded() {
-                statusLabel.setText("Fresh invitation emailed to " + invitation.email() + ".");
-                onSent.accept(getValue());
-            }
-
-            @Override
-            protected void failed() {
-                showError(getException());
-            }
-        });
-    }
-
-    /**
-     * New-workflow entry point: the guided wizard now owns the whole flow
-     * (document → signers & order → review & send → success), rendering into
-     * this dialog's content area so Back navigation keeps working.
+     * The upload screen: pick a PDF and send it to the server, which
+     * prepares it for this account to sign. Renders into this dialog's
+     * content area so Back navigation keeps working.
      */
     private void showCreateWorkflow() {
         navigateTo(this::showCreateWorkflow);
-        new NewWorkflowWizard(client, tokenService, dialog, content,
-                statusLabel::setText, signedInUser,
-                this::showTasks, this::openInviter, maxUploadBytes).start();
+        new NewDocumentScreen(client, dialog, content, statusLabel::setText,
+                this::showTasks, maxUploadBytes).start();
     }
 
     /* ------------------------------------------------------------------

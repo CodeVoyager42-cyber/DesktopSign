@@ -3,8 +3,8 @@ package com.example.signer.client;
 import com.example.signer.server.api.ApiContracts.ParticipantStateView;
 import com.example.signer.server.api.ApiContracts.TaskItemView;
 
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
@@ -12,9 +12,12 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Tests the pure presentation-model mapping of the Signing Tasks workspace
- * (brief §5/§28): backend states → human labels, readable titles, search /
- * filter / sort behaviour, and the needs-action grouping.
+ * The pure presentation-model mapping of the documents workspace: backend
+ * states → human labels, readable titles, search / filter / sort behaviour
+ * and the needs-action grouping.
+ *
+ * <p>One document has exactly one signer — its owner — so every state here
+ * is the signed-in user's own state. Nothing waits for anybody else.
  */
 class SigningTaskModelsTest {
 
@@ -22,83 +25,111 @@ class SigningTaskModelsTest {
      * helpers
      * ------------------------------------------------------------------ */
 
-    private static TaskItemView item(String id, String docName, String sender,
-                                     String state, String createdAt) {
-        boolean waitingForMe = "YOUR_TURN".equals(state);
-        boolean waitingForClaim = "WAITING_FOR_CLAIM".equals(state);
+    private static final String NOW_ISO = Instant.now().toString();
+
+    /** A backend item in {@code state}; SIGNED also carries a signature date. */
+    private static TaskItemView item(String id, String docName, String state,
+                                     String createdAt) {
         boolean signed = "SIGNED".equals(state);
-        return new TaskItemView(id, docName, sender, sender,
-                "WAITING_FOR_SIGNER", createdAt,
-                signed ? createdAt : null,
-                new ParticipantStateView(state, 1, signed,
-                        waitingForMe, waitingForClaim),
-                2, signed ? 2 : 1);
+        boolean waitingForMe = "YOUR_TURN".equals(state);
+        return new TaskItemView(id, docName, "alice", "Alice Smith",
+                "WAITING_FOR_SIGNER", createdAt, signed ? createdAt : null,
+                new ParticipantStateView(state, 1, signed, waitingForMe),
+                createdAt);
     }
 
-    private static final String NOW_ISO =
-            Instant.now().toString();
+    private static SigningTaskModels.SigningTask mapped(String state) {
+        return SigningTaskModels.from(item("WF-1", "contract.pdf", state, NOW_ISO));
+    }
 
     @Nested
     class StatusMapping {
 
         @Test
         void yourTurnMapsToActionRequired() {
-            SigningTaskModels.SigningTask t = SigningTaskModels.from(
-                    item("WF-1", "contract.pdf", "alice", "YOUR_TURN", NOW_ISO));
-            assertThat(t.statusLabel()).isEqualTo("Action required");
+            SigningTaskModels.SigningTask t = mapped("YOUR_TURN");
+            assertThat(t.state()).isEqualTo(SigningTaskModels.TaskState.ACTION_REQUIRED);
+            assertThat(t.statusLabel()).isEqualTo("Ready to sign");
             assertThat(t.statusStyle()).isEqualTo("action");
             assertThat(t.needsAction()).isTrue();
             assertThat(t.canSign()).isTrue();
+            assertThat(t.explanation()).isEqualTo("This document is ready for your signature.");
+            assertThat(t.primaryAction()).isEqualTo("Review & Sign");
         }
 
         @Test
-        void waitingForClaimIsActionable() {
-            SigningTaskModels.SigningTask t = SigningTaskModels.from(
-                    item("WF-2", "contract.pdf", "alice", "WAITING_FOR_CLAIM",
-                            NOW_ISO));
-            assertThat(t.statusLabel()).isEqualTo("Ready for you to sign");
-            assertThat(t.needsAction()).isTrue();
-            assertThat(t.waitingForClaim()).isTrue();
-        }
-
-        @Test
-        void certificatePendingIsActionable() {
-            SigningTaskModels.SigningTask t = SigningTaskModels.from(
-                    item("WF-3", "contract.pdf", "alice",
-                            "CERTIFICATE_PENDING", NOW_ISO));
+        void certificatePendingIsActionableAndSaysSoInsteadOfReadyToSign() {
+            SigningTaskModels.SigningTask t = mapped("CERTIFICATE_PENDING");
+            assertThat(t.state()).isEqualTo(SigningTaskModels.TaskState.ACTION_REQUIRED);
             assertThat(t.statusLabel()).isEqualTo("Set up to sign");
             assertThat(t.needsAction()).isTrue();
+            assertThat(t.certificatePending()).isTrue();
+            assertThat(t.explanation())
+                    .isEqualTo("Register your signing key, then sign this document.");
+            assertThat(t.primaryAction()).isEqualTo("Set up to sign");
         }
 
         @Test
-        void waitingForOthersIsNotActionable() {
-            SigningTaskModels.SigningTask t = SigningTaskModels.from(
-                    item("WF-4", "contract.pdf", "alice",
-                            "WAITING_FOR_OTHERS", NOW_ISO));
-            assertThat(t.statusLabel()).isEqualTo("Waiting for others");
+        void signedShowsTheSignatureDate() {
+            SigningTaskModels.SigningTask t = mapped("SIGNED");
+            assertThat(t.state()).isEqualTo(SigningTaskModels.TaskState.COMPLETED);
+            assertThat(t.statusLabel()).isEqualTo("Signed");
+            assertThat(t.statusStyle()).isEqualTo("done");
+            assertThat(t.dateKind()).isEqualTo("Signed");
             assertThat(t.needsAction()).isFalse();
+            assertThat(t.primaryAction()).isEqualTo("Open Document");
+        }
+
+        /**
+         * {@code SIGNED} without the server's {@code signed} flag is never
+         * shown as a signature — the flag is the only authority.
+         */
+        @Test
+        void signedWithoutTheServerFlagIsNotCalledSigned() {
+            TaskItemView unproven = new TaskItemView("WF-U", "contract.pdf", "alice",
+                    "Alice Smith", "WAITING_FOR_SIGNER", NOW_ISO, null,
+                    new ParticipantStateView("SIGNED", 1, false, false), NOW_ISO);
+            SigningTaskModels.SigningTask t = SigningTaskModels.from(unproven);
+            assertThat(t.state()).isEqualTo(SigningTaskModels.TaskState.IN_PROGRESS);
+            assertThat(t.statusLabel()).isEqualTo("In progress");
+            assertThat(t.dateKind()).isEqualTo("Uploaded");
         }
 
         @Test
-        void completedShowsCompletionDate() {
-            TaskItemView item = item("WF-5", "nda.pdf", "alice", "SIGNED",
-                    NOW_ISO);
-            SigningTaskModels.SigningTask t = SigningTaskModels.from(item);
-            assertThat(t.statusLabel()).isEqualTo("Completed");
-            assertThat(t.dateKind()).isEqualTo("Completed");
+        void inProgressIsNotActionable() {
+            SigningTaskModels.SigningTask t = mapped("IN_PROGRESS");
+            assertThat(t.state()).isEqualTo(SigningTaskModels.TaskState.IN_PROGRESS);
+            assertThat(t.statusLabel()).isEqualTo("In progress");
+            assertThat(t.statusStyle()).isEqualTo("waiting");
+            assertThat(t.needsAction()).isFalse();
+            assertThat(t.canSign()).isFalse();
         }
 
         @Test
-        void declinedExpiredRevokedBlockedLabels() {
-            assertThat(SigningTaskModels.from(item("A", "d.pdf", "s",
-                    "DECLINED", NOW_ISO)).statusLabel()).isEqualTo("Declined");
-            assertThat(SigningTaskModels.from(item("B", "d.pdf", "s",
-                    "EXPIRED", NOW_ISO)).statusLabel()).isEqualTo("Expired");
-            assertThat(SigningTaskModels.from(item("C", "d.pdf", "s",
-                    "REVOKED", NOW_ISO)).statusLabel()).isEqualTo("Withdrawn");
-            assertThat(SigningTaskModels.from(item("D", "d.pdf", "s",
-                    "BLOCKED", NOW_ISO)).statusLabel())
-                    .isEqualTo("Needs attention");
+        void cancelledAndBlockedHaveTheirOwnLabels() {
+            assertThat(mapped("CANCELLED").statusLabel()).isEqualTo("Cancelled");
+            assertThat(mapped("CANCELLED").statusStyle()).isEqualTo("muted");
+            assertThat(mapped("BLOCKED").statusLabel()).isEqualTo("Needs attention");
+            assertThat(mapped("BLOCKED").statusStyle()).isEqualTo("bad");
+            assertThat(mapped("BLOCKED").explanation())
+                    .isEqualTo("Signing stopped because of a problem.");
+        }
+
+        @Test
+        void aStateThisBuildDoesNotKnowIsShownAsInProgress() {
+            SigningTaskModels.SigningTask t = mapped("SOMETHING_NEW");
+            assertThat(t.state()).isEqualTo(SigningTaskModels.TaskState.IN_PROGRESS);
+            assertThat(t.myStateRaw()).isEqualTo("SOMETHING_NEW");
+        }
+
+        @Test
+        void aMissingStateNeverThrows() {
+            TaskItemView none = new TaskItemView("WF-N", "contract.pdf", "alice",
+                    "Alice Smith", "DRAFT", NOW_ISO, null, null, null);
+            SigningTaskModels.SigningTask t = SigningTaskModels.from(none);
+            assertThat(t.state()).isEqualTo(SigningTaskModels.TaskState.IN_PROGRESS);
+            assertThat(t.myStateRaw()).isNull();
+            assertThat(t.needsAction()).isFalse();
         }
     }
 
@@ -134,18 +165,17 @@ class SigningTaskModelsTest {
             assertThat(SigningTaskModels.relativeDate(Instant.now()))
                     .isEqualTo("today");
             assertThat(SigningTaskModels.relativeDate(
-                    Instant.now().minusSeconds(86400)))
-                    .isEqualTo("yesterday");
+                    Instant.now().minusSeconds(86_400))).isEqualTo("yesterday");
         }
 
         @Test
-        void senderFallsBackToId() {
-            TaskItemView noName = new TaskItemView("WF-9", "contract.pdf",
-                    "alice", null, "WAITING_FOR_SIGNER", NOW_ISO, null,
-                    new ParticipantStateView("YOUR_TURN", 1, false, true, false),
-                    2, 1);
-            SigningTaskModels.SigningTask t = SigningTaskModels.from(noName);
-            assertThat(t.senderName()).isEqualTo("alice");
+        void anUnreadableTimestampNeverReachesACard() {
+            TaskItemView broken = new TaskItemView("WF-B", "contract.pdf", "alice",
+                    "Alice Smith", "WAITING_FOR_SIGNER", "not a date", null,
+                    new ParticipantStateView("YOUR_TURN", 1, false, true), null);
+            SigningTaskModels.SigningTask t = SigningTaskModels.from(broken);
+            assertThat(t.dateText()).isNull();
+            assertThat(t.dateEpochSecond()).isNull();
         }
     }
 
@@ -153,56 +183,53 @@ class SigningTaskModelsTest {
     class SearchFilterSort {
 
         private final List<TaskItemView> items = List.of(
-                item("WF-1", "contract.pdf", "alice", "YOUR_TURN",
-                        Instant.now().toString()),
-                item("WF-2", "nda.pdf", "bob", "SIGNED",
+                item("WF-1", "contract.pdf", "YOUR_TURN", Instant.now().toString()),
+                item("WF-2", "nda.pdf", "SIGNED",
                         Instant.now().minusSeconds(7200).toString()),
-                item("WF-3", "employment_agreement.pdf", "carol",
-                        "WAITING_FOR_OTHERS",
+                item("WF-3", "employment_agreement.pdf", "IN_PROGRESS",
                         Instant.now().minusSeconds(3600).toString()));
 
         @Test
-        void searchMatchesTitleAndSender() {
-            List<SigningTaskModels.SigningTask> mapped =
-                    SigningTaskModels.fromAll(items);
-            assertThat(SigningTaskModels.search(mapped, "contract"))
-                    .hasSize(1);
-            assertThat(SigningTaskModels.search(mapped, "BOB"))
-                    .hasSize(1);
-            assertThat(SigningTaskModels.search(mapped, "agreement"))
-                    .hasSize(1);
+        void searchMatchesTitleAndWorkflowId() {
+            List<SigningTaskModels.SigningTask> mapped = SigningTaskModels.fromAll(items);
+            assertThat(SigningTaskModels.search(mapped, "contract")).hasSize(1);
+            assertThat(SigningTaskModels.search(mapped, "WF-3")).hasSize(1);
+            assertThat(SigningTaskModels.search(mapped, "agreement")).hasSize(1);
             assertThat(SigningTaskModels.search(mapped, "zzz")).isEmpty();
+            assertThat(SigningTaskModels.search(mapped, "  ")).hasSize(3);
         }
 
         @Test
         void defaultSortPutsNeedsActionFirstThenNewest() {
-            List<SigningTaskModels.SigningTask> mapped =
-                    SigningTaskModels.fromAll(items);
+            List<SigningTaskModels.SigningTask> mapped = SigningTaskModels.fromAll(items);
             assertThat(mapped.get(0).myStateRaw()).isEqualTo("YOUR_TURN");
-            // among the rest, the newest first (wf-3 at -1h before wf-2 at -2h)
+            // among the rest, the newest first (WF-3 at -1h before WF-2 at -2h)
             assertThat(mapped.get(1).workflowId()).isEqualTo("WF-3");
             assertThat(mapped.get(2).workflowId()).isEqualTo("WF-2");
         }
 
         @Test
-        void filterCompletedReturnsOnlyDone() {
-            List<SigningTaskModels.SigningTask> mapped =
-                    SigningTaskModels.fromAll(items);
-            List<SigningTaskModels.SigningTask> done = SigningTaskModels.filter(
-                    mapped, SigningTaskModels.TaskFilter.COMPLETED);
-            assertThat(done).hasSize(1);
-            assertThat(done.get(0).statusLabel()).isEqualTo("Completed");
+        void filtersDoNotOverlap() {
+            List<SigningTaskModels.SigningTask> mapped = SigningTaskModels.fromAll(items);
+            assertThat(SigningTaskModels.count(mapped,
+                    SigningTaskModels.TaskFilter.NEEDS_ACTION)).isEqualTo(1);
+            assertThat(SigningTaskModels.count(mapped,
+                    SigningTaskModels.TaskFilter.IN_PROGRESS)).isEqualTo(1);
+            assertThat(SigningTaskModels.count(mapped,
+                    SigningTaskModels.TaskFilter.COMPLETED)).isEqualTo(1);
+            assertThat(SigningTaskModels.count(mapped,
+                    SigningTaskModels.TaskFilter.CANCELLED)).isZero();
+            assertThat(SigningTaskModels.count(mapped,
+                    SigningTaskModels.TaskFilter.ALL)).isEqualTo(3);
         }
 
         @Test
-        void filterNeedsActionReturnsActionable() {
-            List<SigningTaskModels.SigningTask> mapped =
-                    SigningTaskModels.fromAll(items);
-            List<SigningTaskModels.SigningTask> action =
-                    SigningTaskModels.filter(mapped,
-                            SigningTaskModels.TaskFilter.NEEDS_ACTION);
-            assertThat(action).hasSize(1);
-            assertThat(action.get(0).needsAction()).isTrue();
+        void filterCompletedReturnsOnlyDone() {
+            List<SigningTaskModels.SigningTask> done = SigningTaskModels.filter(
+                    SigningTaskModels.fromAll(items),
+                    SigningTaskModels.TaskFilter.COMPLETED);
+            assertThat(done).hasSize(1);
+            assertThat(done.get(0).statusLabel()).isEqualTo("Signed");
         }
 
         @Test
@@ -213,157 +240,33 @@ class SigningTaskModelsTest {
 
         @Test
         void oldestSortReversesDates() {
-            List<SigningTaskModels.SigningTask> mapped =
-                    SigningTaskModels.fromAll(items);
             List<SigningTaskModels.SigningTask> sorted = SigningTaskModels.sort(
-                    mapped, SigningTaskModels.TaskSort.OLDEST);
-            assertThat(sorted.get(sorted.size() - 1).workflowId())
-                    .isEqualTo("WF-1");
+                    SigningTaskModels.fromAll(items),
+                    SigningTaskModels.TaskSort.OLDEST);
+            assertThat(sorted.get(sorted.size() - 1).workflowId()).isEqualTo("WF-1");
         }
     }
 
     @Nested
-    class FilterCountsAndNext {
+    class NextToSign {
 
         private final List<SigningTaskModels.SigningTask> tasks = List.of(
-                SigningTaskModels.from(item("WF-A", "a.pdf", "alice", "YOUR_TURN",
+                SigningTaskModels.from(item("WF-A", "a.pdf", "YOUR_TURN",
                         Instant.now().minusSeconds(86_400L * 3).toString())),
-                SigningTaskModels.from(item("WF-B", "b.pdf", "alice", "WAITING_FOR_CLAIM",
+                SigningTaskModels.from(item("WF-B", "b.pdf", "YOUR_TURN",
                         NOW_ISO)),
-                SigningTaskModels.from(item("WF-C", "c.pdf", "alice", "WAITING_FOR_OTHERS",
-                        NOW_ISO)),
-                SigningTaskModels.from(item("WF-D", "d.pdf", "alice", "SIGNED", NOW_ISO)));
-
-        @Test
-        void filtersDoNotOverlap() {
-            assertThat(SigningTaskModels.count(tasks, SigningTaskModels.TaskFilter.NEEDS_ACTION))
-                    .isEqualTo(2);
-            assertThat(SigningTaskModels.filter(tasks, SigningTaskModels.TaskFilter.WAITING))
-                    .extracting(SigningTaskModels.SigningTask::workflowId)
-                    .containsExactly("WF-C");
-            assertThat(SigningTaskModels.count(tasks, SigningTaskModels.TaskFilter.COMPLETED))
-                    .isEqualTo(1);
-            assertThat(SigningTaskModels.count(tasks, SigningTaskModels.TaskFilter.ALL))
-                    .isEqualTo(4);
-        }
+                SigningTaskModels.from(item("WF-C", "c.pdf", "IN_PROGRESS", NOW_ISO)),
+                SigningTaskModels.from(item("WF-D", "d.pdf", "SIGNED", NOW_ISO)));
 
         @Test
         void signNextOpensTheOldestDocumentWaitingForTheUser() {
             assertThat(SigningTaskModels.nextToSign(tasks).workflowId()).isEqualTo("WF-A");
-            assertThat(SigningTaskModels.nextToSign(List.of(tasks.get(2), tasks.get(3)))).isNull();
-        }
-    }
-
-    @Nested
-    class RedesignedStates {
-
-        private TaskItemView full(String state, String wfStatus, String policy,
-                                  List<com.example.signer.server.api.ApiContracts.TaskParticipantView> people,
-                                  String expiresAt, int total, int done) {
-            boolean me = "YOUR_TURN".equals(state);
-            boolean claim = "WAITING_FOR_CLAIM".equals(state);
-            boolean signed = "SIGNED".equals(state);
-            return new TaskItemView("WF-R", "Employment_Contract.pdf", "alice", "Alice Smith",
-                    wfStatus, NOW_ISO, signed ? NOW_ISO : null,
-                    new ParticipantStateView(state, 2, signed, me, claim),
-                    total, done, policy, people, expiresAt, NOW_ISO);
-        }
-
-        private com.example.signer.server.api.ApiContracts.TaskParticipantView p(
-                int order, String name, boolean you, String st) {
-            return new com.example.signer.server.api.ApiContracts.TaskParticipantView(order, name, you, st);
         }
 
         @Test
-        void actionRequiredShowsRoleExpiryAndTheReviewButton() {
-            String in30h = Instant.now().plusSeconds(30 * 3600).toString();
-            var t = SigningTaskModels.from(full("YOUR_TURN", "WAITING_FOR_SIGNER", "SEQUENTIAL",
-                    List.of(p(1, "Alice Smith", false, "SIGNED"), p(2, "Mouad", true, "CURRENT"),
-                            p(3, "Charlie", false, "WAITING")), in30h, 3, 1));
-            assertThat(t.state()).isEqualTo(SigningTaskModels.TaskState.ACTION_REQUIRED);
-            assertThat(t.explanation()).isEqualTo("Your signature is required.");
-            assertThat(t.primaryAction()).isEqualTo("Review & Sign");
-            assertThat(t.yourRole()).isEqualTo("You are signer #2 of 3");
-            assertThat(t.expiresText()).startsWith("Expires ");
-            assertThat(t.expiresSoon()).isTrue();
-            assertThat(t.anyOrder()).isFalse();
-            assertThat(t.participants()).extracting(SigningTaskModels.Participant::name)
-                    .containsExactly("Alice Smith", "Mouad", "Charlie");
-        }
-
-        @Test
-        void waitingNamesWhoIsBlocking() {
-            var blocked = SigningTaskModels.from(full("WAITING_FOR_OTHERS", "WAITING_FOR_SIGNER",
-                    "SEQUENTIAL", List.of(p(1, "Alice Smith", false, "CURRENT"),
-                            p(2, "Mouad", true, "WAITING")), null, 2, 0));
-            assertThat(blocked.state()).isEqualTo(SigningTaskModels.TaskState.WAITING);
-            assertThat(blocked.explanation()).isEqualTo("Waiting for Alice Smith to sign first.");
-            assertThat(blocked.primaryAction()).isEqualTo("View Workflow");
-
-            var signedByMe = SigningTaskModels.from(full("SIGNED", "WAITING_FOR_SIGNER",
-                    "SEQUENTIAL", List.of(p(1, "Mouad", true, "SIGNED"),
-                            p(2, "Charlie", false, "CURRENT")), null, 2, 1));
-            assertThat(signedByMe.state()).isEqualTo(SigningTaskModels.TaskState.WAITING);
-            assertThat(signedByMe.explanation())
-                    .isEqualTo("You signed this document. Waiting for Charlie.");
-        }
-
-        @Test
-        void completedExpiredDeclinedAndCancelledHaveTheirOwnStateAndAction() {
-            var done = SigningTaskModels.from(full("SIGNED", "COMPLETED", "SEQUENTIAL",
-                    List.of(p(1, "Mouad", true, "SIGNED")), null, 1, 1));
-            assertThat(done.state()).isEqualTo(SigningTaskModels.TaskState.COMPLETED);
-            assertThat(done.primaryAction()).isEqualTo("Open Document");
-            assertThat(done.explanation()).isEqualTo("All required signatures have been completed.");
-
-            var expired = SigningTaskModels.from(full("EXPIRED", "WAITING_FOR_SIGNER", "SEQUENTIAL",
-                    List.of(), "2026-10-06T10:00:00Z", 1, 0));
-            assertThat(expired.state()).isEqualTo(SigningTaskModels.TaskState.EXPIRED);
-            assertThat(expired.explanation()).startsWith("This signing request expired on October");
-            assertThat(expired.primaryAction()).isEqualTo("View Details");
-
-            assertThat(SigningTaskModels.from(full("DECLINED", "WAITING_FOR_SIGNER", "SEQUENTIAL",
-                    List.of(), null, 1, 0)).state()).isEqualTo(SigningTaskModels.TaskState.DECLINED);
-            var cancelled = SigningTaskModels.from(full("CANCELLED", "CANCELLED", "SEQUENTIAL",
-                    List.of(), null, 1, 0));
-            assertThat(cancelled.state()).isEqualTo(SigningTaskModels.TaskState.CANCELLED);
-            assertThat(cancelled.explanation()).isEqualTo("The requester withdrew this signing request.");
-            assertThat(SigningTaskModels.filter(List.of(cancelled), SigningTaskModels.TaskFilter.REVOKED))
-                    .hasSize(1);
-            assertThat(SigningTaskModels.from(full("BLOCKED", "FAILED", "SEQUENTIAL",
-                    List.of(), null, 1, 0)).state()).isEqualTo(SigningTaskModels.TaskState.ERROR);
-        }
-
-        @Test
-        void flexibleWorkflowsNeverImplyAnOrder() {
-            var t = SigningTaskModels.from(full("WAITING_FOR_CLAIM", "WAITING_FOR_SIGNER", "FLEXIBLE",
-                    List.of(p(1, "Alice Smith", false, "SIGNED"), p(2, "Mouad", true, "WAITING"),
-                            p(3, "Bob", false, "WAITING")), null, 3, 1));
-            assertThat(t.anyOrder()).isTrue();
-            assertThat(t.yourRole()).isEqualTo("You are one of 3 signers");
-            assertThat(t.state()).isEqualTo(SigningTaskModels.TaskState.ACTION_REQUIRED);
-        }
-
-        @Test
-        void searchFindsSignersAndSortingByExpiryPutsTheSoonestFirst() {
-            var soon = SigningTaskModels.from(full("YOUR_TURN", "WAITING_FOR_SIGNER", "SEQUENTIAL",
-                    List.of(p(1, "Charlie Brown", false, "SIGNED"), p(2, "Mouad", true, "CURRENT")),
-                    Instant.now().plusSeconds(3600).toString(), 2, 1));
-            var later = SigningTaskModels.from(full("YOUR_TURN", "WAITING_FOR_SIGNER", "SEQUENTIAL",
-                    List.of(p(1, "Mouad", true, "CURRENT")),
-                    Instant.now().plusSeconds(86_400L * 5).toString(), 1, 0));
-            assertThat(SigningTaskModels.search(List.of(soon, later), "charlie")).containsExactly(soon);
-            assertThat(SigningTaskModels.sort(List.of(later, soon),
-                    SigningTaskModels.TaskSort.EXPIRING_SOON)).containsExactly(soon, later);
-        }
-
-        @Test
-        void olderServersWithoutTheNewFieldsStillWork() {
-            var t = SigningTaskModels.from(item("WF-OLD", "contract.pdf", "alice", "YOUR_TURN", NOW_ISO));
-            assertThat(t.state()).isEqualTo(SigningTaskModels.TaskState.ACTION_REQUIRED);
-            assertThat(t.participants()).isEmpty();
-            assertThat(t.expiresText()).isNull();
-            assertThat(t.yourRole()).isNull();
+        void withNothingToSignThereIsNoNextDocument() {
+            assertThat(SigningTaskModels.nextToSign(
+                    List.of(tasks.get(2), tasks.get(3)))).isNull();
         }
     }
 }

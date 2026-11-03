@@ -14,14 +14,23 @@ import java.time.Clock;
 import java.time.Duration;
 
 /**
- * A per-address limit on the two public download routes:
- * {@code GET /downloads/**} and {@code GET /web/api/download-info}.
+ * A per-address limit on the download routes: {@code GET /downloads/**},
+ * {@code GET /web/api/download-info} and
+ * {@code GET /web/api/desktop/installer}.
  *
- * <p>Both are open on purpose — an invited signer has no account yet, and
- * cannot be asked to make one before installing the application that signs
- * (see {@code DownloadController}). Open and unmetered is a different thing:
- * the installer is the largest object this server will ever hand out, so a
- * loop fetching it is the cheapest way to spend the deployment's bandwidth.
+ * <p>The first two are open on purpose — an invited signer has no account
+ * yet, and cannot be asked to make one before installing the application
+ * that signs (see {@code DownloadController}). Open and unmetered is a
+ * different thing: the installer is the largest object this server will ever
+ * hand out, so a loop fetching it is the cheapest way to spend the
+ * deployment's bandwidth.
+ *
+ * <p>The third is behind the session ({@code WebInstallerDownloadController})
+ * and is counted anyway, in the <b>same</b> budget: it hands out the same
+ * large file, and one account is not a reason to lift the ceiling on how fast
+ * an address may pull it. Counting it here also means the two ways to the
+ * installer cannot be alternated for twice the requests — the same reason
+ * this filter is a shared singleton.
  *
  * <p>The budget is deliberately generous, because the honest cases are
  * noisier than they look: a browser may send a second request after a
@@ -44,6 +53,9 @@ public final class DownloadRateLimitFilter extends OncePerRequestFilter {
 
     private static final String INFO_PATH = "/web/api/download-info";
 
+    /** The website's own signed-in route to the installer. */
+    private static final String INSTALLER_PATH = "/web/api/desktop/installer";
+
     private final IdentityRateLimiter limiter;
 
     public DownloadRateLimitFilter(int max, Duration window, RateLimitStore store) {
@@ -63,7 +75,9 @@ public final class DownloadRateLimitFilter extends OncePerRequestFilter {
         }
         boolean readOnly = "GET".equals(request.getMethod())
                 || "HEAD".equals(request.getMethod());
-        return !(readOnly && (path.startsWith(FILES_PREFIX) || INFO_PATH.equals(path)));
+        return !(readOnly && (path.startsWith(FILES_PREFIX)
+                || INFO_PATH.equals(path)
+                || INSTALLER_PATH.equals(path)));
     }
 
     @Override

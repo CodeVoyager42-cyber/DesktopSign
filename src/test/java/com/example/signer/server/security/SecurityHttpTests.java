@@ -115,10 +115,8 @@ class SecurityHttpTests {
     @Test
     void protectedRoutesRefuseRequestsWithoutAToken() throws Exception {
         for (String path : new String[] {"/api/workflows/my-tasks", "/api/workflows/owned",
-                "/api/workflows/WF-1", "/api/auth/me", "/api/invitations/abc/accept"}) {
-            HttpResponse<String> r = path.endsWith("/accept")
-                    ? post(path, "{}", null) : get(path, null);
-            assertUnauthorized(r);
+                "/api/workflows/WF-1", "/api/auth/me", "/api/workflows/signing-tasks"}) {
+            assertUnauthorized(get(path, null));
         }
     }
 
@@ -258,18 +256,26 @@ class SecurityHttpTests {
         }
     }
 
+    /**
+     * Guest sessions are gone with the invitation feature, and nothing
+     * issues a {@code typ=guest} token any more. One signed with this
+     * deployment's secret must therefore authenticate nobody — not even
+     * while it is still inside its expiry.
+     */
     @Test
-    void aGuestTokenCannotActAsAnAccount() throws Exception {
-        String guest = "Bearer " + jwtService.issueGuestJwt("slot-2", "WF-GUEST", 2, 7L,
-                Instant.now().plusSeconds(600), Duration.ofMinutes(30));
+    void aTokenClaimingToBeAGuestAuthenticatesNobody() throws Exception {
+        String guest = "Bearer " + TestJwts.sign(SECRET, JWSAlgorithm.HS256,
+                new JWTClaimsSet.Builder()
+                        .subject("slot-2").issuer("signer-coordination-server")
+                        .audience("signer-desktop-clients").claim("typ", "guest")
+                        .claim("wf", "WF-GUEST").claim("slot", 2).claim("inv", 7)
+                        .issueTime(Date.from(Instant.now()))
+                        .expirationTime(Date.from(Instant.now().plusSeconds(600)))
+                        .build());
         for (String path : new String[] {"/api/auth/me", "/api/workflows/my-tasks",
-                "/api/workflows/WF-OTHER/task"}) {
-            HttpResponse<String> r = get(path, guest);
-            assertThat(r.statusCode()).as(path).isEqualTo(403);
+                "/api/workflows/WF-GUEST/task", "/api/workflows/WF-OTHER/task"}) {
+            assertUnauthorized(get(path, guest));
         }
-        assertThat(mapper.readTree(get("/api/workflows/WF-OTHER/task", guest).body())
-                .path("code").asText()).isEqualTo("WORKFLOW_NOT_ACCESSIBLE");
-        assertThat(post("/api/invitations/abc/accept", "{}", guest).statusCode()).isEqualTo(403);
     }
 
     @Test

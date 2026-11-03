@@ -1,6 +1,6 @@
 package com.example.signer.ui;
 
-import com.example.signer.ui.InvitationLinks.LaunchArgument;
+import com.example.signer.ui.LaunchLinks.LaunchArgument;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -126,8 +126,6 @@ final class ActivationQueue implements SingleInstanceGuard.ActivationHandler {
     private static String fingerprint(LaunchArgument argument) {
         try {
             MessageDigest sha = MessageDigest.getInstance("SHA-256");
-            sha.update(argument.kind().name().getBytes(StandardCharsets.US_ASCII));
-            sha.update((byte) 0);
             sha.update(argument.value().getBytes(StandardCharsets.US_ASCII));
             return HexFormat.of().formatHex(sha.digest());
         } catch (NoSuchAlgorithmException e) {

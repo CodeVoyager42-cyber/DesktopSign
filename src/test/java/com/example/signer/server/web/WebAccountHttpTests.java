@@ -6,7 +6,7 @@ import com.example.signer.server.auth.RefreshTokenStore;
 import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.ConsoleEmailService;
+import com.example.signer.server.email.ConsoleEmailService;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -731,7 +731,7 @@ class WebAccountHttpTests {
         String username = users.findByEmail(address).orElseThrow().getUsername();
         String nowhere = "WF-does-not-exist";
 
-        for (String action : List.of("/claim", "/signatures", "/launch-codes",
+        for (String action : List.of("/signatures", "/launch-codes",
                 "/signers/" + username + "/certificate")) {
             HttpResponse<String> response =
                     postAs("/api/workflows/" + nowhere + action, username);
@@ -753,10 +753,10 @@ class WebAccountHttpTests {
         assertThat(getAs("/api/workflows/my-tasks", username).statusCode())
                 .as("an unverified account may still list its workflows").isEqualTo(200);
 
-        // Once verified, none of the four is stopped by the gate any more.
+        // Once verified, none of the three is stopped by the gate any more.
         post("/web/api/auth/verify-email", json("token", tokenFromMailbox(address)),
                 csrf(null));
-        for (String action : List.of("/claim", "/signatures", "/launch-codes",
+        for (String action : List.of("/signatures", "/launch-codes",
                 "/signers/" + username + "/certificate")) {
             assertThat(postAs("/api/workflows/" + nowhere + action, username).statusCode())
                     .as("POST " + action + " verified").isNotEqualTo(403);

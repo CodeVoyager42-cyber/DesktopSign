@@ -81,18 +81,12 @@ public class JwtService {
     /** {@link #TYPE_CLAIM} of an account access token. */
     public static final String TYPE_ACCESS = "access";
     /**
-     * Guest signing sessions (invited signers without a SignFlow account).
-     * A different token TYPE on purpose: {@link #validateAccessJwt} rejects
-     * it, so a guest token is refused everywhere by default and accepted
-     * only where {@link #validateGuestJwt} is called explicitly.
-     */
-    public static final String TYPE_GUEST = "guest";
-
-    /**
      * Desktop task session opened with a website launch code (Phase B): one
      * account, one workflow, one signer slot, short-lived, never refreshed.
-     * Accepted only where a guest token would be ({@code GuestAccessPolicy})
-     * and only while its launch code is not revoked.
+     * A different token TYPE on purpose: {@link #validateAccessJwt} rejects
+     * it, so a task token reaches nothing but the routes in
+     * {@code TaskAccessPolicy}, and only while its launch code is not
+     * revoked.
      */
     public static final String TYPE_TASK = "task";
 
@@ -124,20 +118,6 @@ public class JwtService {
                                     Instant expiresAt) {
     }
 
-    /**
-     * A validated guest signing session. It authorizes access to ONE signer
-     * slot of ONE workflow, through ONE invitation — it is not an account
-     * login and says nothing about who will cryptographically sign (that is
-     * established later by the certificate on the signer's smart card).
-     *
-     * @param principal    the signer slot's identity key (the workflow's
-     *                     internal signer id), used for slot-level checks
-     */
-    public record GuestAuthentication(String principal, String workflowId,
-                                      int signerOrder, long invitationId,
-                                      String tokenId, Instant expiresAt) {
-    }
-
     /** Minimum secret length: HS256 needs at least 256 bits of key material. */
     public static final int MIN_SECRET_BYTES = 32;
 
@@ -145,30 +125,29 @@ public class JwtService {
     public JwtService(
             @Value("${signature.remote-server.jwt-secret:}") String configuredSecret,
             @Value("${signature.remote-server.access-token-minutes:15}") long accessMinutes,
-            @Value("${signature.remote-server.guest-session-minutes:60}") long guestMinutes,
             @Value("${signature.remote-server.desktop.task-session-minutes:30}") long taskMinutes,
             Environment environment) {
-        this(configuredSecret, accessMinutes, Math.max(guestMinutes, taskMinutes),
+        this(configuredSecret, accessMinutes, taskMinutes,
                 environment.acceptsProfiles(Profiles.of("server"))
                         && !environment.acceptsProfiles(
                                 Profiles.of("dev")));
     }
 
-    /** As configured by Spring, with the default 60-minute guest sessions. */
+    /** As configured by Spring, with the default 30-minute task sessions. */
     public JwtService(String configuredSecret, long accessMinutes, Environment environment) {
-        this(configuredSecret, accessMinutes, 60, 30, environment);
+        this(configuredSecret, accessMinutes, 30, environment);
     }
 
-    /** Guest sessions limited to the default 60 minutes. */
+    /** Task sessions limited to the default 30 minutes. */
     public JwtService(String configuredSecret, long accessMinutes, boolean secretRequired) {
-        this(configuredSecret, accessMinutes, 60, secretRequired);
+        this(configuredSecret, accessMinutes, 30, secretRequired);
     }
 
     /**
      * @param secretRequired whether a configured secret is mandatory (the
      *        coordination server outside the {@code dev} profile)
      */
-    public JwtService(String configuredSecret, long accessMinutes, long guestMinutes,
+    public JwtService(String configuredSecret, long accessMinutes, long taskMinutes,
                       boolean secretRequired) {
         SecretKey key = resolveKey(configuredSecret, secretRequired);
         this.accessTtl = Duration.ofMinutes(accessMinutes);
@@ -182,7 +161,7 @@ public class JwtService {
                 new JwtIssuerValidator(ISSUER),
                 new JwtClaimValidator<List<String>>(JwtClaimNames.AUD,
                         aud -> aud != null && aud.contains(AUDIENCE)),
-                lifetimeValidator(Duration.ofMinutes(Math.max(accessMinutes, guestMinutes)))));
+                lifetimeValidator(Duration.ofMinutes(Math.max(accessMinutes, taskMinutes)))));
         this.decoder = nimbus;
         log.info("JWT access tokens: HS256, ttl={}min, secret={}", accessMinutes,
                 configuredSecret == null || configuredSecret.isBlank()
@@ -245,7 +224,7 @@ public class JwtService {
     /**
      * The decoder enforcing signature, algorithm, issuer, audience and
      * expiry. Shared with the Spring Security filter chain. The {@code typ}
-     * claim is checked afterwards ({@link #toAccess}, {@link #toGuest}).
+     * claim is checked afterwards ({@link #toAccess}, {@link #toTask}).
      */
     public JwtDecoder decoder() {
         return decoder;
@@ -256,26 +235,6 @@ public class JwtService {
         Instant now = Instant.now();
         return sign(base(userId, now, now.plus(accessTtl))
                 .claim(TYPE_CLAIM, TYPE_ACCESS)
-                .build());
-    }
-
-    /**
-     * Issues a guest signing-session token scoped to one workflow, one
-     * signer slot and one invitation. It expires at {@code notAfter} (the
-     * invitation's own expiry) or after {@code maxTtl}, whichever is first.
-     */
-    public String issueGuestJwt(String principal, String workflowId, int signerOrder,
-                                long invitationId, Instant notAfter, Duration maxTtl) {
-        Instant now = Instant.now();
-        Instant expiry = now.plus(maxTtl);
-        if (notAfter != null && notAfter.isBefore(expiry)) {
-            expiry = notAfter;
-        }
-        return sign(base(principal, now, expiry)
-                .claim(TYPE_CLAIM, TYPE_GUEST)
-                .claim("wf", workflowId)
-                .claim("slot", signerOrder)
-                .claim("inv", invitationId)
                 .build());
     }
 
@@ -332,10 +291,6 @@ public class JwtService {
         return toTask(decode(token));
     }
 
-    /** Validates a guest signing-session token (signature, expiry, type, scope claims). */
-    public GuestAuthentication validateGuestJwt(String token) {
-        return toGuest(decode(token));
-    }
 
     /** An already-decoded token as an account access token, or a rejection. */
     public static JwtAuthentication toAccess(Jwt jwt) {
@@ -349,22 +304,6 @@ public class JwtService {
         return new JwtAuthentication(subject, jwt.getId(), jwt.getExpiresAt());
     }
 
-    /** An already-decoded token as a guest session, or a rejection. */
-    public static GuestAuthentication toGuest(Jwt jwt) {
-        if (!TYPE_GUEST.equals(jwt.getClaimAsString(TYPE_CLAIM))) {
-            throw new JwtValidationException(RejectionReason.WRONG_TYPE, "wrong token type");
-        }
-        String subject = jwt.getSubject();
-        String workflowId = jwt.getClaimAsString("wf");
-        Object slot = jwt.getClaim("slot");
-        Object inv = jwt.getClaim("inv");
-        if (subject == null || subject.isBlank() || workflowId == null || workflowId.isBlank()
-                || !(slot instanceof Number s) || !(inv instanceof Number i)) {
-            throw new JwtValidationException(RejectionReason.MISSING_CLAIM, "missing claim");
-        }
-        return new GuestAuthentication(subject, workflowId, s.intValue(), i.longValue(),
-                jwt.getId(), jwt.getExpiresAt());
-    }
 
     private Jwt decode(String token) {
         if (token == null || token.isBlank()) {

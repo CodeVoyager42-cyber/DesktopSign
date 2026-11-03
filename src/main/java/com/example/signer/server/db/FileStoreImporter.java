@@ -96,7 +96,7 @@ public class FileStoreImporter implements ApplicationRunner {
     }
 
     /**
-     * Placeholder accounts (PENDING_INVITE, no password) for workflow
+     * Placeholder accounts (PLACEHOLDER, no password) for workflow
      * usernames missing from the users table, so the signer/creator FKs
      * hold. Real accounts (dev-seeded or registered) are left alone.
      */
@@ -113,7 +113,7 @@ public class FileStoreImporter implements ApplicationRunner {
             UserEntity placeholder = new UserEntity();
             placeholder.setUsername(username);
             placeholder.setDisplayName(capitalize(username));
-            placeholder.setStatus(AccountStatus.PENDING_INVITE);
+            placeholder.setStatus(AccountStatus.PLACEHOLDER);
             users.save(placeholder);
         }
     }

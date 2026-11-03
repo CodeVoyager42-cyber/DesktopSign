@@ -1,6 +1,6 @@
 package com.example.signer.ui;
 
-import com.example.signer.ui.InvitationLinks.LaunchArgument;
+import com.example.signer.ui.LaunchLinks.LaunchArgument;
 import com.example.signer.ui.SingleInstanceGuard.Outcome;
 import com.example.signer.ui.SingleInstanceGuard.Reply;
 
@@ -101,7 +101,7 @@ class SingleInstanceGuardTests {
     }
 
     private static LaunchArgument launch() {
-        return new LaunchArgument(LaunchArgument.Kind.LAUNCH, CODE);
+        return new LaunchArgument(CODE);
     }
 
     /* --------------------------- basic hand-off ------------------------- */
@@ -114,7 +114,6 @@ class SingleInstanceGuardTests {
         assertThat(guard(dir).acquire(launch())).isEqualTo(Outcome.HANDED_OFF);
         assertThat(guard(dir).acquire(null)).isEqualTo(Outcome.HANDED_OFF);
         assertThat(received).hasSize(2);
-        assertThat(received.get(0).kind()).isEqualTo(LaunchArgument.Kind.LAUNCH);
         assertThat(received.get(0).value()).isEqualTo(CODE);
         assertThat(received.get(1)).isNull();
     }

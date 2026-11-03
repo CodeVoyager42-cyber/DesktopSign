@@ -3,11 +3,7 @@ package com.example.signer.server.api;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 import com.example.signer.server.api.ApiContracts.AuditView;
 import com.example.signer.server.api.ApiContracts.BindCertificateRequest;
-import com.example.signer.server.api.ApiContracts.CreateInvitationRequest;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
-import com.example.signer.server.api.ApiContracts.CreateWorkflowResponse;
-import com.example.signer.server.api.ApiContracts.InvitationStatusView;
-import com.example.signer.server.api.ApiContracts.InvitationView;
 import com.example.signer.server.api.ApiContracts.RevisionView;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionRequest;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionResponse;
@@ -17,10 +13,7 @@ import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
 import com.example.signer.server.api.ApiErrorType.ApiException;
 
 import com.example.signer.server.auth.AuthController;
-import com.example.signer.server.db.entity.WorkflowEntity;
-import com.example.signer.server.invites.InvitationService;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -33,11 +26,14 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * The coordination REST API (§11 of the task spec). The authenticated user is
- * resolved from the validated Bearer JWT (Spring Security, see
- * {@code server.security.SecurityConfig} — the
- * former Basic-auth filter) and injected via the
+ * The coordination REST API. The authenticated user is resolved from the
+ * validated Bearer JWT (Spring Security, see
+ * {@code server.security.SecurityConfig}) and injected via the
  * {@code X-Workflow-User} request attribute.
+ *
+ * <p>Every route here is about the caller's own document: they upload it,
+ * register their certificate for it, download the revision to sign and
+ * submit the signature. No route names another person.
  */
 @RestController
 @RequestMapping("/api/workflows")
@@ -45,34 +41,23 @@ public class WorkflowRestController {
 
     private final RemoteWorkflowService service;
 
-    /**
-     * The operations that take several steps in a fixed order. Shared with
-     * the website's controllers (Phase E) so the order cannot drift apart
-     * between the two chains.
-     */
+    /** What both chains share — the PDF check and the download header. */
     private final WorkflowOperations operations;
 
-    private final ObjectProvider<InvitationService> invitations;
-
     public WorkflowRestController(RemoteWorkflowService service,
-                                  WorkflowOperations operations,
-                                  ObjectProvider<InvitationService> invitations) {
+                                  WorkflowOperations operations) {
         this.service = service;
         this.operations = operations;
-        this.invitations = invitations;
     }
 
-    /** Creates a workflow (multipart: request part + original PDF part). */
+    /** Uploads a document to sign (multipart: request part + original PDF part). */
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<CreateWorkflowResponse> create(
+    public ResponseEntity<WorkflowView> create(
             @RequestPart("request") CreateWorkflowRequest request,
             @RequestPart("file") MultipartFile file,
             HttpServletRequest servletRequest) throws IOException {
         String user = AuthController.requireUser(servletRequest);
-        // Database mode: email-shaped signer slots become invited accounts
-        // and receive an email invitation (brief §53). File mode: unchanged.
-        // Both steps, in that order, are in WorkflowOperations.
-        return ResponseEntity.status(HttpStatus.CREATED).body(operations.create(
+        return ResponseEntity.status(HttpStatus.CREATED).body(service.createWorkflow(
                 request, operations.requirePdf(file), user));
     }
 
@@ -89,7 +74,7 @@ public class WorkflowRestController {
         return service.myTasks(user);
     }
 
-    /** Workflows created by the authenticated user (the inviter's picker). */
+    /** Documents owned by the authenticated user. */
     @GetMapping("/owned")
     public List<WorkflowView> owned(HttpServletRequest request) {
         String user = AuthController.requireUser(request);
@@ -97,11 +82,9 @@ public class WorkflowRestController {
     }
 
     /**
-     * The Signing Tasks workspace: every workflow the authenticated user
-     * participates in as a signer, across all lifecycle states (unlike
-     * {@code my-tasks}, which lists only actionable items). Participant
-     * states are overlaid with invitation outcomes (revoked/declined/
-     * expired) in database mode.
+     * The documents workspace: every document of the authenticated user,
+     * across all lifecycle states (unlike {@code my-tasks}, which lists only
+     * actionable items).
      */
     @GetMapping("/signing-tasks")
     public ApiContracts.SigningTasksView
@@ -118,43 +101,9 @@ public class WorkflowRestController {
     }
 
     /**
-     * Claims the signing turn (§33). FLEXIBLE workflows: atomically reserves
-     * the single turn — the loser of a race receives 409 TURN_ALREADY_CLAIMED.
-     * SEQUENTIAL workflows: verifies the caller is the current signer.
-     */
-    @PostMapping("/{workflowId}/claim")
-    public TaskView claim(@PathVariable String workflowId,
-                          HttpServletRequest request) {
-        String user = AuthController.requireUser(request);
-        requireSigningAllowed(workflowId, user);
-        return service.claimTurn(workflowId, user);
-    }
-
-    /**
-     * Database mode: a revoked/declined claiming invitation immediately
-     * stops the participant from claiming turns, downloading the document
-     * or submitting signatures (brief §50/§84). No-op in file mode and for
-     * username-based signer slots.
-     */
-    private void requireSigningAllowed(String workflowId, String user) {
-        InvitationService invitationService = invitations.getIfAvailable();
-        if (invitationService != null) {
-            invitationService.requireSigningAllowed(workflowId, user);
-        }
-    }
-
-    /** Pending signer user ids who may hold the turn. */
-    @GetMapping("/{workflowId}/eligible-signers")
-    public List<String> eligibleSigners(@PathVariable String workflowId,
-                                        HttpServletRequest request) {
-        String user = AuthController.requireUser(request);
-        return service.eligibleSigners(workflowId, user);
-    }
-
-    /**
-     * Binds the caller's own certificate to their signer slot (§13/§14:
-     * enrollment happens on the signer's machine). Authorization is derived
-     * from the JWT — nobody can bind on behalf of someone else.
+     * Registers the caller's own certificate for their document: enrollment
+     * happens on the machine the token is plugged into. Authorization is
+     * derived from the JWT — nobody can bind on behalf of someone else.
      */
     @PostMapping("/{workflowId}/signers/{userId}/certificate")
     public WorkflowView bindCertificate(@PathVariable String workflowId,
@@ -164,7 +113,7 @@ public class WorkflowRestController {
         String user = AuthController.requireUser(request);
         if (!user.equals(userId)) {
             throw new ApiException(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE,
-                    "You can only bind a certificate to your own signer slot");
+                    "You can only register a certificate for your own document");
         }
         return service.bindCertificate(workflowId, user, body);
     }
@@ -174,7 +123,6 @@ public class WorkflowRestController {
     public ResponseEntity<byte[]> document(@PathVariable String workflowId,
                                            HttpServletRequest request) {
         String user = AuthController.requireUser(request);
-        requireSigningAllowed(workflowId, user);
         byte[] pdf = service.getDocument(workflowId, user);
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
@@ -212,36 +160,10 @@ public class WorkflowRestController {
             throw new ApiException(ApiErrorCode.BAD_REQUEST,
                     "The signed PDF file is required");
         }
-        requireSigningAllowed(workflowId, user);
         return service.submitSignature(workflowId, user, file.getBytes(), request);
     }
 
-    /** Creates an invitation email for one signer slot of an existing workflow. */
-    @PostMapping("/{workflowId}/invitations")
-    public ResponseEntity<InvitationView> invite(
-            @PathVariable String workflowId,
-            @RequestBody CreateInvitationRequest request,
-            HttpServletRequest servletRequest) {
-        String user = AuthController.requireUser(servletRequest);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(operations.invite(workflowId, request, user));
-    }
-
-    /**
-     * Owner-facing invitation status per signer slot (workflow tracking).
-     * The raw token is never exposed; only status and timestamps. The
-     * workflow access guard runs first, then the service re-checks that the
-     * caller is the creator (same rule as resend/revoke).
-     */
-    @GetMapping("/{workflowId}/invitations")
-    public List<InvitationStatusView> invitationStatus(
-            @PathVariable String workflowId,
-            HttpServletRequest servletRequest) {
-        String user = AuthController.requireUser(servletRequest);
-        return operations.invitationStatus(workflowId, user);
-    }
-
-    /** Cancels a workflow (creator or current signer, pre-completion only). */
+    /** Cancels a workflow (the owner, pre-completion only). */
     @PostMapping("/{workflowId}/cancel")
     public WorkflowView cancel(@PathVariable String workflowId,
                                HttpServletRequest request) {

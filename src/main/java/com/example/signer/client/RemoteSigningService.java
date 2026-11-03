@@ -116,9 +116,6 @@ public class RemoteSigningService {
     public ReviewPackage prepareReview(String workflowId, Path workDir) {
         try {
             TaskView task = api.task(workflowId);
-            if (task.waitingForClaim()) {
-                task = api.claimTurn(workflowId);
-            }
             byte[] pdf = api.document(workflowId);
             Path downloaded = workDir.resolve(workflowId + "-review-rev"
                     + task.documentRevision() + ".pdf");
@@ -236,14 +233,6 @@ public class RemoteSigningService {
             progress.stage(Stage.DOWNLOAD);
             // 1. Task metadata: which revision does the server expect?
             TaskView task = api.task(workflowId);
-
-            // 1b. FLEXIBLE workflows: claim the turn BEFORE downloading —
-            // the server rejects the download while another signer holds the
-            // turn, so claiming first turns a late race into a clean typed
-            // error instead of a wasted download. Idempotent for own claims.
-            if (task.waitingForClaim()) {
-                task = api.claimTurn(workflowId);
-            }
             if (reviewedRevision != null && task.documentRevision() != reviewedRevision) {
                 Arrays.fill(tokenPin, '\0');
                 throw new SignerException(ErrorCode.WORKFLOW_STALE_DOCUMENT,

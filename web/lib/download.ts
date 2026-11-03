@@ -89,6 +89,33 @@ export function releaseDate(publishedAt: string | null | undefined): string {
 }
 
 /**
+ * Why the installer download did not start, in words a reader can act on.
+ *
+ * Mapped from the status rather than shown from the server's own `message`,
+ * which is the opposite of what the account screens do — and deliberately.
+ * Those endpoints answer deliberately vague things ("too many attempts")
+ * that must be passed through verbatim; this one has exactly four outcomes
+ * and each has a different thing for the reader to *do*, which the server's
+ * wording does not say.
+ *
+ * 401 is absent on purpose: no session is not a message, it is a redirect to
+ * sign in, and a caller that renders this string for a 401 has already
+ * failed to send the reader away.
+ */
+export function installerFailure(status: number): string {
+  if (status === 404) {
+    return "No installer has been published yet. Your administrator publishes it for your organisation.";
+  }
+  if (status === 429) {
+    return "Too many download attempts from this network. Wait a minute, then try again.";
+  }
+  if (status === 0) {
+    return "The server could not be reached. Check your connection and try again.";
+  }
+  return "The download could not be started. Try again in a moment.";
+}
+
+/**
  * The exact PowerShell line for the file the reader received.
  *
  * The public download page shows a generic `.\{file}` because it cannot

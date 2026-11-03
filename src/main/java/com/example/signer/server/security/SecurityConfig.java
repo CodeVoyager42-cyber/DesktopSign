@@ -4,7 +4,6 @@ import com.example.signer.server.auth.AccessTokenDenyList;
 import com.example.signer.server.auth.JwtService;
 import com.example.signer.server.auth.UserAccountService;
 import com.example.signer.server.web.FrontendRoutingConfiguration;
-import com.example.signer.server.invites.InvitationService;
 import com.example.signer.server.launch.LaunchCodeService;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -36,9 +35,10 @@ import java.time.Duration;
  *
  * <p>Default: every request needs an account access token
  * ({@code ROLE_USER}). The exceptions are listed in {@link #PUBLIC} and
- * the workflow API, which also admits guest signing sessions (limited
- * further by {@link AuthenticatedRequestFilter}). Anything not matched is
- * refused, so a new endpoint is protected until someone opens it here.
+ * the workflow API, which also admits a desktop task session opened with a
+ * website launch code (limited further by
+ * {@link AuthenticatedRequestFilter}). Anything not matched is refused, so a
+ * new endpoint is protected until someone opens it here.
  *
  * <p>Stateless: no HTTP session, no cookies, so no CSRF token is needed;
  * a browser website (Phase 6) must revisit CSRF if it uses cookies.
@@ -52,7 +52,6 @@ import java.time.Duration;
 public class SecurityConfig {
 
     static final String ROLE_USER = "ROLE_USER";
-    static final String ROLE_GUEST = "ROLE_GUEST";
     /** Phase B: desktop task session from a website launch code. */
     static final String ROLE_TASK = "ROLE_TASK";
 
@@ -65,20 +64,10 @@ public class SecurityConfig {
             post("/api/auth/login"),
             post("/api/auth/refresh"),
             post("/api/auth/logout"),
-            post("/api/auth/register"),
-            // Invitation link: preview and opening a guest signing session.
-            // The invitation token in the path is checked by the service.
-            get("/api/invitations/*"),
-            post("/api/invitations/*/guest-code"),
-            post("/api/invitations/*/guest-session"),
             // Phase B: the launch code in the body is the credential.
             post("/api/desktop/launch"),
             // Reachability only (no sensitive data).
             get("/api/health"),
-            // Pages behind the emailed link.
-            get("/invitations/*"),
-            get("/sign/*"),
-            get("/sign/*/document"),
             // The website, served from this application's own origin (D2).
             // Named one by one rather than as a wildcard: this list is what
             // needs no token, so anything added to it is a decision. The
@@ -88,10 +77,6 @@ public class SecurityConfig {
             // website to denyAll(), which answers 401 — and browsers,
             // proxies, link checkers and uptime monitors all use HEAD. A
             // HEAD of a public page reveals exactly what a GET of it does.
-            // The invitation pages above are deliberately left GET-only:
-            // Spring answers a HEAD by running the GET handler and dropping
-            // the body, and those handlers read an invitation and log it, so
-            // widening their method surface is a separate decision.
             getOrHead("/"),
             getOrHead("/index.html"),
             getOrHead("/favicon.ico"),
@@ -112,10 +97,10 @@ public class SecurityConfig {
             getOrHead("/404.html"),
             websitePages(),
             // The desktop installer (Phase F). Public with no sign-in, and
-            // deliberately: somebody invited to sign has no account yet, and
-            // cannot be asked to make one before installing the application
-            // that does the signing. There is nothing here to protect — it
-            // is the same file for everyone — so what bounds it is a per
+            // deliberately: the application is what does the signing, so
+            // somebody has to be able to install it before they have any
+            // reason to make an account. There is nothing here to protect —
+            // it is the same file for everyone — so what bounds it is a per
             // address rate limit (DownloadRateLimitFilter), not a token.
             // Every path decision is DownloadCatalog's, which admits only
             // allow-listed names directly inside the configured directory.
@@ -146,10 +131,11 @@ public class SecurityConfig {
 
     /**
      * The download limiter, a SHARED singleton for the same reason the
-     * sign-in one is: its two routes are on different chains —
-     * {@code /downloads/**} here and {@code /web/api/download-info} on the
-     * website's chain — and two instances would mean two budgets, so
-     * alternating between them would buy twice the requests.
+     * sign-in one is: its routes are on different chains —
+     * {@code /downloads/**} here, {@code /web/api/download-info} and
+     * {@code /web/api/desktop/installer} on the website's chain — and two
+     * instances would mean two budgets, so alternating between them would buy
+     * twice the requests.
      */
     @Bean
     DownloadRateLimitFilter downloadRateLimitFilter(
@@ -168,14 +154,13 @@ public class SecurityConfig {
     @Order(2)
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService,
             UserAccountService accounts, AccessTokenDenyList deniedTokens,
-            ObjectProvider<InvitationService> invitations,
             ObjectProvider<LaunchCodeService> launches,
             LoginRateLimitFilter loginRateLimitFilter,
             DownloadRateLimitFilter downloadRateLimitFilter)
             throws Exception {
         http
             // Risk L9 (and C7/D10): no Referer carrying a one-time token out
-            // of an invitation page, and a policy that permits no script.
+            // of a page, and a policy that permits no script.
             .headers(SecurityHeaders::apply)
             .csrf(AbstractHttpConfigurer::disable)
             .httpBasic(AbstractHttpConfigurer::disable)
@@ -201,12 +186,12 @@ public class SecurityConfig {
             .addFilterBefore(downloadRateLimitFilter,
                     BearerTokenAuthenticationFilter.class)
             .addFilterAfter(new AuthenticatedRequestFilter(accounts, deniedTokens,
-                            invitations, launches),
+                            launches),
                     BearerTokenAuthenticationFilter.class)
             .authorizeHttpRequests(a -> a
                     .requestMatchers(PUBLIC).permitAll()
                     .requestMatchers(path("/api/workflows/**"))
-                            .hasAnyAuthority(ROLE_USER, ROLE_GUEST, ROLE_TASK)
+                            .hasAnyAuthority(ROLE_USER, ROLE_TASK)
                     .requestMatchers(path("/api/**")).hasAuthority(ROLE_USER)
                     .anyRequest().denyAll());
         return http.build();

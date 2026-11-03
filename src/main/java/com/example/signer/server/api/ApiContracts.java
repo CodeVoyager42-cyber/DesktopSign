@@ -5,30 +5,31 @@ import java.util.List;
 /**
  * JSON contracts shared by the coordination API and the desktop client.
  * Kept as plain records so both sides serialize identically.
+ *
+ * <p>A workflow has exactly one signer — the account that uploaded the
+ * document — so nothing here names a recipient, an order to sign in, or a
+ * turn to take.
  */
 public final class ApiContracts {
 
     private ApiContracts() {
     }
 
-    /** Request body of POST /api/workflows. */
+    /**
+     * Request body of POST /api/workflows.
+     *
+     * <p>{@code certificateSha256} is optional: {@code null} leaves the
+     * signer slot UNBOUND — the signer then registers their own certificate
+     * from the machine their token is plugged into (no document is stored
+     * until the slot is bound).
+     */
     public record CreateWorkflowRequest(
             String documentName,
-            String signingPolicy,
-            List<SignerSpec> signers) {
+            String certificateSha256) {
 
-        /** Legacy shape: sequential policy (policy parsed from null). */
-        public CreateWorkflowRequest(String documentName, List<SignerSpec> signers) {
-            this(documentName, null, signers);
-        }
-
-        /**
-         * One signer slot. {@code certificateSha256} is optional: {@code null}
-         * leaves the slot UNBOUND — the signer then binds their own
-         * certificate from their own machine before the workflow is prepared
-         * (no document is stored until every slot is bound).
-         */
-        public record SignerSpec(int order, String userId, String certificateSha256) {
+        /** The common case: register the certificate when signing. */
+        public CreateWorkflowRequest(String documentName) {
+            this(documentName, null);
         }
     }
 
@@ -43,20 +44,18 @@ public final class ApiContracts {
             String status,
             int currentRevision,
             int completedSignatures,
-            int totalSignatures,
             String currentSignerUserId,
             String currentSignerFingerprintShort,
             String blockedReason,
-            String signingPolicy,
-            boolean waitingForClaim,
             boolean awaitingYourCertificate) {
+
+        /** Always 1: one document, one signer. */
+        public int totalSignatures() {
+            return 1;
+        }
     }
 
-    /**
-     * Response of GET /api/workflows/{id}/task. {@code signerOrder} is null
-     * while a FLEXIBLE turn is unclaimed ({@code waitingForClaim} = true);
-     * {@code eligibleSignerUserIds} then lists who may claim.
-     */
+    /** Response of GET /api/workflows/{id}/task. */
     public record TaskView(
             String workflowId,
             String documentName,
@@ -65,31 +64,24 @@ public final class ApiContracts {
             String signatureField,
             int documentRevision,
             String documentSha256,
-            boolean waitingForClaim,
-            List<String> eligibleSignerUserIds,
             List<StepView> signers) {
 
         /**
-         * One signer slot as the task view renders it.
+         * The signer slot as the task view renders it.
          *
          * <p>{@code signed} is the ONLY authoritative signature state: it is
          * true exclusively after a server-validated signature submission was
-         * accepted for this slot. {@code signerState} is the explicit
-         * lifecycle of the slot, derived server-side (never from client
-         * input):
+         * accepted. {@code signerState} is the explicit lifecycle of the
+         * slot, derived server-side (never from client input):
          *
          * <ul>
-         *   <li>{@code INVITED} — the slot belongs to an invited address that
-         *       has no registered account yet: invitation exists, recipient
-         *       not registered, nothing signed;</li>
-         *   <li>{@code PENDING} — the recipient has a registered account but
-         *       has NOT signed;</li>
-         *   <li>{@code SIGNED} — an accepted signature exists for this slot.
-         *       Only a validated submission reaches this state.</li>
+         *   <li>{@code PENDING} — nothing has been signed yet;</li>
+         *   <li>{@code SIGNED} — an accepted signature exists. Only a
+         *       validated submission reaches this state.</li>
          * </ul>
          *
-         * <p>{@code bound} is about the certificate binding step only; it is
-         * never a signature statement.
+         * <p>{@code bound} is about the certificate registration step only;
+         * it is never a signature statement.
          */
         public record StepView(int order, String userId, boolean signed,
                                boolean yourTurn, boolean bound,
@@ -109,7 +101,6 @@ public final class ApiContracts {
             String workflowId,
             int acceptedRevision,
             String status,
-            String nextSignerUserId,
             boolean completed) {
     }
 
@@ -155,116 +146,6 @@ public final class ApiContracts {
     public record MeResponse(String userId) {
     }
 
-    /* ------------------------------------------------------------------
-     * Invitations (brief Phase 4/6)
-     * ------------------------------------------------------------------ */
-
-    /** Request body of POST /api/workflows/{id}/invitations. */
-    public record CreateInvitationRequest(int signerOrder, String email) {
-    }
-
-    /** View of an invitation. Never contains the raw token. */
-    public record InvitationView(
-            Long invitationId,
-            String workflowId,
-            String documentName,
-            int signerOrder,
-            String email,
-            String invitedBy,
-            String status,
-            String expiresAt,
-            /**
-             * The exact link that was just emailed, returned ONCE at send
-             * time so the sender can see what went out. It is never stored
-             * and never comes back from a read endpoint — the database keeps
-             * only the token hash.
-             */
-            String invitationUrl) {
-    }
-
-    /**
-     * One emailed invitation link, as surfaced to the sender. Mirrors
-     * {@link InvitationView#invitationUrl()} for the workflow-create flow,
-     * where several slots are invited at once.
-     */
-    public record InvitationLinkView(
-            int signerOrder,
-            String email,
-            String invitationUrl) {
-    }
-
-    /**
-     * Response of POST /api/workflows: the created workflow plus the links
-     * that were emailed to its email-addressed signer slots. The links are
-     * present only in this response — a later read cannot reproduce them.
-     */
-    public record CreateWorkflowResponse(
-            WorkflowView workflow,
-            List<InvitationLinkView> invitations) {
-    }
-
-    /**
-     * Response of GET /api/server-info/invitation-link: the base URL that
-     * emailed links use, so the sender can see where recipients are sent.
-     *
-     * @param localOnly true when the base URL resolves only on this machine
-     *                  (a loopback address), i.e. remote signers cannot open
-     *                  the link until the server is given a public address
-     */
-    public record InvitationLinkInfo(
-            String baseUrl,
-            boolean localOnly,
-            String source) {
-    }
-
-    /** Request body of POST /api/auth/register (invitation-bound). */
-    public record RegisterRequest(
-            String invitationToken,
-            String displayName,
-            String password) {
-    }
-
-    /**
-     * Owner-facing status of one signer slot's invitation (workflow tracking).
-     * Dates are ISO-8601 instant strings; {@code slotSigned} mirrors the
-     * workflow signer slot so completed signatures stay visible even after
-     * the invitation row was superseded. Never contains the raw token.
-     */
-    public record InvitationStatusView(
-            Long invitationId,
-            int signerOrder,
-            String email,
-            String status,
-            /** PENDING | SENT | FAILED | null (row predates tracking). */
-            String emailStatus,
-            String createdAt,
-            String expiresAt,
-            String acceptedAt,
-            boolean slotSigned) {
-
-        /** {@link #status()} as an enum (UNKNOWN when unrecognised). */
-        public ApiStates.InvitationStatus invitationStatus() {
-            return ApiStates.InvitationStatus.parse(status);
-        }
-
-        /** {@link #emailStatus()} as an enum; null when the row predates tracking. */
-        public ApiStates.EmailStatus emailState() {
-            return emailStatus == null ? null : ApiStates.EmailStatus.parse(emailStatus);
-        }
-    }
-
-    /**
-     * Result of claiming an invitation (POST /api/invitations/{token}/claim):
-     * the participant-scoped context the desktop opens the signing workflow
-     * with. Deliberately narrow — one workflow, one participant slot, one
-     * document; never a general application session (brief §21/§46).
-     */
-    /**
-     * A guest signing session opened from an invitation link (no account).
-     * {@code accessToken} authorizes ONLY this signer slot's signing task;
-     * it is not a login and expires with the invitation at the latest.
-     * {@code signerId} is the slot's signer id as it appears in the task.
-     */
     /* ---------------- Phase B: website → desktop launch codes ---------------- */
 
     /**
@@ -306,144 +187,58 @@ public final class ApiContracts {
     public record HealthView(String status, int apiVersion, String minDesktopVersion) {
     }
 
-    /** Body of POST /api/invitations/{token}/guest-session (security Phase 3). */
-    public record GuestSessionRequest(String code) {
-    }
-
-    /**
-     * Answer of POST /api/invitations/{token}/guest-code: where the code went
-     * (masked) and when it expires / when a new one may be requested.
-     */
-    public record GuestCodeView(String sentTo, long expiresInSeconds,
-                                long resendAfterSeconds) {
-    }
-
-    public record GuestSessionView(
-            String accessToken,
-            String tokenType,
-            long expiresIn,
-            String workflowId,
-            String documentName,
-            String requestedBy,
-            int signerOrder,
-            String signerId,
-            String email,
-            String invitationExpiresAt) {
-    }
-
-    public record SigningSessionView(
-            String workflowId,
-            String documentName,
-            int participantOrder,
-            String recipientEmail,
-            /** When this signing authorization expires (= invitation expiry). */
-            String expiresAt,
-            boolean alreadyClaimed) {
-    }
-
-    /** Public preview of an invitation (GET /api/invitations/{token}). */
-    public record InvitationPreviewView(
-            String workflowId,
-            String documentName,
-            String invitedBy,
-            String invitedEmail,
-            String status,
-            String expiresAt,
-            boolean accountExists) {
-    }
-
     /* ------------------------------------------------------------------
-     * Signing Tasks workspace (participant-scoped task list)
+     * The documents workspace
      * ------------------------------------------------------------------ */
 
     /**
-     * Response of GET /api/workflows/signing-tasks: every workflow the
-     * signed-in user PARTICIPATES in as a signer, across all lifecycle
-     * states — unlike {@code my-tasks}, which returns only actionable
-     * items. Dates are ISO-8601 instant strings when known.
+     * Response of GET /api/workflows/signing-tasks: every document of the
+     * signed-in user, across all lifecycle states — unlike {@code my-tasks},
+     * which returns only actionable items. Dates are ISO-8601 instant
+     * strings when known.
      */
     public record SigningTasksView(List<TaskItemView> tasks) {
     }
 
     /**
-     * One signing task as seen by one participant. The raw backend state
-     * names stay here; the desktop client maps them to human labels — the
-     * server never hard-codes presentation strings.
+     * One document as its owner sees it. The raw backend state names stay
+     * here; the clients map them to human labels — the server never
+     * hard-codes presentation strings.
      */
     public record TaskItemView(
             String workflowId,
             String documentName,
-            /** Authenticated id of the workflow creator (may be null). */
+            /** Authenticated id of the owner, who is also the signer. */
             String senderId,
-            /** Human display name of the creator, resolved server-side. */
+            /** Human display name of the owner, resolved server-side. */
             String senderDisplayName,
             /** Raw WorkflowState name of the workflow. */
             String status,
             String createdAt,
             String completedAt,
             ParticipantStateView myState,
-            int totalSignatures,
-            int completedSignatures,
-            /** SEQUENTIAL (fixed order) or FLEXIBLE (any order, one at a time). */
-            String signingPolicy,
-            /** Every signer slot in order, with its state (names only, no emails). */
-            List<TaskParticipantView> participants,
-            /** When the caller's own invitation expires (ISO-8601), or null. */
-            String expiresAt,
             /** Time of the workflow's latest event (ISO-8601), or null. */
             String updatedAt) {
-
-        /** Pre-redesign shape (older servers / tests): new fields unknown. */
-        public TaskItemView(String workflowId, String documentName, String senderId,
-                            String senderDisplayName, String status, String createdAt,
-                            String completedAt, ParticipantStateView myState,
-                            int totalSignatures, int completedSignatures) {
-            this(workflowId, documentName, senderId, senderDisplayName, status, createdAt,
-                    completedAt, myState, totalSignatures, completedSignatures,
-                    null, null, null, null);
-        }
-    }
-
-    /**
-     * One signer slot as shown in a task's signing order.
-     * {@code state}: SIGNED, CURRENT (holds the turn now) or WAITING.
-     */
-    public record TaskParticipantView(int order, String name, boolean you, String state) {
-
-        public TaskParticipantView(int order, String name, boolean you, ApiStates.SlotState state) {
-            this(order, name, you, state.name());
-        }
-
-        /** {@link #state()} as an enum (UNKNOWN when unrecognised). */
-        public ApiStates.SlotState slotState() {
-            return ApiStates.SlotState.parse(state);
-        }
     }
 
     /**
      * The signed-in user's slot within a workflow.
-     * {@code myStateLabel} raw values: YOUR_TURN, WAITING_FOR_CLAIM,
-     * WAITING_FOR_OTHERS, IN_PROGRESS, SIGNED, INVITED, CERTIFICATE_PENDING,
-     * BLOCKED, CANCELLED — later overlaid with REVOKED / DECLINED /
-     * EXPIRED from the latest invitation for the slot (database mode).
+     * {@code myStateLabel} raw values: YOUR_TURN, IN_PROGRESS, SIGNED,
+     * CERTIFICATE_PENDING, BLOCKED, CANCELLED.
      *
-     * <p>{@code SIGNED} is emitted ONLY for the participant whose own slot
-     * carries an accepted signature ({@code signed} = true). A completed
-     * workflow never makes an unsigned participant look signed: account
-     * existence, invitation state and navigation never imply a signature.
-     * {@code INVITED} means an invitation is pending for a recipient who has
-     * not registered yet.
+     * <p>{@code SIGNED} is emitted ONLY when the slot carries an accepted
+     * signature ({@code signed} = true). Navigation and account state never
+     * imply a signature.
      */
     public record ParticipantStateView(
             String myStateLabel,
             Integer participantOrder,
             boolean signed,
-            boolean waitingForMe,
-            boolean waitingForClaim) {
+            boolean waitingForMe) {
 
         public ParticipantStateView(ApiStates.ParticipantState state, Integer participantOrder,
-                                    boolean signed, boolean waitingForMe, boolean waitingForClaim) {
-            this(state.name(), participantOrder, signed, waitingForMe, waitingForClaim);
+                                    boolean signed, boolean waitingForMe) {
+            this(state.name(), participantOrder, signed, waitingForMe);
         }
 
         /** {@link #myStateLabel()} as an enum (UNKNOWN when unrecognised). */

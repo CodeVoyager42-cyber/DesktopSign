@@ -1,6 +1,6 @@
 package com.example.signer.ui;
 
-import com.example.signer.ui.InvitationLinks.LaunchArgument;
+import com.example.signer.ui.LaunchLinks.LaunchArgument;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -109,7 +109,14 @@ final class SingleInstanceGuard {
     static final Duration DEFAULT_PEER_WAIT = Duration.ofSeconds(8);
 
     private static final byte KIND_NONE = 0;
-    private static final byte KIND_INVITATION = 1;
+    /**
+     * Deliberately still 2: 1 was the removed invitation link. Two copies of
+     * SignFlow can be mid-upgrade and hand off to each other, so renumbering
+     * would make a launch code arrive as an unrecognised kind and be
+     * refused. An older copy that still sends 1 falls through to
+     * {@code default} and is refused, which is the right answer — invitation
+     * links no longer exist.
+     */
     private static final byte KIND_LAUNCH = 2;
 
     private static final int STATUS_REFUSED = 0;
@@ -332,9 +339,7 @@ final class SingleInstanceGuard {
                     log.warn("The running SignFlow could not prove its identity; nothing forwarded");
                     return Attempt.UNVERIFIED;
                 }
-                byte kind = argument == null ? KIND_NONE
-                        : argument.kind() == LaunchArgument.Kind.LAUNCH ? KIND_LAUNCH
-                        : KIND_INVITATION;
+                byte kind = argument == null ? KIND_NONE : KIND_LAUNCH;
                 byte[] value = argument == null ? new byte[0]
                         : argument.value().getBytes(StandardCharsets.US_ASCII);
                 out.writeByte(kind);
@@ -464,9 +469,7 @@ final class SingleInstanceGuard {
         try {
             argument = switch (kind) {
                 case KIND_NONE -> null;
-                case KIND_INVITATION -> new LaunchArgument(LaunchArgument.Kind.INVITATION,
-                        new String(value, StandardCharsets.US_ASCII));
-                case KIND_LAUNCH -> new LaunchArgument(LaunchArgument.Kind.LAUNCH,
+                case KIND_LAUNCH -> new LaunchArgument(
                         new String(value, StandardCharsets.US_ASCII));
                 default -> throw new IllegalArgumentException("unknown kind");
             };

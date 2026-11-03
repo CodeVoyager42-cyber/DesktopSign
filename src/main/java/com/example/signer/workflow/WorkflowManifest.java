@@ -29,8 +29,6 @@ public record WorkflowManifest(
         @JsonProperty("updatedAt") Instant updatedAt,
         @JsonProperty("originalDocumentSha256")
         @JsonInclude(JsonInclude.Include.NON_NULL) String originalDocumentSha256,
-        @JsonProperty("signingPolicy")
-        @JsonInclude(JsonInclude.Include.NON_NULL) WorkflowSigningPolicy signingPolicy,
         @JsonProperty("signers") List<WorkflowSignerStep> signers) {
 
     /** The only schema version this build writes. */
@@ -45,27 +43,14 @@ public record WorkflowManifest(
     /**
      * Backward-compatible constructor for callers created before document
      * binding existed: the workflow is simply not bound to a specific
-     * original document and uses the default (sequential) policy.
+     * original document.
      */
     public WorkflowManifest(int version, String workflowId, Instant createdAt,
                             Instant updatedAt, List<WorkflowSignerStep> signers) {
-        this(version, workflowId, createdAt, updatedAt, null,
-                WorkflowSigningPolicy.SEQUENTIAL, signers);
-    }
-
-    /**
-     * Backward-compatible constructor for callers created before signing
-     * policies existed: not bound to an original document, explicit policy.
-     */
-    public WorkflowManifest(int version, String workflowId, Instant createdAt,
-                            Instant updatedAt, WorkflowSigningPolicy signingPolicy,
-                            List<WorkflowSignerStep> signers) {
-        this(version, workflowId, createdAt, updatedAt, null, signingPolicy, signers);
+        this(version, workflowId, createdAt, updatedAt, null, signers);
     }
 
     public WorkflowManifest {
-        signingPolicy = signingPolicy == null
-                ? WorkflowSigningPolicy.SEQUENTIAL : signingPolicy;
         Objects.requireNonNull(workflowId, "workflowId");
         Objects.requireNonNull(createdAt, "createdAt");
         Objects.requireNonNull(updatedAt, "updatedAt");
@@ -117,14 +102,9 @@ public record WorkflowManifest(
         return signers;
     }
 
-    /** The policy governing who may hold the next signing turn. */
-    public WorkflowSigningPolicy policy() {
-        return signingPolicy;
-    }
-
     /** A copy of this manifest bound to {@code sha256Hex} (lower-case hex). */
     public WorkflowManifest withOriginalDocumentSha256(String sha256Hex) {
         return new WorkflowManifest(version, workflowId, createdAt, updatedAt,
-                sha256Hex, signingPolicy, signers);
+                sha256Hex, signers);
     }
 }

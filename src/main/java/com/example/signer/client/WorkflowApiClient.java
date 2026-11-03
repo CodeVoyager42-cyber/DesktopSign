@@ -9,15 +9,11 @@ import java.net.URLEncoder;
 import java.net.UnknownHostException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
-import java.nio.channels.ClosedChannelException;
 import com.example.signer.exception.ErrorCode;
 import com.example.signer.exception.SignerException;
 import com.example.signer.server.api.ApiContracts.ApiError;
 import com.example.signer.server.api.ApiContracts.AuditView;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
-import com.example.signer.server.api.ApiContracts.CreateWorkflowResponse;
-import com.example.signer.server.api.ApiContracts.InvitationLinkInfo;
-import com.example.signer.server.api.ApiContracts.InvitationLinkView;
 import com.example.signer.server.api.ApiContracts.LoginRequest;
 import com.example.signer.server.api.ApiContracts.RevisionView;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionRequest;
@@ -82,9 +78,8 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
         private volatile String accessToken;
         private volatile String refreshToken;
         private volatile boolean closed;
-        private volatile boolean guest;
-        /** Opened from a website launch link (Phase B), not an invitation. */
-        private volatile boolean launched;
+        /** Scoped by the server to ONE signing task; no refresh token. */
+        private volatile boolean taskScoped;
         /** The ACCOUNT id; replaced by the server's answer via /me. */
         private volatile String username;
         /**
@@ -110,21 +105,22 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
         }
 
         /**
-         * A GUEST signing session (invited signer, no account): one access
-         * token scoped by the server to a single signing task, no refresh
-         * token. When it expires the signer re-opens the invitation link.
+         * A TASK session opened with a website launch code: one access token
+         * scoped by the server to a single signing task, no refresh token.
+         * When it expires the signer opens the document from the website
+         * again.
          */
-        static Session ofGuest(String signerId, String accessToken) {
+        static Session ofTask(String signerId, String accessToken) {
             Session s = new Session(signerId);
             s.accessToken = accessToken;
             s.refreshToken = null;
-            s.guest = true;
+            s.taskScoped = true;
             return s;
         }
 
-        /** True for a guest signing session (see {@link #ofGuest}). */
-        public boolean isGuest() {
-            return guest;
+        /** True for a single-task session (see {@link #ofTask}). */
+        public boolean isTaskScoped() {
+            return taskScoped;
         }
 
         /** Binds an already-issued token pair (e.g. after registration). */
@@ -261,36 +257,17 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
         return new WorkflowApiClient(baseUrl, session);
     }
 
-    /** Creates a sequential workflow from the original PDF bytes (multipart). */
-    @Override
-    public CreateWorkflowResponse createWorkflow(String documentName,
-                                       List<CreateWorkflowRequest.SignerSpec> signers,
-                                       byte[] originalPdf) {
-        return createWorkflow(documentName, null, signers, originalPdf);
-    }
-
     /**
-     * Creates a workflow with an explicit signing policy (§11 of the task
-     * spec): {@code SEQUENTIAL} (fixed order) or {@code FLEXIBLE} (any
-     * pending signer may claim the turn). Signer fingerprints may be null — 
-     * those signers then bind their own certificate from their own machine.
-     *
-     * <p>The response carries the workflow plus the exact invitation links
-     * that were emailed to its email-addressed slots. Those links are
-     * returned here once and are not retrievable afterwards (the server
-     * stores only their token hashes), so a caller that wants to show the
-     * sender what went out must read them now.
+     * Uploads a PDF to sign (multipart). The signed-in account is its only
+     * signer; it registers its certificate when it signs, so no fingerprint
+     * is sent here.
      */
     @Override
-    public CreateWorkflowResponse createWorkflow(String documentName,
-                                       String signingPolicy,
-                                       List<CreateWorkflowRequest.SignerSpec> signers,
-                                       byte[] originalPdf) {
+    public WorkflowView createWorkflow(String documentName, byte[] originalPdf) {
         String boundary = "wf-" + UUID.randomUUID();
         String json;
         try {
-            json = mapper.writeValueAsString(
-                    new CreateWorkflowRequest(documentName, signingPolicy, signers));
+            json = mapper.writeValueAsString(new CreateWorkflowRequest(documentName));
         } catch (Exception e) {
             throw new SignerException(ErrorCode.WORKFLOW_INVALID,
                     "The workflow request could not be built", e);
@@ -305,10 +282,10 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
                         .uri(URI.create(baseUrl + "api/workflows"))
                         .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                         .POST(HttpRequest.BodyPublishers.ofByteArray(body)),
-                CreateWorkflowResponse.class, 201);
+                WorkflowView.class, 201);
     }
 
-    /** Workflows waiting for this user's signature. */
+    /** Documents waiting for this user's signature. */
     @Override
     public List<WorkflowView> myTasks() {
         return Arrays.asList(send(HttpRequest.newBuilder()
@@ -439,31 +416,8 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
     }
 
     /**
-     * Claims the flexible signing turn (§33). Returns the fresh task view on
-     * success; a 409 TURN_ALREADY_CLAIMED surfaces as a typed error when
-     * another signer holds the turn.
-     */
-    @Override
-    public TaskView claimTurn(String workflowId) {
-        return send(HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl + "api/workflows/" + workflowId + "/claim"))
-                        .POST(HttpRequest.BodyPublishers.noBody()),
-                TaskView.class, 200);
-    }
-
-    /** Who may currently hold the turn. */
-    @Override
-    public List<String> eligibleSigners(String workflowId) {
-        return Arrays.asList(send(HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl + "api/workflows/" + workflowId
-                                + "/eligible-signers"))
-                        .GET(),
-                String[].class, 200));
-    }
-
-    /**
-     * Binds the signed-in user's own certificate to their unbound signer slot
-     * (§14). The target user comes from the session — never from a parameter.
+     * Registers the signed-in user's own certificate for their document.
+     * The target user comes from the session — never from a parameter.
      */
     @Override
     public WorkflowView bindMyCertificate(String workflowId, String certificateSha256) {
@@ -497,60 +451,6 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
                         .uri(URI.create(baseUrl + "api/workflows/" + workflowId + "/cancel"))
                         .POST(HttpRequest.BodyPublishers.noBody()),
                 WorkflowView.class, 200);
-    }
-
-    /* ------------------------------------------------------------------
-     * Invitations (brief §43: invitation acceptance UI support)
-     * ------------------------------------------------------------------ */
-
-    /**
-     * Public invitation preview: what the invited signer sees before
-     * accepting (document, inviter, invited email, expiry). No session
-     * needed — the raw token IS the capability.
-     */
-    public static ApiContracts.InvitationPreviewView
-            invitationPreview(String baseUrl, String rawToken) {
-        return new WorkflowApiClient(baseUrl, null).send(
-                HttpRequest.newBuilder()
-                        .uri(URI.create(new WorkflowApiClient(baseUrl, null).baseUrl
-                                + "api/invitations/" + urlEncode(rawToken)))
-                        .GET(),
-                ApiContracts.InvitationPreviewView.class,
-                200);
-    }
-
-    /**
-     * Opens a GUEST signing session from an invitation token: no account,
-     * no password, no credentials of any kind are sent — the server
-     * validates the token and answers with an access token scoped to this
-     * one signing task. The token in the link is a bearer credential: it is
-     * never logged here.
-     */
-    public static ApiContracts.GuestSessionView
-            openGuestSession(String baseUrl, String rawToken) {
-        return openGuestSession(baseUrl, rawToken, null);
-    }
-
-    /**
-     * Opens the guest session with the one-time code the server e-mailed to
-     * the invited address (security Phase 3; see {@link #requestGuestCode}).
-     * Neither the link token nor the code is ever logged.
-     */
-    public static ApiContracts.GuestSessionView
-            openGuestSession(String baseUrl, String rawToken, String code) {
-        WorkflowApiClient anonymous = new WorkflowApiClient(baseUrl, null);
-        String json;
-        try {
-            json = anonymous.mapper.writeValueAsString(new ApiContracts.GuestSessionRequest(code));
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-        return anonymous.send(HttpRequest.newBuilder()
-                        .uri(URI.create(anonymous.baseUrl + "api/invitations/"
-                                + urlEncode(rawToken) + "/guest-session"))
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8)),
-                ApiContracts.GuestSessionView.class, 200);
     }
 
     /* ---------------- Phase B: health and website launch codes ---------------- */
@@ -591,14 +491,12 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
     }
 
     /**
-     * A client acting with a task session from {@link #exchangeLaunchCode}.
-     * Like a guest session: one signing task, no refresh token, nothing to
-     * revoke on close.
+     * A client acting with a task session from {@link #exchangeLaunchCode}:
+     * one signing task, no refresh token, nothing to revoke on close.
      */
     public static WorkflowApiClient forTask(String baseUrl, ApiContracts.LaunchSessionView task) {
         WorkflowApiClient client = new WorkflowApiClient(baseUrl, null);
-        client.session = Session.ofGuest(task.signerId(), task.accessToken());
-        client.session.launched = true;
+        client.session = Session.ofTask(task.signerId(), task.accessToken());
         client.session.bindServer(client.baseUrl);
         return client;
     }
@@ -655,171 +553,12 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
         }
     }
 
-    /**
-     * Asks the server to e-mail a one-time code to the invited address. The
-     * answer says where it went (masked) and when a new one may be requested;
-     * it never contains the code.
-     */
-    public static ApiContracts.GuestCodeView requestGuestCode(String baseUrl, String rawToken) {
-        WorkflowApiClient anonymous = new WorkflowApiClient(baseUrl, null);
-        return anonymous.send(HttpRequest.newBuilder()
-                        .uri(URI.create(anonymous.baseUrl + "api/invitations/"
-                                + urlEncode(rawToken) + "/guest-code"))
-                        .POST(HttpRequest.BodyPublishers.noBody()),
-                ApiContracts.GuestCodeView.class, 202);
+    /** True when this client acts with a single-task session. */
+    public boolean isTaskSession() {
+        return session != null && session.isTaskScoped();
     }
 
-    /** A client acting with a guest signing session (see {@link #openGuestSession}). */
-    public static WorkflowApiClient forGuest(String baseUrl,
-            ApiContracts.GuestSessionView guest) {
-        WorkflowApiClient client = new WorkflowApiClient(baseUrl, null);
-        client.session = Session.ofGuest(guest.signerId(), guest.accessToken());
-        client.session.bindServer(client.baseUrl);
-        return client;
-    }
-
-    /** True when this client acts with a guest signing session. */
-    public boolean isGuestSession() {
-        return session != null && session.isGuest();
-    }
-
-    /** Accepts the invitation with the authenticated session. */
-    public ApiContracts.InvitationPreviewView
-            acceptInvitation(String rawToken) {
-        return send(HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl + "api/invitations/" + urlEncode(rawToken)
-                                + "/accept"))
-                        .POST(HttpRequest.BodyPublishers.noBody()),
-                ApiContracts.InvitationPreviewView.class,
-                200);
-    }
-
-    /**
-     * Claims the invitation as the signed-in participant (brief §46): the
-     * backend validates token, expiry, revocation, workflow state and
-     * identity, then returns the participant-scoped signing context. The
-     * server — never the client — decides whether this identity may act as
-     * the recipient (brief §19/§81).
-     */
-    public ApiContracts.SigningSessionView
-            claimInvitation(String rawToken) {
-        return send(HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl + "api/invitations/" + urlEncode(rawToken)
-                                + "/claim"))
-                        .POST(HttpRequest.BodyPublishers.noBody()),
-                ApiContracts.SigningSessionView.class,
-                200);
-    }
-
-    /**
-     * Creates an invitation email for one signer slot of a workflow the
-     * signed-in user participates in. Authenticated via the Bearer session
-     * exactly like every other API call; the email is delivered by the
-     * {@code EmailService} and carries the deep link. The raw token is
-     * never returned by the API — only its hash is stored server-side.
-     */
-    @Override
-    public ApiContracts.InvitationView invite(
-            String workflowId, int signerOrder, String email) {
-        try {
-            String json = mapper.writeValueAsString(
-                    new ApiContracts.CreateInvitationRequest(
-                            signerOrder, email));
-            return send(HttpRequest.newBuilder()
-                            .uri(URI.create(baseUrl + "api/workflows/"
-                                    + urlEncode(workflowId) + "/invitations"))
-                            .header("Content-Type", "application/json")
-                            .POST(HttpRequest.BodyPublishers.ofByteArray(
-                                    json.getBytes(StandardCharsets.UTF_8))),
-                    ApiContracts.InvitationView.class,
-                    201);
-        } catch (SignerException e) {
-            throw e;
-        } catch (Exception e) {
-            throw transportFailure("The invite request", e);
-        }
-    }
-
-    /**
-     * Owner view of per-slot invitation status (workflow tracking): status,
-     * sent/accepted timestamps, slot completion. Never contains raw tokens.
-     */
-    @Override
-    public List<ApiContracts.InvitationStatusView>
-            workflowInvitations(String workflowId) {
-        return Arrays.asList(send(HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl + "api/workflows/"
-                                + urlEncode(workflowId) + "/invitations"))
-                        .GET(),
-                ApiContracts.InvitationStatusView[].class,
-                200));
-    }
-
-    /**
-     * Owner operation: invalidates the emailed link and sends a fresh one.
-     * The server re-checks ownership and invitation state.
-     *
-     * @return the freshly emailed link, so the sender can see what went out
-     */
-    @Override
-    public InvitationLinkView resendInvitation(long invitationId) {
-        return send(HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl + "api/invitations/"
-                                + invitationId + "/resend"))
-                        .POST(HttpRequest.BodyPublishers.noBody()),
-                InvitationLinkView.class, 200);
-    }
-
-    /**
-     * Base URL that emailed invitation links use, as resolved by the server,
-     * plus whether it is loopback-only (recipients elsewhere cannot open it).
-     */
-    @Override
-    public InvitationLinkInfo invitationLinkInfo() {
-        return send(HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl + "api/server-info/invitation-link"))
-                        .GET(),
-                InvitationLinkInfo.class, 200);
-    }
-
-    /**
-     * Invitation-bound registration: activates the invited account and
-     * returns the token pair of the new session. The password travels only
-     * over this request and is cleared by the caller.
-     */
-    public static ApiContracts.TokenPairResponse
-            register(String baseUrl, String invitationToken,
-                     String displayName, char[] password) {
-        try {
-            ObjectMapper mapper2 = new ObjectMapper()
-                    .registerModule(new JavaTimeModule());
-            String json = mapper2.writeValueAsString(
-                    new ApiContracts.RegisterRequest(
-                            invitationToken, displayName,
-                            new String(password)));
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(new WorkflowApiClient(baseUrl, null).baseUrl
-                            + "api/auth/register"))
-                    .timeout(REQUEST_TIMEOUT)
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(
-                            json.getBytes(StandardCharsets.UTF_8)))
-                    .build();
-            HttpResponse<byte[]> response =
-                    new WorkflowApiClient(baseUrl, null).http
-                            .send(request, HttpResponse.BodyHandlers.ofByteArray());
-            if (response.statusCode() != 200) {
-                throw apiErrorOf(response);
-            }                    return mapper2.readValue(response.body(),
-                            ApiContracts.TokenPairResponse.class);
-        } catch (SignerException e) {
-            throw e;
-        } catch (Exception e) {
-            throw transportFailure(baseUrl, "Registration", e);
-        }
-    }
-
-    /** Builds a client bound to an already-issued token pair (e.g. after register). */
+    /** Builds a client bound to an already-issued token pair. */
     public static WorkflowApiClient withSession(String baseUrl, String username,
                                                 TokenPairResponse tokens) {
         WorkflowApiClient client = new WorkflowApiClient(baseUrl, null);
@@ -941,8 +680,6 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
      */
     static final String SESSION_EXPIRED_MESSAGE =
             "Your session has expired or was revoked. Sign in again.";
-    static final String GUEST_SESSION_EXPIRED_MESSAGE =
-            "Your signing session has ended. Open the invitation link again to continue.";
     static final String TASK_SESSION_EXPIRED_MESSAGE =
             "Your signing session has ended or was cancelled. Click \"Sign\" again on the"
                     + " SignFlow website to continue.";
@@ -976,12 +713,10 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
             }
             String token = current.refreshToken();
             if (token == null) {
-                boolean guest = current.isGuest();
-                boolean launched = current.launched;
+                boolean taskScoped = current.isTaskScoped();
                 current.expire();
-                throw new SignerException(ErrorCode.WORKFLOW_INVALID, launched
-                        ? TASK_SESSION_EXPIRED_MESSAGE
-                        : guest ? GUEST_SESSION_EXPIRED_MESSAGE : SESSION_EXPIRED_MESSAGE);
+                throw new SignerException(ErrorCode.WORKFLOW_INVALID, taskScoped
+                        ? TASK_SESSION_EXPIRED_MESSAGE : SESSION_EXPIRED_MESSAGE);
             }
             HttpResponse<byte[]> response;
             try {
@@ -1194,12 +929,7 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
                     "The coordination server address" + where
                             + " could not be resolved.", e);
         }
-        // ClosedChannelException is checked alongside ConnectException: a
-        // connect attempt that races a closed port can surface as that alone,
-        // with no ConnectException anywhere in the chain, and it means the
-        // same thing a signer cares about: the server could not be reached.
-        if (hasCause(e, ConnectException.class)
-                || hasCause(e, ClosedChannelException.class)) {
+        if (hasCause(e, ConnectException.class)) {
             return new SignerException(ErrorCode.WORKFLOW_INVALID,
                     "Could not connect to the coordination server" + where
                             + ". Make sure it is running, then try again.", e);

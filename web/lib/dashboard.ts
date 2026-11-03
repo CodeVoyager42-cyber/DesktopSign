@@ -1,27 +1,28 @@
 import type { Task, Workflow } from "./api";
 
 /**
- * Turning the two workflow lists into dashboard rows.
+ * Turning the document lists into dashboard rows.
  *
  * In its own module rather than in the page, for two reasons: a page module
  * may only export the names Next.js knows about, and this is the part worth
  * testing without a browser in the room.
+ *
+ * Every document belongs to one person, who is also its signer, so a row
+ * never describes anybody else's part in it.
  */
 
 // The raw state names are the server's — it deliberately sends no
 // presentation strings — so the mapping to something readable lives here.
 export const STATE_WORDS: Record<string, string> = {
-  // DRAFT is not "not sent yet": invitations go out at creation, and the
-  // workflow stays DRAFT only until every slot has a certificate bound —
-  // which the signers do from their own machines. Saying "not sent yet"
-  // against a document whose invitations have already gone was the one
-  // wording here that could make a sender resend something unnecessarily.
-  DRAFT: "Waiting for certificates",
+  // DRAFT is not "not uploaded yet": the PDF is on the server, and the
+  // workflow stays DRAFT only until a certificate is registered for it —
+  // which the signer does from the machine their token is plugged into.
+  DRAFT: "Waiting for your certificate",
   READY_FOR_SIGNING: "Ready to sign",
-  WAITING_FOR_SIGNER: "Waiting for a signature",
-  SIGNATURE_SUBMITTED: "Checking a signature",
-  VALIDATING: "Checking a signature",
-  COMPLETED: "Signed by everyone",
+  WAITING_FOR_SIGNER: "Ready to sign",
+  SIGNATURE_SUBMITTED: "Checking your signature",
+  VALIDATING: "Checking your signature",
+  COMPLETED: "Signed",
   CANCELLED: "Cancelled",
   FAILED: "Stopped by an error",
 };
@@ -32,18 +33,15 @@ export interface Row {
   id: string;
   name: string;
   status: string;
-  signed: number;
-  total: number;
-  sent: boolean;
-  from?: string;
+  signed: boolean;
   waitingForMe: boolean;
 }
 
 /**
  * One row per document, merged from the two lists.
  *
- * A workflow you sent AND sign appears in both, so the participating entry is
- * applied second and wins: it is the one that knows about your own slot.
+ * The same document appears in both, so the participating entry is applied
+ * second and wins: it is the one that knows about the signer's own slot.
  * Keyed by workflow id, which is why a document cannot appear twice.
  */
 export function mergeRows(
@@ -57,42 +55,31 @@ export function mergeRows(
       id: w.workflowId,
       name: w.documentName,
       status: w.status,
-      signed: w.completedSignatures,
-      total: w.totalSignatures,
-      sent: true,
-      // The owner may hold a slot too, in which case the server already
-      // names them as the current signer.
+      signed: w.completedSignatures > 0,
       waitingForMe: w.currentSignerUserId === username,
     });
   }
   for (const t of tasks) {
-    const existing = rows.get(t.workflowId);
     rows.set(t.workflowId, {
       id: t.workflowId,
       name: t.documentName,
       status: t.status,
-      signed: t.completedSignatures,
-      total: t.totalSignatures,
-      sent: Boolean(existing),
-      from: t.senderDisplayName ?? t.senderId ?? undefined,
-      waitingForMe: Boolean(
-        t.myState && (t.myState.waitingForMe || t.myState.waitingForClaim),
-      ),
+      signed: Boolean(t.myState?.signed),
+      waitingForMe: Boolean(t.myState?.waitingForMe),
     });
   }
   return [...rows.values()];
 }
 
-/** The second line of a row: who it is from, and how far it has got. */
+/** The second line of a row: where the document has got to. */
 export function rowStory(row: Row): string {
-  const progress = `${row.signed} of ${row.total} signed`;
-  if (row.sent || !row.from) {
-    return `you sent this · ${progress}`;
+  if (row.signed) {
+    return "you signed this";
   }
-  return `from ${row.from} · ${progress}`;
+  return STATE_WORDS[row.status] ?? row.status;
 }
 
-/** The three groups, in the order they are shown. */
+/** The two groups, in the order they are shown. */
 export function groupRows(rows: Row[]) {
   const finished = rows.filter((row) => FINISHED.includes(row.status));
   const live = rows.filter((row) => !FINISHED.includes(row.status));

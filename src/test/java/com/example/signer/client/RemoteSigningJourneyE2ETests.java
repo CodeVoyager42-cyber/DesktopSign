@@ -66,11 +66,7 @@ class RemoteSigningJourneyE2ETests {
     @Test
     void reviewCardCheckProgressAndVerifiedResult() throws Exception {
         String aliceFp = fingerprint(MockSigningToken.DEFAULT_ALIAS);
-        String bobFp = fingerprint(MockSigningToken.THIRD_ALIAS);
-        String id = service.createWorkflow(new CreateWorkflowRequest("contract.pdf",
-                "SEQUENTIAL", List.of(
-                        new CreateWorkflowRequest.SignerSpec(1, "alice", aliceFp),
-                        new CreateWorkflowRequest.SignerSpec(2, "bob", bobFp))),
+        String id = service.createWorkflow(new CreateWorkflowRequest("contract.pdf", aliceFp),
                 pdf(), "alice").workflowId();
 
         String base = "http://localhost:" + port;
@@ -122,7 +118,7 @@ class RemoteSigningJourneyE2ETests {
             assertThat(stages).containsExactly(RemoteSigningService.Stage.values());
             assertThat(new String(pin)).isEqualTo("\0".repeat(pin.length));
             assertThat(response.acceptedRevision()).isEqualTo(1);
-            assertThat(response.nextSignerUserId()).isEqualTo("bob");
+            assertThat(response.completed()).as("one signer, so it is finished").isTrue();
 
             // Success screen data: re-verified signed file
             SignatureVerificationResult verification =
@@ -151,16 +147,15 @@ class RemoteSigningJourneyE2ETests {
                 assertThat(pd.getPages().indexOf(widget.getPage())).isZero();
             }
 
-            // The next signer's workspace shows alice's box as an existing
-            // signature (so bob can avoid covering it).
+            // Nobody else has any part in this document: another account is
+            // told it does not exist rather than being shown the placement.
             WorkflowApiClient bob = new WorkflowApiClient(base,
                     WorkflowApiClient.Session.login(base, "bob", "bob-pass"));
             try {
-                var bobReview = new RemoteSigningService(bob, workflowSigningService, tokenService)
-                        .prepareReview(id, Files.createTempDirectory("journey-bob"));
-                assertThat(bobReview.task().signerOrder()).isEqualTo(2);
-                assertThat(bobReview.otherPlacements()).containsExactly(drawn);
-                assertThat(bobReview.requiredCertificate().matchesFingerprint(bobFp)).isTrue();
+                org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        new RemoteSigningService(bob, workflowSigningService, tokenService)
+                                .prepareReview(id, Files.createTempDirectory("journey-bob")))
+                        .isInstanceOf(com.example.signer.exception.SignerException.class);
             } finally {
                 bob.close();
             }
@@ -172,8 +167,7 @@ class RemoteSigningJourneyE2ETests {
     @Test
     void aDocumentThatChangedAfterReviewIsRefusedBeforeTheTokenIsUsed() throws Exception {
         String aliceFp = fingerprint(MockSigningToken.DEFAULT_ALIAS);
-        String id = service.createWorkflow(new CreateWorkflowRequest("nda.pdf",
-                "SEQUENTIAL", List.of(new CreateWorkflowRequest.SignerSpec(1, "alice", aliceFp))),
+        String id = service.createWorkflow(new CreateWorkflowRequest("nda.pdf", aliceFp),
                 pdf(), "alice").workflowId();
         String base = "http://localhost:" + port;
         WorkflowApiClient client = new WorkflowApiClient(base,

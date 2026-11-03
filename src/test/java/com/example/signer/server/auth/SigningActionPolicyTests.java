@@ -12,9 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SigningActionPolicyTests {
 
     @Test
-    void theFiveSigningActionsAreCovered() {
-        assertThat(SigningActionPolicy.requiresVerifiedEmail(
-                "POST", "/api/workflows/WF-1/claim")).isTrue();
+    void theFourSigningActionsAreCovered() {
         assertThat(SigningActionPolicy.requiresVerifiedEmail(
                 "GET", "/api/workflows/WF-1/document")).isTrue();
         assertThat(SigningActionPolicy.requiresVerifiedEmail(
@@ -45,7 +43,7 @@ class SigningActionPolicyTests {
         // A covered path reached with another method is not a signing action,
         // so no method confusion can slip past the pairing.
         assertThat(SigningActionPolicy.requiresVerifiedEmail(
-                "GET", "/api/workflows/WF-1/claim")).isFalse();
+                "GET", "/api/workflows/WF-1/launch-codes")).isFalse();
         assertThat(SigningActionPolicy.requiresVerifiedEmail(
                 "DELETE", "/api/workflows/WF-1/signatures")).isFalse();
         assertThat(SigningActionPolicy.requiresVerifiedEmail(

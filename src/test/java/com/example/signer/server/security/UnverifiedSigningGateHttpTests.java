@@ -6,7 +6,6 @@ import com.example.signer.server.WorkflowServerApplication;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionResponse;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
-import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 import com.example.signer.signing.SignaturePlacement;
 import com.example.signer.token.SigningCertificate;
@@ -83,9 +82,6 @@ class UnverifiedSigningGateHttpTests {
     private RemoteWorkflowService workflows;
 
     @Autowired
-    private WorkflowInvitationCoordinator coordinator;
-
-    @Autowired
     private DataSource dataSource;
 
     @Autowired
@@ -157,13 +153,10 @@ class UnverifiedSigningGateHttpTests {
         return mapper.readTree(r.body()).path("accessToken").asText();
     }
 
-    /** alice's workflow with bob as its only signer, certificate bound. */
+    /** bob's own document, with his certificate already bound. */
     private String workflowForBob(String fingerprint) {
-        List<CreateWorkflowRequest.SignerSpec> specs = new ArrayList<>();
-        specs.add(new CreateWorkflowRequest.SignerSpec(1, "bob", fingerprint));
-        WorkflowInvitationCoordinator.Preparation prep = coordinator.prepare(
-                new CreateWorkflowRequest("d4-gate.pdf", "SEQUENTIAL", specs), "alice");
-        WorkflowView view = workflows.createWorkflow(prep.request(), pdf(), "alice");
+        WorkflowView view = workflows.createWorkflow(
+                new CreateWorkflowRequest("d4-gate.pdf", fingerprint), pdf(), "bob");
         return view.workflowId();
     }
 
@@ -206,19 +199,20 @@ class UnverifiedSigningGateHttpTests {
     /* ------------------------- one test per route ----------------------- */
 
     @Test
-    void anUnverifiedAccountCannotClaimTheTurn() throws Exception {
-        String wf = workflowForBob(mockFingerprint());
+    void anUnverifiedAccountCannotRegisterItsSigningCertificate() throws Exception {
+        String wf = workflowForBob(null);              // slot still unbound
         String bob = login("bob");
-        String claimedBefore = jdbc.queryForObject("SELECT coalesce(claimed_turn_username, '-')"
-                + " FROM workflows WHERE workflow_id = ?", String.class, wf);
 
         unverify();
-        assertRefusedAsUnverified(call("POST", "/api/workflows/" + wf + "/claim", bob, null),
-                "POST /claim");
+        assertRefusedAsUnverified(call("POST",
+                "/api/workflows/" + wf + "/signers/bob/certificate", bob,
+                "{\"certificateSha256\":\"" + mockFingerprint() + "\"}"),
+                "POST /signers/bob/certificate");
 
-        assertThat(jdbc.queryForObject("SELECT coalesce(claimed_turn_username, '-')"
-                + " FROM workflows WHERE workflow_id = ?", String.class, wf))
-                .as("a refused claim must not take the turn").isEqualTo(claimedBefore);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM workflow_signers s JOIN workflows w"
+                        + " ON w.id = s.workflow_id WHERE w.workflow_id = ?"
+                        + " AND s.certificate_sha256 IS NOT NULL", Long.class, wf))
+                .as("a refused registration must not bind a certificate").isZero();
     }
 
     @Test
@@ -272,7 +266,7 @@ class UnverifiedSigningGateHttpTests {
 
     /**
      * The counterweight: the same account, verified, runs the whole desktop
-     * flow — download, claim, sign on the token, submit — and the result
+     * flow — download, sign on the token, submit — and the result
      * verifies. Nothing about the gate is in the way of a signer who has
      * proved their address.
      */

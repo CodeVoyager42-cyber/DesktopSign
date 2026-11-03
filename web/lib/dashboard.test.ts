@@ -8,8 +8,9 @@ import { FINISHED, STATE_WORDS, groupRows, mergeRows, rowStory } from "./dashboa
  *
  * Run with `npm test`, which is Node's own test runner — no test framework
  * added, and no bundler involved, because Node runs the TypeScript directly.
- * What is worth testing here is the merge: which group a document lands in
- * depends on the viewer's own slot, and a document can arrive in both lists.
+ * What is worth testing here is the merge: whether a document is waiting for
+ * its signer comes from the slot state, and the same document arrives in
+ * both lists.
  */
 
 function workflow(over: Partial<Workflow> = {}): Workflow {
@@ -19,12 +20,9 @@ function workflow(over: Partial<Workflow> = {}): Workflow {
     status: "WAITING_FOR_SIGNER",
     currentRevision: 0,
     completedSignatures: 0,
-    totalSignatures: 2,
     currentSignerUserId: null,
     currentSignerFingerprintShort: null,
     blockedReason: null,
-    signingPolicy: "SEQUENTIAL",
-    waitingForClaim: false,
     awaitingYourCertificate: false,
     ...over,
   };
@@ -34,33 +32,26 @@ function task(over: Partial<Task> = {}): Task {
   return {
     workflowId: "WF-1",
     documentName: "contract.pdf",
-    senderId: "sender",
-    senderDisplayName: "Sender Name",
+    senderId: "me",
+    senderDisplayName: "My Name",
     status: "WAITING_FOR_SIGNER",
     createdAt: null,
     completedAt: null,
     myState: {
-      myStateLabel: "WAITING_FOR_OTHERS",
-      participantOrder: 2,
+      myStateLabel: "IN_PROGRESS",
+      participantOrder: 1,
       signed: false,
       waitingForMe: false,
-      waitingForClaim: false,
     },
-    totalSignatures: 2,
-    completedSignatures: 1,
-    signingPolicy: "SEQUENTIAL",
-    participants: null,
-    expiresAt: null,
     updatedAt: null,
     ...over,
   };
 }
 
-test("a draft is waiting for certificates, not unsent", () => {
-  // Invitations go out when the workflow is created; DRAFT only means a slot
-  // still has no certificate bound. "Not sent yet" against a document whose
-  // invitations have gone would invite a pointless resend.
-  assert.equal(STATE_WORDS.DRAFT, "Waiting for certificates");
+test("a draft is waiting for a certificate, not unsent", () => {
+  // The PDF is already on the server; DRAFT only means no certificate is
+  // registered for it yet. "Not uploaded yet" would be a lie.
+  assert.equal(STATE_WORDS.DRAFT, "Waiting for your certificate");
 });
 
 test("a cancelled document is finished, so it has a group to live in", () => {
@@ -73,44 +64,33 @@ test("a cancelled document is finished, so it has a group to live in", () => {
   assert.deepEqual(finished.map((row) => row.status), ["CANCELLED"]);
 });
 
-test("a document appears once even when it is both sent and signed by you", () => {
+test("a document appears once even though it is in both lists", () => {
   const rows = mergeRows(
     [workflow({ workflowId: "WF-7" })],
-    [task({ workflowId: "WF-7" })],
+    [task({ workflowId: "WF-7", myState: { ...task().myState!, signed: true } })],
     "me",
   );
 
   assert.equal(rows.length, 1);
   // The participating entry wins, because it is the one that knows the
-  // viewer's own slot — but it is still marked as something they sent.
-  assert.equal(rows[0].sent, true);
-  assert.equal(rows[0].signed, 1);
+  // signer's own slot.
+  assert.equal(rows[0].signed, true);
 });
 
-test("the viewer's own slot decides the group, not the document's state", () => {
+test("the signer's own slot decides the group, not the document's state", () => {
   const waitingForMe = task({
     workflowId: "WF-MINE",
     myState: { ...task().myState!, waitingForMe: true },
   });
-  const waitingForThem = task({ workflowId: "WF-THEIRS" });
+  const beingPrepared = task({ workflowId: "WF-PREP" });
 
   const { mine, theirs, finished } = groupRows(
-    mergeRows([], [waitingForMe, waitingForThem], "me"),
+    mergeRows([], [waitingForMe, beingPrepared], "me"),
   );
 
   assert.deepEqual(mine.map((r) => r.id), ["WF-MINE"]);
-  assert.deepEqual(theirs.map((r) => r.id), ["WF-THEIRS"]);
+  assert.deepEqual(theirs.map((r) => r.id), ["WF-PREP"]);
   assert.equal(finished.length, 0);
-});
-
-test("a slot that only needs claiming is still action required", () => {
-  // FLEXIBLE workflows: nobody holds the turn until somebody claims it, and
-  // the viewer is one of the people who may.
-  const rows = mergeRows([], [task({
-    myState: { ...task().myState!, waitingForClaim: true },
-  })], "me");
-
-  assert.equal(groupRows(rows).mine.length, 1);
 });
 
 test("an owner who holds the current slot is action required too", () => {
@@ -142,16 +122,20 @@ test("cancelled and failed are finished, not in flight", () => {
   assert.deepEqual(finished.map((r) => r.id), ["WF-C", "WF-F", "WF-D"]);
 });
 
-test("the row's line says who it is from, or that you sent it", () => {
-  const sent = mergeRows([workflow()], [], "me")[0];
-  const received = mergeRows([], [task()], "me")[0];
+test("the row's line says where the document has got to", () => {
+  const waiting = mergeRows([workflow()], [], "me")[0];
+  const signed = mergeRows(
+    [],
+    [task({ myState: { ...task().myState!, signed: true } })],
+    "me",
+  )[0];
 
-  assert.equal(rowStory(sent), "you sent this · 0 of 2 signed");
-  assert.equal(rowStory(received), "from Sender Name · 1 of 2 signed");
+  assert.equal(rowStory(waiting), "Ready to sign");
+  assert.equal(rowStory(signed), "you signed this");
 });
 
-test("a sender with no display name falls back to the id", () => {
-  const row = mergeRows([], [task({ senderDisplayName: null })], "me")[0];
+test("an unrecognised state is shown as it came, not as a blank", () => {
+  const row = mergeRows([workflow({ status: "SOMETHING_NEW" })], [], "me")[0];
 
-  assert.equal(rowStory(row), "from sender · 1 of 2 signed");
+  assert.equal(rowStory(row), "SOMETHING_NEW");
 });

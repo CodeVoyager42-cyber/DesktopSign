@@ -5,7 +5,6 @@ import com.example.signer.server.auth.PasswordHashing;
 import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.EmailService;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,11 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.io.ByteArrayOutputStream;
@@ -45,8 +40,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Three properties are the point of this file. Every state-changing route
  * needs its CSRF token and not merely a session. Every one of them is the
- * owner's alone, and a guessable invitation id does not stand in for being
- * the owner. And the Phase D gate reaches here through the service: an
+ * owner's alone, and a guessable workflow id does not stand in for
+ * being the owner. And the Phase D gate reaches here through the service: an
  * account that has not confirmed its address cannot start a workflow,
  * although it may read (part 1).
  *
@@ -66,28 +61,11 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "signature.remote-server.login.rate-limit=1000"
         })
 @ActiveProfiles("server")
-@Import(WebWorkflowWriteHttpTests.SilentMailbox.class)
 @EnabledIf(value = "com.example.signer.server.web.WebWorkflowWriteHttpTests#freshDatabase",
         disabledReason = "PostgreSQL not reachable — set SIGNER_DB_USERNAME/SIGNER_DB_PASSWORD")
 class WebWorkflowWriteHttpTests {
 
     static final String DB = "signflow_web_write_test";
-
-    /**
-     * An invitation mailbox that never fails and keeps nothing. What the
-     * e-mail says is not what this class is about, and a real sender would
-     * make it depend on SMTP being reachable.
-     */
-    @TestConfiguration
-    static class SilentMailbox {
-
-        @Bean
-        @Primary
-        EmailService silentMailbox() {
-            return (recipientEmail, recipientName, workflowName, inviterName,
-                    invitationUrl, expiresAt) -> { };
-        }
-    }
 
     private static final String PASSWORD = "correct-password-1";
     private static final String CSRF_COOKIE = "XSRF-TOKEN";
@@ -124,46 +102,36 @@ class WebWorkflowWriteHttpTests {
     /* ----------------------------- the tests ---------------------------- */
 
     @Test
-    void aWorkflowStartedHereIsOwnedAndItsInvitationsAreTracked() throws Exception {
+    void aDocumentUploadedHereBelongsToTheCallerAndNobodyElse() throws Exception {
         Session owner = signIn(account(true));
-        String invitee = "invitee-" + UUID.randomUUID() + "@example.test";
 
-        Reply created = owner.createWorkflow(slot(1, invitee));
+        Reply created = owner.createWorkflow(request());
         assertThat(created.status()).as(created.body()).isEqualTo(201);
-        String workflow = created.json().path("workflow").path("workflowId").asText();
+        String workflow = created.json().path("workflowId").asText();
         assertThat(workflow).isNotBlank();
 
-        // It is the caller's, and the e-mailed link came back exactly once —
-        // in the answer to the call that sent it.
+        // It is the caller's, in both of their lists, and nobody is invited
+        // anywhere: the uploader is the signer.
         assertThat(owner.get("/web/api/workflows/owned").body()).contains(workflow);
-        assertThat(created.json().path("invitations").get(0).path("invitationUrl").asText())
-                .startsWith("http");
+        assertThat(owner.get("/web/api/workflows/participating").body()).contains(workflow);
+        assertThat(created.body()).doesNotContain("invitation");
 
-        // And the slot is tracked, by status, without the token.
-        Reply tracked = owner.get("/web/api/workflows/" + workflow + "/invitations");
-        assertThat(tracked.status()).isEqualTo(200);
-        assertThat(tracked.json().get(0).path("signerOrder").asInt()).isEqualTo(1);
-        assertThat(tracked.json().get(0).path("invitationId").asLong()).isPositive();
-        assertThat(tracked.body()).doesNotContain("invitationUrl");
+        Session stranger = signIn(account(true));
+        assertThat(stranger.get("/web/api/workflows/owned").body()).doesNotContain(workflow);
+        assertThat(stranger.get("/web/api/workflows/" + workflow).status()).isEqualTo(404);
     }
 
     @Test
     void everyStateChangingRouteNeedsItsCsrfToken() throws Exception {
         Session owner = signIn(account(true));
-        String workflow = owner.workflow("invitee-" + UUID.randomUUID() + "@example.test");
-        long invitation = owner.get("/web/api/workflows/" + workflow + "/invitations")
-                .json().get(0).path("invitationId").asLong();
+        String workflow = owner.workflow();
 
         // A session, and no CSRF token: refused before anything happens.
-        assertThat(owner.withoutCsrf().createWorkflow(slot(1, account(true))).status())
+        assertThat(owner.withoutCsrf().createWorkflow(request()).status())
                 .as("create without a CSRF token").isEqualTo(403);
         String[][] posts = {
-                {"/web/api/workflows/" + workflow + "/invitations",
-                        "{\"signerOrder\":1,\"email\":\"x@example.test\"}"},
                 {"/web/api/workflows/" + workflow + "/cancel", null},
-                {"/web/api/workflows/" + workflow + "/launch-codes", null},
-                {"/web/api/invitations/" + invitation + "/resend", null},
-                {"/web/api/invitations/" + invitation + "/revoke", null}};
+                {"/web/api/workflows/" + workflow + "/launch-codes", null}};
         for (String[] post : posts) {
             assertThat(owner.withoutCsrf().post(post[0], post[1]).status())
                     .as("POST " + post[0] + " without a CSRF token").isEqualTo(403);
@@ -177,19 +145,10 @@ class WebWorkflowWriteHttpTests {
     }
 
     @Test
-    void onlyTheOwnerInvitesTracksAndCancels() throws Exception {
+    void onlyTheOwnerCancels() throws Exception {
         Session owner = signIn(account(true));
-        String signerName = account(true);
-        String workflow = owner.workflow(signerName);
+        String workflow = owner.workflow();
 
-        // The signer of it is not its owner, and a stranger is neither.
-        for (Session caller : new Session[] {signIn(signerName), signIn(account(true))}) {
-            assertThat(caller.post("/web/api/workflows/" + workflow + "/invitations",
-                    "{\"signerOrder\":1,\"email\":\"x@example.test\"}").status())
-                    .as("invite as someone other than the owner").isIn(403, 404);
-            assertThat(caller.get("/web/api/workflows/" + workflow + "/invitations").status())
-                    .as("track as someone other than the owner").isIn(200, 403, 404);
-        }
         // A stranger cannot even see it, so cancelling is the uniform 404.
         Session stranger = signIn(account(true));
         Reply cancel = stranger.post("/web/api/workflows/" + workflow + "/cancel", null);
@@ -206,26 +165,25 @@ class WebWorkflowWriteHttpTests {
     }
 
     @Test
-    void anInvitationIdIsNotACapability() throws Exception {
+    void aWorkflowIdIsNotACapability() throws Exception {
         Session owner = signIn(account(true));
-        String workflow = owner.workflow("invitee-" + UUID.randomUUID() + "@example.test");
-        long invitation = owner.get("/web/api/workflows/" + workflow + "/invitations")
-                .json().get(0).path("invitationId").asLong();
+        String workflow = owner.workflow();
 
-        // Somebody else's invitation id, known exactly, is worth nothing:
-        // the answer is the one a made-up id gets.
+        // Somebody else's workflow id, known exactly, is worth nothing: the
+        // answer is the one a made-up id gets.
         Session stranger = signIn(account(true));
-        for (String action : new String[] {"/resend", "/revoke"}) {
-            Reply theirs = stranger.post("/web/api/invitations/" + invitation + action, null);
-            Reply nobodys = stranger.post("/web/api/invitations/" + (invitation + 10_000)
-                    + action, null);
-            assertThat(theirs.status()).as("POST " + action + " on another owner's invitation")
+        String missing = "WF-" + (900_000_000 + RANDOM.nextInt(99_999_999));
+        for (String action : new String[] {"/cancel", "/launch-codes"}) {
+            Reply theirs = stranger.post("/web/api/workflows/" + workflow + action, null);
+            Reply nobodys = stranger.post("/web/api/workflows/" + missing + action, null);
+            assertThat(theirs.status()).as("POST " + action + " on another owner's document")
                     .isEqualTo(nobodys.status());
             assertThat(theirs.status()).isNotEqualTo(200);
-            assertThat(theirs.status()).isNotEqualTo(204);
+            assertThat(theirs.status()).isNotEqualTo(201);
+            assertThat(theirs.body()).isEqualTo(nobodys.body());
         }
-        // Untouched: the owner can still resend it.
-        assertThat(owner.post("/web/api/invitations/" + invitation + "/resend", null).status())
+        // Untouched: its owner can still cancel it.
+        assertThat(owner.post("/web/api/workflows/" + workflow + "/cancel", null).status())
                 .isEqualTo(200);
     }
 
@@ -234,25 +192,21 @@ class WebWorkflowWriteHttpTests {
         // The gate is in RemoteWorkflowService.createWorkflow, so it holds on
         // this route without the route knowing about it (phase-d §5).
         Session unverified = signIn(account(false));
-        Reply refused = unverified.createWorkflow(slot(1, account(true)));
+        Reply refused = unverified.createWorkflow(request());
 
         assertThat(refused.status()).as(refused.body()).isEqualTo(403);
         assertThat(refused.json().path("code").asText()).isEqualTo("EMAIL_NOT_VERIFIED");
         assertThat(unverified.get("/web/api/workflows/owned").body()).isEqualTo("[]");
     }
 
-    /* ------------------------------ helpers ----------------------------- */
-
-    /** One signer slot as the JSON of {@code CreateWorkflowRequest}. */
     @Test
     void aSignerAsksTheWebsiteForTheLinkThatOpensTheirDesktop() throws Exception {
         String signer = account(true);
-        Session owner = signIn(account(true));
-        // slot() binds a certificate, so slot 1 can sign as soon as it exists
-        // — a launch never enrols a certificate (Phase B review, H2).
-        String workflow = owner.workflow(signer);
-
         Session theSigner = signIn(signer);
+        // request() carries a certificate, so the document can be signed as
+        // soon as it exists — a launch never enrols a certificate (Phase B
+        // review, H2).
+        String workflow = theSigner.workflow();
         String path = "/web/api/workflows/" + workflow + "/launch-codes";
         Reply issued = theSigner.post(path, null);
 
@@ -299,17 +253,9 @@ class WebWorkflowWriteHttpTests {
     }
 
     @Test
-    void onlyASignerOfTheWorkflowGetsALaunchLink() throws Exception {
-        String signer = account(true);
-        Session owner = signIn(account(true));
-        String workflow = owner.workflow(signer);
-
-        // The creator of a workflow they do not sign holds no slot of it, so
-        // there is no signing task for them to open.
-        assertThat(owner.post("/web/api/workflows/" + workflow + "/launch-codes", null)
-                .status())
-                .as("the owner is not a signer here")
-                .isEqualTo(403);
+    void onlyTheSignerOfTheWorkflowGetsALaunchLink() throws Exception {
+        Session theSigner = signIn(account(true));
+        String workflow = theSigner.workflow();
 
         // A stranger gets the uniform answer for a workflow that is not
         // theirs, and never learns whether this one exists.
@@ -317,22 +263,21 @@ class WebWorkflowWriteHttpTests {
         assertThat(stranger.post("/web/api/workflows/" + workflow + "/launch-codes", null)
                 .status())
                 .isIn(403, 404);
+        // Its own signer gets the link.
+        assertThat(theSigner.post("/web/api/workflows/" + workflow + "/launch-codes", null)
+                .status()).isEqualTo(201);
     }
 
     @Test
     void aSlotWithNoCertificateCannotBeOpenedFromTheWebsite() throws Exception {
-        String signer = account(true);
-        Session owner = signIn(account(true));
+        Session theSigner = signIn(account(true));
         // The shape every workflow the website creates has: no certificate,
         // because one lives on the signer's own card.
-        Reply created = owner.createWorkflow(
-                "{\"documentName\":\"unbound.pdf\",\"signingPolicy\":\"SEQUENTIAL\","
-                + "\"signers\":[{\"order\":1,\"userId\":\"" + signer
-                + "\",\"certificateSha256\":null}]}");
+        Reply created = theSigner.createWorkflow(
+                "{\"documentName\":\"unbound.pdf\",\"certificateSha256\":null}");
         assertThat(created.status()).as(created.body()).isEqualTo(201);
-        String workflow = created.json().path("workflow").path("workflowId").asText();
+        String workflow = created.json().path("workflowId").asText();
 
-        Session theSigner = signIn(signer);
         Reply refused = theSigner.post(
                 "/web/api/workflows/" + workflow + "/launch-codes", null);
 
@@ -345,10 +290,10 @@ class WebWorkflowWriteHttpTests {
                 .isIn("CERTIFICATE_NOT_BOUND", "INVALID_WORKFLOW_STATE");
     }
 
-    private static String slot(int order, String userId) {
-        return "{\"documentName\":\"phase-e.pdf\",\"signingPolicy\":\"SEQUENTIAL\","
-                + "\"signers\":[{\"order\":" + order + ",\"userId\":\"" + userId
-                + "\",\"certificateSha256\":\"" + fingerprint() + "\"}]}";
+    /** The JSON of a {@code CreateWorkflowRequest} carrying a certificate. */
+    private static String request() {
+        return "{\"documentName\":\"phase-e.pdf\",\"certificateSha256\":\""
+                + fingerprint() + "\"}";
     }
 
     /** An account with a known password, verified or not as asked. */
@@ -419,11 +364,11 @@ class WebWorkflowWriteHttpTests {
             return reply(b.build());
         }
 
-        /** A workflow owned by this session, with one slot for {@code signer}. */
-        String workflow(String signer) throws Exception {
-            Reply created = createWorkflow(slot(1, signer));
+        /** A document uploaded by this session, which is also its signer. */
+        String workflow() throws Exception {
+            Reply created = createWorkflow(request());
             assertThat(created.status()).as(created.body()).isEqualTo(201);
-            return created.json().path("workflow").path("workflowId").asText();
+            return created.json().path("workflowId").asText();
         }
     }
 

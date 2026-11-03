@@ -201,10 +201,16 @@ class AccountTokenMigrationLiveTests {
                 .as("an existing website session survives the migration").isEqualTo("1");
         String after = one("SELECT string_agg(table_name, ',' ORDER BY table_name)"
                 + " FROM information_schema.tables WHERE table_schema = 'public'");
-        // Only additions: every pre-V10 table is still there.
+        // Only additions: every pre-V10 table is still there — apart from
+        // the one a later migration deliberately drops (V14 removes
+        // `invitations` with the signing-invitation feature).
         for (String table : before.split(",")) {
+            if ("invitations".equals(table)) {
+                continue;
+            }
             assertThat(after).contains(table);
         }
+        assertThat(after).doesNotContain("invitations");
         assertThat(after).contains("email_verification_tokens", "password_reset_tokens");
     }
 }

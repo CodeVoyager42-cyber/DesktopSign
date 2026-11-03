@@ -1,7 +1,6 @@
 package com.example.signer.server.db;
 
 import com.example.signer.server.workflow.AuditEventType;
-import com.example.signer.workflow.WorkflowSigningPolicy;
 import java.math.BigDecimal;
 import com.example.signer.server.workflow.AuditEventRecord;
 import com.example.signer.server.workflow.DocumentRevisionRecord;
@@ -20,6 +19,9 @@ import com.example.signer.server.db.repository.AuditEventRepository;
 import com.example.signer.server.db.repository.DocumentVersionRepository;
 import com.example.signer.server.db.repository.WorkflowRepository;
 import com.example.signer.server.db.repository.WorkflowSignerRepository;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.OptimisticLockException;
@@ -53,6 +55,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @ConditionalOnProperty(name = "signature.remote-server.database.enabled",
         havingValue = "true")
 public class JpaWorkflowStore implements WorkflowStore {
+
+    private static final Logger log = LoggerFactory.getLogger(JpaWorkflowStore.class);
 
     private final WorkflowRepository workflows;
     private final WorkflowSignerRepository signers;
@@ -133,15 +137,13 @@ public class JpaWorkflowStore implements WorkflowStore {
         List<AuditEventRecord> audit = auditEvents
                 .findByWorkflowIdOrderByEventSeq(wf.getId()).stream()
                 .map(JpaWorkflowStore::toRecord)
+                .filter(java.util.Objects::nonNull)
                 .toList();
         return SigningWorkflowAggregate.rehydrateStored(wf.getWorkflowId(),
                 wf.getDocumentName(),
-                WorkflowSigningPolicy.parse(wf.getPolicy()),
                 signers, revisions, audit,
                 WorkflowState.valueOf(wf.getStatus()),
                 wf.getBlockedReason(),
-                wf.getClaimedTurnUsername(),
-                wf.getClaimedTurnAt(),
                 wf.getCreatedBy(),
                 wf.getVersion() == null ? 0L : wf.getVersion());
     }
@@ -203,11 +205,8 @@ public class JpaWorkflowStore implements WorkflowStore {
             wf.touch(); // always a versioned UPDATE, even if only child rows change
         }
         wf.setDocumentName(snap.documentName());
-        wf.setPolicy(snap.policy().name());
         wf.setStatus(snap.status().name());
         wf.setBlockedReason(snap.blockedReason());
-        wf.setClaimedTurnUsername(snap.claimedTurnUserId());
-        wf.setClaimedTurnAt(snap.claimedTurnAt());
         wf.setCreatedBy(snap.createdBy());
         wf = workflows.save(wf);
 
@@ -330,9 +329,28 @@ public class JpaWorkflowStore implements WorkflowStore {
                 e.getCreatedAt(), e.getCreatedBy());
     }
 
+    /**
+     * One audit row, or {@code null} when its {@code event_type} is not one
+     * this build knows.
+     *
+     * <p>A row like that is from a feature that no longer exists (the
+     * removed invitation flow wrote several types of its own; V14 deletes
+     * them). Skipping it degrades the trail by one line, which is far better
+     * than {@code valueOf} throwing and making the whole document
+     * unreadable — a hand-edited row or a database that skipped the
+     * migration must not be able to lock somebody out of their own
+     * signature.
+     */
     private static AuditEventRecord toRecord(AuditEventEntity e) {
-        return new AuditEventRecord(e.getEventSeq(),
-                AuditEventType.valueOf(e.getEventType()),
+        AuditEventType type;
+        try {
+            type = AuditEventType.valueOf(e.getEventType());
+        } catch (IllegalArgumentException unknown) {
+            log.warn("Skipping audit row {} of workflow {}: unknown event type '{}'",
+                    e.getEventSeq(), e.getWorkflowId(), e.getEventType());
+            return null;
+        }
+        return new AuditEventRecord(e.getEventSeq(), type,
                 e.getActor(), e.getDetail(), e.getOccurredAt());
     }
 }

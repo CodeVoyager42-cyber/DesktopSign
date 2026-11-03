@@ -13,8 +13,8 @@ import com.example.signer.server.db.repository.EmailVerificationTokenRepository;
 import com.example.signer.server.db.repository.LoginFailureRepository;
 import com.example.signer.server.db.repository.PasswordResetTokenRepository;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.EmailService;
-import com.example.signer.server.invites.InvitationLinkResolver;
+import com.example.signer.server.email.EmailService;
+import com.example.signer.server.email.PublicBaseUrlResolver;
 import com.example.signer.server.security.IdentityRateLimiter;
 import com.example.signer.server.security.InMemoryRateLimitStore;
 import com.example.signer.server.security.RateLimitStore;
@@ -91,7 +91,7 @@ public class WebAccountService {
     private final EmailVerificationTokenRepository verifications;
     private final PasswordResetTokenRepository resets;
     private final EmailService email;
-    private final InvitationLinkResolver links;
+    private final PublicBaseUrlResolver links;
     private final RefreshTokenStore refreshTokens;
     private final WebSessionRegistry webSessions;
     private final Clock clock;
@@ -105,7 +105,7 @@ public class WebAccountService {
                              EmailVerificationTokenRepository verifications,
                              PasswordResetTokenRepository resets,
                              EmailService email,
-                             InvitationLinkResolver links,
+                             PublicBaseUrlResolver links,
                              RefreshTokenStore refreshTokens,
                              WebSessionRegistry webSessions,
                              @Value("${signature.remote-server.web.mail-limit:3}") int mailLimit,
@@ -119,7 +119,7 @@ public class WebAccountService {
                       EmailVerificationTokenRepository verifications,
                       PasswordResetTokenRepository resets,
                       EmailService email,
-                      InvitationLinkResolver links,
+                      PublicBaseUrlResolver links,
                       RefreshTokenStore refreshTokens,
                       WebSessionRegistry webSessions,
                       Clock clock,
@@ -133,7 +133,7 @@ public class WebAccountService {
                       EmailVerificationTokenRepository verifications,
                       PasswordResetTokenRepository resets,
                       EmailService email,
-                      InvitationLinkResolver links,
+                      PublicBaseUrlResolver links,
                       RefreshTokenStore refreshTokens,
                       WebSessionRegistry webSessions,
                       Clock clock,

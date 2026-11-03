@@ -14,7 +14,6 @@ import com.example.signer.token.TokenService;
 import com.example.signer.token.mock.MockSigningToken;
 import com.example.signer.token.mock.MockTokenSimulator;
 import com.example.signer.verification.PdfVerificationService;
-import com.example.signer.workflow.WorkflowSigningPolicy;
 import com.example.signer.workflow.WorkflowSigningService;
 
 import org.junit.jupiter.api.AfterEach;
@@ -60,7 +59,7 @@ class WorkflowConcurrencyRegressionTests {
     private static final Set<ApiErrorCode> CONFLICT_CODES = Set.of(
             ApiErrorCode.NOT_YOUR_TURN, ApiErrorCode.INVALID_WORKFLOW_STATE,
             ApiErrorCode.STALE_REVISION, ApiErrorCode.REVISION_CONFLICT,
-            ApiErrorCode.SIGNATURE_FIELD_ALREADY_SIGNED, ApiErrorCode.TURN_ALREADY_CLAIMED,
+            ApiErrorCode.SIGNATURE_FIELD_ALREADY_SIGNED,
             ApiErrorCode.WORKFLOW_CONFLICT);
 
     @Autowired
@@ -91,7 +90,7 @@ class WorkflowConcurrencyRegressionTests {
 
     @Test
     void sameSignerSubmittingTwiceSimultaneouslyCreatesExactlyOneRevision() throws Exception {
-        String id = create(WorkflowSigningPolicy.SEQUENTIAL, "alice", "bob");
+        String id = create("alice");
         byte[] signed = signLocally(id, "alice", 1);
 
         List<Outcome> outcomes = race(4, i -> () -> service.submitSignature(id, "alice",
@@ -100,15 +99,14 @@ class WorkflowConcurrencyRegressionTests {
         assertThat(outcomes.stream().filter(Outcome::ok)).hasSize(1);
         outcomes.stream().filter(o -> !o.ok()).forEach(o -> assertConflict(o.error()));
         assertRevisions(id, 0, 1);
-        assertThat(service.getWorkflow(id, "alice").status()).isEqualTo("WAITING_FOR_SIGNER");
-        assertThat(store.load(id).signers().get(0).signed()).isTrue();
-        assertThat(store.load(id).signers().get(1).signed()).isFalse();
+        assertThat(service.getWorkflow(id, "alice").status()).isEqualTo("COMPLETED");
+        assertThat(store.load(id).signer().signed()).isTrue();
     }
 
     @Test
     void duplicateSubmissionsWithTheSameOperationIdAllReturnTheOriginalRevision()
             throws Exception {
-        String id = create(WorkflowSigningPolicy.SEQUENTIAL, "alice", "bob");
+        String id = create("alice");
         byte[] signed = signLocally(id, "alice", 1);
 
         List<Outcome> outcomes = race(4, i -> () -> service.submitSignature(id, "alice",
@@ -123,59 +121,51 @@ class WorkflowConcurrencyRegressionTests {
         assertRevisions(id, 0, 1);
     }
 
+    /**
+     * Two independently signed copies of revision 0 arriving together: only
+     * one can be accepted, and the other must lose with a typed conflict
+     * rather than overwrite it.
+     */
     @Test
-    void twoFlexibleSignersSubmittingSimultaneouslyCommitExactlyOneTransition()
-            throws Exception {
-        String id = create(WorkflowSigningPolicy.FLEXIBLE, "alice", "bob");
-        // Both signers hold a locally signed copy of revision 0 (e.g. one of
-        // them downloaded it under a claim that later expired).
-        byte[] aliceSigned = signStoredRevision(id, 0, 1);
-        byte[] bobSigned = signStoredRevision(id, 0, 2);
-        Map<String, byte[]> bytes = Map.of("alice", aliceSigned, "bob", bobSigned);
-        List<String> users = List.of("alice", "bob");
+    void twoSignaturesOfTheSameRevisionCommitExactlyOneTransition() throws Exception {
+        String id = create("alice");
+        byte[] first = signStoredRevision(id, 0, 1);
+        byte[] second = signStoredRevision(id, 0, 1);
+        Map<Integer, byte[]> bytes = Map.of(0, first, 1, second);
 
-        List<Outcome> outcomes = race(2, i -> () -> {
-            String user = users.get(i);
-            service.claimTurn(id, user);
-            return service.submitSignature(id, user, bytes.get(user),
-                    new SignatureSubmissionRequest(0, null, "op-flex-" + user));
-        });
+        List<Outcome> outcomes = race(2, i -> () ->
+                service.submitSignature(id, "alice", bytes.get(i),
+                        new SignatureSubmissionRequest(0, null, "op-race-" + i)));
 
         assertThat(outcomes.stream().filter(Outcome::ok)).hasSize(1);
         outcomes.stream().filter(o -> !o.ok()).forEach(o -> assertConflict(o.error()));
         assertRevisions(id, 0, 1);
-        long signedSlots = store.load(id).signers().stream()
-                .filter(WorkflowSignerRecord::signed).count();
-        assertThat(signedSlots).isEqualTo(1);
+        assertThat(store.load(id).signer().signed()).isTrue();
     }
 
     @Test
-    void submitWhileAnotherSignerClaimsNeverLosesTheAcceptedSignature() throws Exception {
-        String id = create(WorkflowSigningPolicy.FLEXIBLE, "alice", "bob");
-        service.claimTurn(id, "alice");
+    void aSubmissionRacingAReadNeverLosesTheAcceptedSignature() throws Exception {
+        String id = create("alice");
         byte[] aliceSigned = signLocally(id, "alice", 1);
 
         List<Outcome> outcomes = race(2, i -> i == 0
                 ? () -> service.submitSignature(id, "alice", aliceSigned,
                         new SignatureSubmissionRequest(0, null, "op-a"))
-                : () -> service.claimTurn(id, "bob"));
+                : () -> service.getTask(id, "alice"));
 
-        assertThat(outcomes.get(0).ok()).as("alice holds the turn: %s",
+        assertThat(outcomes.get(0).ok()).as("the signature is accepted: %s",
                 outcomes.get(0).error()).isTrue();
-        if (!outcomes.get(1).ok()) {
-            assertConflict(outcomes.get(1).error());
-        }
+        assertThat(outcomes.get(1).ok()).isTrue();
         SigningWorkflowAggregate wf = store.load(id);
-        assertThat(wf.signers().get(0).signed()).isTrue();
+        assertThat(wf.signer().signed()).isTrue();
         assertRevisions(id, 0, 1);
-        // Bob can (still) take the turn now that alice is done.
-        assertThat(service.claimTurn(id, "bob").signerOrder()).isEqualTo(2);
+        assertThat(service.getWorkflow(id, "alice").status()).isEqualTo("COMPLETED");
     }
 
     @Test
     void submitRacingCancelLeavesExactlyOneConsistentTerminalState() throws Exception {
         for (int round = 0; round < 4; round++) {
-            String id = create(WorkflowSigningPolicy.SEQUENTIAL, "alice");
+            String id = create("alice");
             byte[] signed = signLocally(id, "alice", 1);
             final int r = round;
 
@@ -200,7 +190,7 @@ class WorkflowConcurrencyRegressionTests {
 
     @Test
     void aStaleSubmitNeverReplacesTheAcceptedRevision() throws Exception {
-        String id = create(WorkflowSigningPolicy.SEQUENTIAL, "alice", "bob");
+        String id = create("alice");
         byte[] first = signLocally(id, "alice", 1);
         service.submitSignature(id, "alice", first,
                 new SignatureSubmissionRequest(0, null, "op-first"));
@@ -223,23 +213,25 @@ class WorkflowConcurrencyRegressionTests {
 
     @Test
     void onlyTheOwnerCanCancel() throws Exception {
-        String id = createOwnedBy("charlie", "alice", "bob");
+        String id = create("alice");
 
-        ApiException bySigner = catchApi(() -> service.cancelWorkflow(id, "bob"));
-        assertThat(bySigner.code()).isEqualTo(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE);
-        assertThat(httpStatus(bySigner)).isEqualTo(HttpStatus.FORBIDDEN);
-        assertThat(catchApi(() -> service.cancelWorkflow(id, "alice")).code())
-                .isEqualTo(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE);
-        assertThat(catchApi(() -> service.cancelWorkflow(id, "mallory")).code())
-                .isIn(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE, ApiErrorCode.WORKFLOW_NOT_FOUND);
-        assertThat(service.getWorkflow(id, "charlie").status()).isEqualTo("WAITING_FOR_SIGNER");
+        // Nobody else has any part in it, so both get the uniform answer for
+        // a workflow that is not theirs.
+        for (String other : new String[] {"bob", "mallory"}) {
+            ApiException refused = catchApi(() -> service.cancelWorkflow(id, other));
+            assertThat(refused.code()).as("cancel as " + other)
+                    .isIn(ApiErrorCode.WORKFLOW_NOT_ACCESSIBLE,
+                            ApiErrorCode.WORKFLOW_NOT_FOUND);
+            assertThat(httpStatus(refused).is4xxClientError()).isTrue();
+        }
+        assertThat(service.getWorkflow(id, "alice").status()).isEqualTo("WAITING_FOR_SIGNER");
 
-        assertThat(service.cancelWorkflow(id, "charlie").status()).isEqualTo("CANCELLED");
+        assertThat(service.cancelWorkflow(id, "alice").status()).isEqualTo("CANCELLED");
     }
 
     @Test
     void aCancelledWorkflowNeverBecomesActiveAgain() throws Exception {
-        String id = create(WorkflowSigningPolicy.SEQUENTIAL, "alice", "bob");
+        String id = create("alice");
         byte[] signed = signLocally(id, "alice", 1);
         service.cancelWorkflow(id, "alice");
 
@@ -255,7 +247,7 @@ class WorkflowConcurrencyRegressionTests {
 
     @Test
     void aStaleCancelAfterCompletionLeavesTheWorkflowCompleted() throws Exception {
-        String id = create(WorkflowSigningPolicy.SEQUENTIAL, "alice");
+        String id = create("alice");
         // The owner's window still shows "waiting" when the signature lands.
         SigningWorkflowAggregate staleView = store.load(id);
         byte[] signed = signLocally(id, "alice", 1);
@@ -279,7 +271,7 @@ class WorkflowConcurrencyRegressionTests {
 
     @Test
     void aStaleAggregateWriteIsRejectedInsteadOfOverwritingNewerState() throws Exception {
-        String id = create(WorkflowSigningPolicy.SEQUENTIAL, "alice", "bob");
+        String id = create("alice");
         SigningWorkflowAggregate first = store.load(id);
         SigningWorkflowAggregate second = store.load(id);
 
@@ -298,7 +290,7 @@ class WorkflowConcurrencyRegressionTests {
 
     @Test
     void auditSequenceStaysUniqueAndContiguousUnderConcurrentWrites() throws Exception {
-        String id = create(WorkflowSigningPolicy.FLEXIBLE, "alice", "bob");
+        String id = create("alice");
         List<Outcome> outcomes = race(8, i -> () -> {
             synchronized (store.lockFor(id)) {
                 SigningWorkflowAggregate wf = store.load(id);
@@ -321,7 +313,7 @@ class WorkflowConcurrencyRegressionTests {
     @Test
     void aStoreFailureAfterTheRevisionFileWriteLeavesNoOrphanAndCanBeRetried()
             throws Exception {
-        String id = create(WorkflowSigningPolicy.SEQUENTIAL, "alice", "bob");
+        String id = create("alice");
         byte[] signed = signLocally(id, "alice", 1);
 
         FailingStore failing = new FailingStore(store);
@@ -331,8 +323,7 @@ class WorkflowConcurrencyRegressionTests {
                 workflowSigningService,
                 context.getBean(SignaturePlacementExtractor.class),
                 context.getBeanProvider(com.example.signer.server.auth.UserAccountService.class),
-                context.getBeanProvider(WorkflowDirectory.class),
-                context.getBeanProvider(com.example.signer.server.invites.InvitationService.class));
+                context.getBeanProvider(WorkflowDirectory.class));
 
         failing.failSaveAfterRevisionWrite = true;
         assertThatThrownBy(() -> failingService.submitSignature(id, "alice", signed,
@@ -442,23 +433,12 @@ class WorkflowConcurrencyRegressionTests {
                 .containsExactly(numbers);
     }
 
-    private String create(WorkflowSigningPolicy policy, String... users) throws Exception {
-        List<CreateWorkflowRequest.SignerSpec> specs = new ArrayList<>();
-        for (int i = 0; i < users.length; i++) {
-            specs.add(new CreateWorkflowRequest.SignerSpec(i + 1, users[i], fp(users[i])));
-        }
-        WorkflowView view = service.createWorkflow(new CreateWorkflowRequest(
-                "contract.pdf", policy.name(), specs), originalPdf(), users[0]);
+    /** A document uploaded by {@code signer}, who is its only signer. */
+    private String create(String signer) throws Exception {
+        WorkflowView view = service.createWorkflow(
+                new CreateWorkflowRequest("contract.pdf", fp(signer)),
+                originalPdf(), signer);
         return view.workflowId();
-    }
-
-    private String createOwnedBy(String owner, String... users) throws Exception {
-        List<CreateWorkflowRequest.SignerSpec> specs = new ArrayList<>();
-        for (int i = 0; i < users.length; i++) {
-            specs.add(new CreateWorkflowRequest.SignerSpec(i + 1, users[i], fp(users[i])));
-        }
-        return service.createWorkflow(new CreateWorkflowRequest("contract.pdf",
-                "SEQUENTIAL", specs), originalPdf(), owner).workflowId();
     }
 
     /** Download the current revision as {@code user} and sign slot {@code order}. */
@@ -528,8 +508,8 @@ class WorkflowConcurrencyRegressionTests {
     /** One-signer aggregate in {@code status}, signed or not (rev 0 [+1]). */
     private static SigningWorkflowAggregate aggregate(WorkflowState status, boolean signed) {
         SigningWorkflowAggregate base = SigningWorkflowAggregate.create("WF-GUARD",
-                "doc.pdf", WorkflowSigningPolicy.SEQUENTIAL,
-                List.of(WorkflowSignerRecord.bound(1, "alice", "AB".repeat(32))), "alice");
+                "doc.pdf", WorkflowSignerRecord.bound(1, "alice", "AB".repeat(32)),
+                "alice");
         base.transition(WorkflowState.READY_FOR_SIGNING);
         base.transition(WorkflowState.WAITING_FOR_SIGNER);
         if (signed) {
@@ -537,8 +517,8 @@ class WorkflowConcurrencyRegressionTests {
         }
         SigningWorkflowAggregate.Snapshot s = base.snapshot();
         return SigningWorkflowAggregate.rehydrate(s.workflowId(), s.documentName(),
-                s.policy(), s.signers(), s.revisions(), s.audit(), status,
-                s.blockedReason(), s.claimedTurnUserId(), s.claimedTurnAt(), s.createdBy());
+                s.signers(), s.revisions(), s.audit(), status,
+                s.blockedReason(), s.createdBy());
     }
 
     /**

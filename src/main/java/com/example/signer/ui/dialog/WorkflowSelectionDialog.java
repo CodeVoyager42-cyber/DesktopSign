@@ -8,13 +8,10 @@ import javafx.scene.control.Hyperlink;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import com.example.signer.ui.support.UiSupport;
-import com.example.signer.workflow.SigningMode;
 
 import org.kordamp.ikonli.fontawesome5.FontAwesomeSolid;
 import org.kordamp.ikonli.javafx.FontIcon;
 
-import javafx.beans.property.ObjectProperty;
-import javafx.beans.property.SimpleObjectProperty;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
@@ -32,21 +29,12 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
 
-import java.util.List;
-
 /**
- * Home screen ("What would you like to do?"), shown after sign-in. Four
- * large one-click actions cover the everyday tasks — sign here, send for
- * signature, documents to sign, open an invitation — and the less common
- * modes (several signers on one computer, continuing a signing PDF) are
- * small links underneath.
- *
- * <p>Presents one selectable card per {@link SigningMode} (driven from
- * {@link SigningMode#selectableModes()}, so new modes appear automatically).
- * Single selection via mouse or keyboard (arrows to move, Enter/Space to
- * select, Enter on Continue to proceed), a disabled Continue until a card is
- * chosen, and Back / Sign out for the bottom navigation. The chosen mode is
- * returned to the caller; {@code null} means the user backed out.</p>
+ * Home screen ("What would you like to do?"), shown after sign-in. Two
+ * large one-click actions cover everything SignFlow does — sign a PDF here
+ * on this computer, or work through the documents held on the server — and
+ * continuing a signing PDF that already carries its own workflow is a small
+ * link underneath.
  *
  * <p>Styling lives in {@code application.css} ({@code .workflow-*} classes)
  * and follows the shadcn-style token design system, including dark mode via
@@ -54,37 +42,32 @@ import java.util.List;
  */
 public final class WorkflowSelectionDialog {
 
-    /** Shown when no address is configured at all. */
-    static final String NO_SERVER = "not configured";
-
-    private final List<SigningMode> modes;
-
-    /** The coordination server this installation talks to, for the footer. */
-    private final String serverAddress;
-    private final ObjectProperty<SigningMode> selected = new SimpleObjectProperty<>(this, "selected");
-    private boolean cancelled = true;
+    /** Set when the user chose to sign a PDF on this computer. */
+    private boolean signHereRequested;
 
     /** Set when the user chose to open an existing (portable) workflow PDF. */
     private boolean openWorkflowRequested;
 
-    /** Set when the user chose “Remote workflow…” on this dialog. */
+    /** Set when the user chose “My documents” on this dialog. */
     private boolean remoteWorkflowRequested;
 
     /** Set when the user pressed Back (as opposed to closing the window). */
     private boolean backRequested;
 
-    /** Set when the user chose “Accept invitation…” on this dialog. */
-    private boolean acceptInvitationRequested;
-
     /** Set when the user chose “Sign out” on this dialog. */
     private boolean signOutRequested;
 
-    /** @return true when the user picked “Open workflow…” on this dialog. */
+    /** @return true when the user picked “Sign a document” on this dialog. */
+    public boolean isSignHereRequested() {
+        return signHereRequested;
+    }
+
+    /** @return true when the user picked “Continue a signing PDF…”. */
     public boolean isOpenWorkflowRequested() {
         return openWorkflowRequested;
     }
 
-    /** @return true when the user picked “Remote workflow…” on this dialog. */
+    /** @return true when the user picked “My documents” on this dialog. */
     public boolean isRemoteWorkflowRequested() {
         return remoteWorkflowRequested;
     }
@@ -94,53 +77,22 @@ public final class WorkflowSelectionDialog {
         return backRequested;
     }
 
-    /** @return true when the user picked “Accept invitation…” on this dialog. */
-    public boolean isAcceptInvitationRequested() {
-        return acceptInvitationRequested;
-    }
-
     /** @return true when the user chose “Sign out” on this dialog. */
     public boolean isSignOutRequested() {
         return signOutRequested;
     }
 
     /**
-     * @param serverAddress the coordination server this copy is configured to
-     *                      use, shown in the footer; blank becomes
-     *                      {@link #NO_SERVER}
+     * Shows the modal home screen. The caller reads which action was picked
+     * from the {@code isXxxRequested} accessors; none of them being set
+     * means the user pressed Quit, closed the window or signed out.
      */
-    public WorkflowSelectionDialog(String serverAddress) {
-        this(SigningMode.selectableModes(), serverAddress);
-    }
-
-    /** Allows tests/demos to show a different (e.g. extended) mode list. */
-    public WorkflowSelectionDialog(List<SigningMode> modes, String serverAddress) {
-        this.modes = List.copyOf(modes);
-        this.serverAddress = serverAddress == null || serverAddress.isBlank()
-                ? NO_SERVER
-                : serverAddress.trim();
-    }
-
-    /** The address this dialog reports in its footer. */
-    public String serverAddress() {
-        return serverAddress;
-    }
-
-    /**
-     * Shows the modal selection dialog.
-     *
-     * @return the chosen {@link SigningMode}, or {@code null} when the user
-     *         pressed Back / closed the dialog / signed out
-     */
-    public SigningMode showAndWait(Window owner) {
-        cancelled = true;
+    public void showAndWait(Window owner) {
+        signHereRequested = false;
         openWorkflowRequested = false;
         remoteWorkflowRequested = false;
-        sendForSignatureRequested = false;
         signOutRequested = false;
         backRequested = false;
-        acceptInvitationRequested = false;
-        selected.set(null);
         Stage dialog = new Stage(StageStyle.DECORATED);
         dialog.initModality(Modality.APPLICATION_MODAL);
         if (owner != null) {
@@ -148,7 +100,7 @@ public final class WorkflowSelectionDialog {
         }
         dialog.setTitle("SignFlow — Home");
         dialog.setMinWidth(760);
-        dialog.setMinHeight(560);
+        dialog.setMinHeight(520);
 
         // ---- header ---------------------------------------------------------
         Label logo = new Label();
@@ -176,51 +128,29 @@ public final class WorkflowSelectionDialog {
         VBox heading = new VBox(4, title, subtitle);
         heading.getStyleClass().add("workflow-heading");
 
-        // ---- the four main actions: one click, no separate Continue --------
+        // ---- the two main actions: one click, no separate Continue ---------
         VBox signHere = actionTile(FontAwesomeSolid.FILE_SIGNATURE,
                 "Sign a document",
-                "Sign a PDF yourself, here on this computer, with your"
-                        + " USB token.",
+                "Sign a PDF on this computer with your USB token.",
                 () -> {
-                    selected.set(SigningMode.SINGLE);
-                    cancelled = false;
+                    signHereRequested = true;
                     dialog.close();
                 });
-        VBox sendForSignature = actionTile(FontAwesomeSolid.PAPER_PLANE,
-                "Send for signature",
-                "Choose a PDF and the people who must sign it. They are"
-                        + " invited by email.",
+        VBox myDocuments = actionTile(FontAwesomeSolid.INBOX,
+                "My documents",
+                "Upload a PDF to SignFlow, or sign one that is waiting"
+                        + " there for you.",
                 () -> {
                     remoteWorkflowRequested = true;
-                    sendForSignatureRequested = true;
-                    dialog.close();
-                });
-        VBox waiting = actionTile(FontAwesomeSolid.INBOX,
-                "Documents to sign",
-                "See the documents other people sent you, and the ones"
-                        + " you sent.",
-                () -> {
-                    remoteWorkflowRequested = true;
-                    dialog.close();
-                });
-        VBox invitation = actionTile(FontAwesomeSolid.ENVELOPE_OPEN,
-                "Open an invitation",
-                "You received an email asking you to sign? Paste its"
-                        + " link here.",
-                () -> {
-                    acceptInvitationRequested = true;
                     dialog.close();
                 });
         GridPane tiles = new GridPane();
         tiles.setHgap(16);
         tiles.setVgap(16);
         tiles.add(signHere, 0, 0);
-        tiles.add(sendForSignature, 1, 0);
-        tiles.add(waiting, 0, 1);
-        tiles.add(invitation, 1, 1);
+        tiles.add(myDocuments, 1, 0);
         for (int c = 0; c < 2; c++) {
-            ColumnConstraints cc =
-                    new ColumnConstraints();
+            ColumnConstraints cc = new ColumnConstraints();
             cc.setPercentWidth(50);
             cc.setHgrow(Priority.ALWAYS);
             tiles.getColumnConstraints().add(cc);
@@ -231,26 +161,9 @@ public final class WorkflowSelectionDialog {
         otherTitle.getStyleClass().add("workflow-card-meta");
         HBox otherLinks = new HBox(18);
         otherLinks.setAlignment(Pos.CENTER_LEFT);
-        for (SigningMode mode : modes) {
-            if (mode.isSingle()) {
-                continue;
-            }
-            Hyperlink link = new Hyperlink(
-                    mode.signerCount() + " people sign on this computer");
-            link.setTooltip(new Tooltip("Each person signs in turn, on this"
-                    + " computer, with their own USB token"));
-            link.setOnAction(e -> {
-                selected.set(mode);
-                cancelled = false;
-                dialog.close();
-            });
-            otherLinks.getChildren().add(link);
-        }
-        Hyperlink openWorkflow =
-                new Hyperlink("Continue a signing PDF…");
+        Hyperlink openWorkflow = new Hyperlink("Continue a signing PDF…");
         openWorkflow.setTooltip(new Tooltip(
-                "Open a PDF that was sent to you to sign in turn"
-                        + " (it carries its own list of signers)"));
+                "Open a PDF that already carries a SignFlow workflow"));
         openWorkflow.setOnAction(e -> {
             openWorkflowRequested = true;
             dialog.close();
@@ -276,29 +189,12 @@ public final class WorkflowSelectionDialog {
         signOut.setTooltip(new Tooltip("Return to the sign-in screen"));
         signOut.setOnAction(e -> {
             signOutRequested = true;
-            dialog.setUserData("SIGN_OUT");
             dialog.close();
         });
 
-        // ---- about / connection ---------------------------------------------
-        // Which server this copy talks to, without digging through a log file.
-        // An installer is built for one server - scripts/package.sh bakes the
-        // address into the launcher - so "which SignFlow is this?" has a
-        // per-installation answer that the person signing cannot otherwise
-        // see. Address only: nothing here is a credential.
-        Label connection = new Label("Server: " + serverAddress,
-                new FontIcon(FontAwesomeSolid.SERVER));
-        connection.getStyleClass().add("workflow-card-meta");
-        connection.setTooltip(new Tooltip("The coordination server this"
-                + " installation of SignFlow uses:\n" + serverAddress
-                + "\n\nIt was set when the installer was built. An"
-                + " administrator can point this machine somewhere else in"
-                + " the SignFlow settings file."));
-        connection.setAccessibleText("Coordination server " + serverAddress);
-
         Region footerSpacer = new Region();
         HBox.setHgrow(footerSpacer, Priority.ALWAYS);
-        HBox footer = new HBox(10, back, footerSpacer, connection, signOut);
+        HBox footer = new HBox(10, back, footerSpacer, signOut);
         footer.getStyleClass().add("workflow-footer");
         footer.setAlignment(Pos.CENTER_LEFT);
 
@@ -309,26 +205,13 @@ public final class WorkflowSelectionDialog {
         content.getStyleClass().add("workflow-root");
         content.setPadding(new Insets(24, 32, 20, 32));
 
-        Scene scene = new Scene(content, 860, 600);
+        Scene scene = new Scene(content, 860, 560);
         ThemeManager.instance().attach(scene);
         dialog.setScene(scene);
         UiSupport.applyAppIcon(dialog);
         Platform.runLater(signHere::requestFocus);
 
         dialog.showAndWait();
-
-        if ("SIGN_OUT".equals(dialog.getUserData())) {
-            return null;
-        }
-        return cancelled ? null : selected.get();
-    }
-
-    /** Set when the user chose "Send for signature" (opens the new-workflow wizard). */
-    private boolean sendForSignatureRequested;
-
-    /** @return true when the user picked "Send for signature" on this dialog. */
-    public boolean isSendForSignatureRequested() {
-        return sendForSignatureRequested;
     }
 
     /**

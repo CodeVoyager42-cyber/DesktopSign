@@ -6,7 +6,6 @@ import com.example.signer.server.WorkflowServerApplication;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionResponse;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
-import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 import com.example.signer.signing.SignaturePlacement;
 import com.example.signer.token.SigningCertificate;
@@ -73,9 +72,6 @@ class TaskSessionScopeHttpTests {
 
     @Autowired
     private RemoteWorkflowService workflows;
-
-    @Autowired
-    private WorkflowInvitationCoordinator coordinator;
 
     @Autowired
     private DataSource dataSource;
@@ -166,14 +162,10 @@ class TaskSessionScopeHttpTests {
         }
     }
 
-    private String workflow(String... slots) {
-        List<CreateWorkflowRequest.SignerSpec> specs = new ArrayList<>();
-        for (int i = 0; i < slots.length; i += 2) {
-            specs.add(new CreateWorkflowRequest.SignerSpec(i / 2 + 1, slots[i], slots[i + 1]));
-        }
-        WorkflowInvitationCoordinator.Preparation prep = coordinator.prepare(
-                new CreateWorkflowRequest("scope.pdf", "SEQUENTIAL", specs), "alice");
-        WorkflowView view = workflows.createWorkflow(prep.request(), pdf(), "alice");
+    /** A document uploaded and signed by {@code signer} (null = slot unbound). */
+    private String workflow(String signer, String fingerprint) {
+        WorkflowView view = workflows.createWorkflow(
+                new CreateWorkflowRequest("scope.pdf", fingerprint), pdf(), signer);
         return view.workflowId();
     }
 
@@ -192,7 +184,7 @@ class TaskSessionScopeHttpTests {
     /** Everything a refused request could have changed, straight from the database. */
     private List<Map<String, Object>> snapshot(String wf) {
         List<Map<String, Object>> rows = new ArrayList<>(jdbc.queryForList(
-                "SELECT status, claimed_turn_username FROM workflows WHERE workflow_id = ?", wf));
+                "SELECT status FROM workflows WHERE workflow_id = ?", wf));
         rows.addAll(jdbc.queryForList("SELECT s.signer_order, s.username, s.certificate_sha256,"
                 + " s.bound_at, s.signed FROM workflow_signers s JOIN workflows w"
                 + " ON w.id = s.workflow_id WHERE w.workflow_id = ? ORDER BY s.signer_order", wf));
@@ -243,21 +235,20 @@ class TaskSessionScopeHttpTests {
 
     @Test
     void aTaskTokenReachesNoOtherWorkflowSlotOrOperation() throws Exception {
-        String wf = workflow("bob", fp(), "charlie", fp());
+        String wf = workflow("bob", fp());
         String other = workflow("bob", fp());
         String task = taskSession(wf, "bob");
         var before = snapshot(wf);
         var otherBefore = snapshot(other);
 
-        // Another workflow where bob is the signer whose turn it is.
+        // Another document of bob's own: still out of this session's reach.
         for (String[] r : new String[][] {{"GET", "/task"}, {"GET", "/document"},
-                {"POST", "/claim"}, {"POST", "/signatures"}}) {
+                {"POST", "/signatures"}}) {
             assertThat(call(r[0], "/api/workflows/" + other + r[1], task, null).status())
                     .as(r[0] + " other" + r[1]).isEqualTo(403);
         }
         // Everything in its own workflow that is not signing its own slot.
         String[][] refused = {{"GET", ""}, {"GET", "/audit"}, {"GET", "/revisions"},
-                {"GET", "/eligible-signers"}, {"GET", "/invitations"}, {"POST", "/invitations"},
                 {"POST", "/cancel"}, {"POST", "/launch-codes"},
                 {"POST", "/signers/charlie/certificate"}, {"POST", "/signers/bob/certificate"}};
         for (String[] r : refused) {
@@ -326,8 +317,7 @@ class TaskSessionScopeHttpTests {
         // Finished: the status is still readable, nothing else.
         assertThat(call("GET", "/api/workflows/" + wf + "/task", task, null).status())
                 .isEqualTo(200);
-        for (String[] r : new String[][] {{"GET", "/document"}, {"POST", "/claim"},
-                {"POST", "/signatures"}}) {
+        for (String[] r : new String[][] {{"GET", "/document"}, {"POST", "/signatures"}}) {
             Reply reply = call(r[0], "/api/workflows/" + wf + r[1], task, null);
             assertThat(reply.status()).as(r[1]).isEqualTo(403);
             assertThat(reply.code()).isEqualTo("TASK_SESSION_FINISHED");
@@ -340,7 +330,7 @@ class TaskSessionScopeHttpTests {
         String task = taskSession(wf, "bob");
         assertThat(call("GET", "/api/workflows/" + wf + "/document", task, null).status())
                 .isEqualTo(200);
-        assertThat(call("POST", "/api/workflows/" + wf + "/cancel", login("alice"), null)
+        assertThat(call("POST", "/api/workflows/" + wf + "/cancel", login("bob"), null)
                 .status()).isIn(200, 204);
         Reply doc = call("GET", "/api/workflows/" + wf + "/document", task, null);
         assertThat(doc.status()).isEqualTo(403);
@@ -363,9 +353,9 @@ class TaskSessionScopeHttpTests {
     }
 
     @Test
-    void guestAndNormalUserCertificateRegistrationAreUnaffected() throws Exception {
+    void certificateRegistrationStaysLimitedToTheSignersOwnSlot() throws Exception {
         // A signed-in user still registers their own certificate.
-        String wf = workflow("bob", null, "charlie", null);
+        String wf = workflow("bob", null);
         assertThat(call("POST", "/api/workflows/" + wf + "/signers/bob/certificate",
                 login("bob"), "{\"certificateSha256\":\"" + fp() + "\"}").status())
                 .isEqualTo(200);
@@ -373,7 +363,7 @@ class TaskSessionScopeHttpTests {
         assertThat(call("POST", "/api/workflows/" + wf + "/signers/charlie/certificate",
                 login("bob"), "{\"certificateSha256\":\"" + fp() + "\"}").status())
                 .isEqualTo(403);
-        JsonNode view = mapper.readTree(call("GET", "/api/workflows/" + wf, login("alice"), null)
+        JsonNode view = mapper.readTree(call("GET", "/api/workflows/" + wf, login("bob"), null)
                 .body());
         assertThat(view.toString()).contains("bob");
     }

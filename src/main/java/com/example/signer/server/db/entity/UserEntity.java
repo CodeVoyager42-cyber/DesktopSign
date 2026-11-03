@@ -19,7 +19,7 @@ import java.time.Instant;
  * the existing API uses; {@code email} is the invitation identity. Both are
  * unique at the database level; since V5 usernames are unique ignoring
  * letter case. {@code passwordHash} is bcrypt ({@code $2a$...}); it is {@code null} only while the row exists as an
- * invited placeholder ({@code status = PENDING_INVITE}) that cannot log in.
+ * invited placeholder ({@code status = PLACEHOLDER}) that cannot log in.
  *
  * <p>Never log the password hash, invitations tokens, or any token value.
  */

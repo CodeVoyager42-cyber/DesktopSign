@@ -11,16 +11,16 @@ class DetectionProblemTests {
 
     @Test
     void driverProblemsAreNamedAsSuch() {
-        String text = MultiSignerWorkspaceFlow.detectionProblem(new TokenException(
+        String text = SigningWorkspaceFlow.detectionProblem(new TokenException(
                 ErrorCode.PKCS11_INITIALIZATION_FAILED, "missing --add-exports"));
         assertThat(text).startsWith("Smart card driver problem").contains("missing --add-exports");
     }
 
     @Test
     void otherFailuresStillShowAMessage() {
-        assertThat(MultiSignerWorkspaceFlow.detectionProblem(new IllegalStateException("boom")))
+        assertThat(SigningWorkspaceFlow.detectionProblem(new IllegalStateException("boom")))
                 .isEqualTo("The smart card could not be read: boom");
-        assertThat(MultiSignerWorkspaceFlow.detectionProblem(null))
+        assertThat(SigningWorkspaceFlow.detectionProblem(null))
                 .isEqualTo("The smart card could not be read.");
     }
 }

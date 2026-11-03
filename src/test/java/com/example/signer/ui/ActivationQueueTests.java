@@ -1,6 +1,6 @@
 package com.example.signer.ui;
 
-import com.example.signer.ui.InvitationLinks.LaunchArgument;
+import com.example.signer.ui.LaunchLinks.LaunchArgument;
 import com.example.signer.ui.SingleInstanceGuard.Reply;
 
 import org.junit.jupiter.api.Test;
@@ -14,11 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ActivationQueueTests {
 
     private static LaunchArgument launch(char c) {
-        return new LaunchArgument(LaunchArgument.Kind.LAUNCH, String.valueOf(c).repeat(43));
-    }
-
-    private static LaunchArgument invitation(char c) {
-        return new LaunchArgument(LaunchArgument.Kind.INVITATION, String.valueOf(c).repeat(40));
+        return new LaunchArgument(String.valueOf(c).repeat(43));
     }
 
     private final AtomicLong now = new AtomicLong(1_000_000);
@@ -28,10 +24,10 @@ class ActivationQueueTests {
     void requestsWaitForTheWindowInArrivalOrder() {
         assertThat(queue.activate(launch('a'))).isEqualTo(Reply.ACCEPTED);
         assertThat(queue.activate(null)).isEqualTo(Reply.ACCEPTED);
-        assertThat(queue.activate(invitation('b'))).isEqualTo(Reply.ACCEPTED);
+        assertThat(queue.activate(launch('b'))).isEqualTo(Reply.ACCEPTED);
         List<LaunchArgument> live = new ArrayList<>();
         List<LaunchArgument> queued = queue.ready(live::add);
-        assertThat(queued).containsExactly(launch('a'), null, invitation('b'));
+        assertThat(queued).containsExactly(launch('a'), null, launch('b'));
         queue.activate(launch('c'));
         assertThat(live).containsExactly(launch('c'));
     }
@@ -59,7 +55,7 @@ class ActivationQueueTests {
         now.addAndGet(2);
         queue.activate(launch('a'));
         assertThat(opened).hasSize(2);
-        // "Just show the window" is never deduplicated; different kinds differ.
+        // "Just show the window" is never deduplicated.
         queue.activate(null);
         queue.activate(null);
         assertThat(opened).hasSize(4);

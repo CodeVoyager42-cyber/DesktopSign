@@ -41,21 +41,12 @@ export interface Profile {
   emailVerified: boolean;
 }
 
-/** One signer slot of a workflow, as the task view reports it. */
-export interface Participant {
-  order: number;
-  name: string;
-  you: boolean;
-  state: string;
-}
-
-/** The signed-in account's own slot. */
+/** The signed-in account's own slot on a document. */
 export interface MySlot {
   myStateLabel: string;
   participantOrder: number | null;
   signed: boolean;
   waitingForMe: boolean;
-  waitingForClaim: boolean;
 }
 
 /** GET /web/api/workflows/participating */
@@ -68,11 +59,6 @@ export interface Task {
   createdAt: string | null;
   completedAt: string | null;
   myState: MySlot | null;
-  totalSignatures: number;
-  completedSignatures: number;
-  signingPolicy: string;
-  participants: Participant[] | null;
-  expiresAt: string | null;
   updatedAt: string | null;
 }
 
@@ -83,64 +69,10 @@ export interface Workflow {
   status: string;
   currentRevision: number;
   completedSignatures: number;
-  totalSignatures: number;
   currentSignerUserId: string | null;
   currentSignerFingerprintShort: string | null;
   blockedReason: string | null;
-  signingPolicy: string;
-  waitingForClaim: boolean;
   awaitingYourCertificate: boolean;
-}
-
-/**
- * One signer slot as the website sends it.
- *
- * `userId` is an e-mail address *or* an existing username — the server reads
- * an `@` as "invite this address", which creates or reuses an identity that
- * can only ever become an account through its invitation, and anything else
- * as "this account already exists". `order` is 1-based, as every slot number
- * is on both sides.
- *
- * `certificateSha256` is always null from here: a certificate lives on the
- * signer's own smart card, and the browser has no business naming one. The
- * slot stays unbound until the signer binds it from their own machine, which
- * is why a freshly created workflow reports a `blockedReason` saying so.
- */
-export interface SignerSpec {
-  order: number;
-  userId: string;
-  certificateSha256: null;
-}
-
-/**
- * One invitation link, returned by the call that sent it and never again:
- * the database keeps the token's hash, so no later read can reproduce it.
- * The website does not display these — see `app/send/page.tsx`.
- */
-export interface InvitationLink {
-  signerOrder: number;
-  email: string;
-  invitationUrl: string;
-}
-
-/** POST /web/api/workflows */
-export interface CreateWorkflowResponse {
-  workflow: Workflow;
-  invitations: InvitationLink[];
-}
-
-/** GET /web/api/workflows/{id}/invitations — owner only; status, never tokens. */
-export interface InvitationStatus {
-  invitationId: number | null;
-  signerOrder: number;
-  email: string | null;
-  status: string;
-  /** PENDING | SENT | FAILED, or null for a row older than delivery tracking. */
-  emailStatus: string | null;
-  createdAt: string | null;
-  expiresAt: string | null;
-  acceptedAt: string | null;
-  slotSigned: boolean;
 }
 
 /**
@@ -165,8 +97,9 @@ export interface AppInfo {
 /**
  * GET /web/api/download-info — what there is to download, if anything.
  *
- * Public, so the page works for somebody who was invited to sign and has no
- * account yet. `available` is the only thing to branch on: `url` may be this
+ * Public, so the page works before the reader has an account: the app is
+ * what signs, so it has to be installable first. `available` is the only
+ * thing to branch on: `url` may be this
  * server's own `/downloads/<file>` or an external link configured for the
  * deployment, and `sizeBytes`/`sha256` are absent for the latter because the
  * server cannot know them about a file it does not hold.
@@ -293,6 +226,31 @@ async function get<T>(path: string): Promise<Result<T>> {
   }
 }
 
+/**
+ * A HEAD: asking whether a request would be allowed, without doing it.
+ *
+ * This exists for one caller — the installer button. A download has to be
+ * handed to the browser as a navigation, because that is the only way the
+ * bytes stay out of this code (see `installerUrl` below), and a navigation
+ * cannot be taken back: if the server were to answer 401 or 404, the reader
+ * would be looking at a JSON error instead of a page. So the status is asked
+ * for first, on the very route that will serve the file, and only a 200 is
+ * acted on.
+ *
+ * A HEAD is the right question because the server answers it by running the
+ * same handler and dropping the body: the status is the real one, and no
+ * bytes are read to produce it.
+ */
+async function head(path: string): Promise<Result<never>> {
+  try {
+    return await parse<never>(
+      await fetch(path, { method: "HEAD", credentials: "same-origin" }),
+    );
+  } catch {
+    return unreachable<never>();
+  }
+}
+
 async function post<T>(path: string, payload?: unknown): Promise<Result<T>> {
   try {
     const token = await csrfToken();
@@ -362,9 +320,9 @@ export const api = {
   changePassword: (currentPassword: string, newPassword: string) =>
     post<void>("/web/api/me/password", { currentPassword, newPassword }),
 
-  /* Workflows (Phase E). Two lists, because which group a document belongs in
-     depends on the viewer's own slot and not on the document's state:
-     `participating` knows whose turn it is, `owned` knows what you sent. */
+  /* Documents (Phase E). Two lists, because one knows where the document is
+     and the other knows where the reader's own signature stands:
+     `participating` carries the slot state, `owned` is the plain list. */
   participating: () => get<{ tasks: Task[] }>("/web/api/workflows/participating"),
   owned: () => get<Workflow[]>("/web/api/workflows/owned"),
   workflow: (id: string) =>
@@ -372,59 +330,34 @@ export const api = {
   audit: (id: string) =>
     get<AuditEntry[]>(`/web/api/workflows/${encodeURIComponent(id)}/audit`),
 
-  /* The sending side. */
+  /* Uploading a document to sign. */
 
   /**
-   * Starts a workflow: the signers and policy as one part, the PDF as the
-   * other. The answer carries the invitation links that just went out, which
-   * this website deliberately does not show.
+   * Uploads a PDF to sign: its name as one part, the file as the other. The
+   * signed-in account is its only signer, so nothing else is sent.
    */
-  createWorkflow: (
-    documentName: string,
-    signingPolicy: string,
-    signers: SignerSpec[],
-    file: File,
-  ) => {
+  createWorkflow: (documentName: string, file: File) => {
     const form = new FormData();
     form.append(
       "request",
-      new Blob([JSON.stringify({ documentName, signingPolicy, signers })], {
+      new Blob([JSON.stringify({ documentName })], {
         type: "application/json",
       }),
     );
     form.append("file", file);
-    return postForm<CreateWorkflowResponse>("/web/api/workflows", form);
+    return postForm<Workflow>("/web/api/workflows", form);
   },
 
-  /** Where each slot's invitation stands. 403 to anyone but the owner. */
-  invitations: (id: string) =>
-    get<InvitationStatus[]>(`/web/api/workflows/${encodeURIComponent(id)}/invitations`),
-
-  /** Invites one slot of an existing workflow, by address. */
-  invite: (id: string, signerOrder: number, email: string) =>
-    post<InvitationLink>(
-      `/web/api/workflows/${encodeURIComponent(id)}/invitations`,
-      { signerOrder, email },
-    ),
-
-  /** The creator or the current signer, and only before it completes. */
+  /** The owner, and only before the document is signed. */
   cancel: (id: string) =>
     post<Workflow>(`/web/api/workflows/${encodeURIComponent(id)}/cancel`),
-
-  /** A new link for a slot; the old one stops working. */
-  resendInvitation: (invitationId: number) =>
-    post<InvitationLink>(`/web/api/invitations/${invitationId}/resend`),
-
-  /** Ends the invitation. The slot stays, unsigned and uninvited. */
-  revokeInvitation: (invitationId: number) =>
-    post<void>(`/web/api/invitations/${invitationId}/revoke`),
 
   /* The hand-off to the desktop (Phase F). */
 
   /**
-   * A fresh link that opens SignFlow at this one signing task. Two minutes,
-   * one use; the server refuses it unless this account holds a slot that can
-   * sign now and has a certificate registered already.
+   * A fresh link that opens SignFlow at this one document. Two minutes,
+   * one use; the server refuses it unless this account is the document's
+   * signer and has a certificate registered already.
    */
   launchCode: (id: string) =>
     post<LaunchCode>(
@@ -456,4 +389,28 @@ export const api = {
    */
   downloadUrl: (id: string) =>
     `/web/api/workflows/${encodeURIComponent(id)}/download`,
+
+  /**
+   * The desktop installer, for a signed-in reader.
+   *
+   * A plain URL for the same reason `downloadUrl` is one: the browser
+   * downloads it, so a 200 MB installer never passes through this code and
+   * never sits in a blob in memory. The session cookie travels with it
+   * because it is the same origin, and the server — not this code — decides
+   * whether the reader may have it.
+   *
+   * Constant rather than configured: unlike `downloadInfo().url`, which may
+   * point at an external link a deployment set, this is a route on this
+   * server and is the same everywhere.
+   */
+  installerUrl: () => "/web/api/desktop/installer",
+
+  /**
+   * Whether that download would be allowed, asked before it is started.
+   *
+   * 200 to go ahead, 401 for no session (the reader is sent to sign in),
+   * 404 for a deployment that has published nothing, 429 for the rate
+   * limit. See `head` above for why it is asked at all.
+   */
+  installerReady: () => head("/web/api/desktop/installer"),
 };

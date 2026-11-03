@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Download, FileText, PenLine, Send } from "lucide-react";
+import { Download, FileText, PenLine } from "lucide-react";
 import { EmptyState, PageHeader } from "@/components/blocks";
 import { AppShell } from "@/components/chrome";
 import { DownloadRelease } from "@/components/download-release";
@@ -29,18 +29,16 @@ import { api } from "@/lib/api";
 import { FINISHED, groupRows, mergeRows, rowStory, type Row } from "@/lib/dashboard";
 
 /**
- * The dashboard: what is waiting for you, and what you sent.
+ * The dashboard: your documents, and which of them are waiting for your
+ * signature.
  *
- * Which group a document belongs in comes from the server's view of the
- * caller's own slot, never from the document's state alone — which is why
- * Phase E has two list endpoints and this screen reads both. The merging
- * itself is in `lib/dashboard.ts` and is unchanged.
+ * Whether a document is waiting comes from the server's view of the caller's
+ * own slot, never from the document's state alone — which is why Phase E has
+ * two list endpoints and this screen reads both. The merging itself is in
+ * `lib/dashboard.ts`.
  *
- * Three tabs, not the two the brief asked for, for one reason: a document you
- * are a signer of but did not send, and have already signed, is in neither
- * "To sign" nor "Sent by me". With two tabs it would vanish from the website
- * while other people were still signing it. The third appears only when there
- * is something in it.
+ * The "Signed" tab appears only when there is something in it, so a new
+ * account sees two tabs rather than one that is always empty.
  *
  * <b>Cards on a phone, a table on a desktop</b> — the same rows either way.
  * A table at 375 px is a horizontal scroll with four columns nobody can
@@ -182,9 +180,7 @@ export default function Documents() {
   }, [me, say]);
 
   const all = rows ?? [];
-  const { mine } = groupRows(all);
-  const sent = all.filter((row) => row.sent);
-  const shared = all.filter((row) => !row.sent && !mine.includes(row));
+  const { mine, finished } = groupRows(all);
 
   useEffect(() => {
     document.title = mine.length ? `SignFlow — ${mine.length} to sign` : "SignFlow";
@@ -198,12 +194,12 @@ export default function Documents() {
     <AppShell me={me}>
       <PageHeader
         title="Documents"
-        description="What is waiting for you, and what you have sent out."
+        description="Your documents, and what is waiting for your signature."
         action={
           <Button asChild size="lg">
-            <Link href="/send">
-              <Send aria-hidden="true" />
-              Send a document
+            <Link href="/upload">
+              <PenLine aria-hidden="true" />
+              Sign a document
             </Link>
           </Button>
         }
@@ -216,7 +212,7 @@ export default function Documents() {
           <Skeleton className="h-28 w-full rounded-xl" />
         </div>
       ) : (
-        <Tabs defaultValue={mine.length ? "to-sign" : "sent"}>
+        <Tabs defaultValue={mine.length ? "to-sign" : "all"}>
           <TabsList className="w-full justify-start overflow-x-auto">
             <TabsTrigger value="to-sign" className="gap-2">
               To sign
@@ -226,9 +222,9 @@ export default function Documents() {
                 </span>
               ) : null}
             </TabsTrigger>
-            <TabsTrigger value="sent">Sent by me</TabsTrigger>
-            {shared.length ? (
-              <TabsTrigger value="shared">Shared with me</TabsTrigger>
+            <TabsTrigger value="all">All documents</TabsTrigger>
+            {finished.length ? (
+              <TabsTrigger value="finished">Signed</TabsTrigger>
             ) : null}
           </TabsList>
 
@@ -239,25 +235,25 @@ export default function Documents() {
                 <EmptyState
                   icon={PenLine}
                   title="Nothing to sign"
-                  description="When somebody asks you to sign a document, it appears here."
+                  description="Upload a PDF and it appears here, ready for your signature."
                 />
               }
             />
           </TabsContent>
 
-          <TabsContent value="sent" className="mt-5">
+          <TabsContent value="all" className="mt-5">
             <Group
-              rows={sent}
+              rows={all}
               empty={
                 <EmptyState
                   icon={FileText}
                   title="No documents yet"
-                  description="Send a PDF and we will ask the signers for you."
+                  description="Upload a PDF and sign it with your own card."
                   action={
                     <Button asChild size="lg">
-                      <Link href="/send">
-                        <Send aria-hidden="true" />
-                        Send your first document
+                      <Link href="/upload">
+                        <PenLine aria-hidden="true" />
+                        Sign your first document
                       </Link>
                     </Button>
                   }
@@ -266,9 +262,9 @@ export default function Documents() {
             />
           </TabsContent>
 
-          {shared.length ? (
-            <TabsContent value="shared" className="mt-5">
-              <Group rows={shared} empty={null} />
+          {finished.length ? (
+            <TabsContent value="finished" className="mt-5">
+              <Group rows={finished} empty={null} />
             </TabsContent>
           ) : null}
         </Tabs>

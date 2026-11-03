@@ -6,7 +6,6 @@ import com.example.signer.server.auth.PasswordHashing;
 import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 import com.example.signer.server.web.WebAccountService;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 
@@ -101,9 +100,6 @@ class PasswordChangeEndsTokensHttpTests {
 
     @Autowired
     private WebAccountService webAccounts;
-
-    @Autowired
-    private WorkflowInvitationCoordinator coordinator;
 
     @Autowired
     private RemoteWorkflowService workflows;
@@ -214,13 +210,10 @@ class PasswordChangeEndsTokensHttpTests {
         }
     }
 
-    /** alice's workflow with {@code signer} holding slot 1. */
+    /** A document uploaded by {@code signer}, who is its only signer. */
     private String workflowFor(String signer) {
-        List<CreateWorkflowRequest.SignerSpec> specs = new ArrayList<>();
-        specs.add(new CreateWorkflowRequest.SignerSpec(1, signer, null));
-        WorkflowInvitationCoordinator.Preparation prep = coordinator.prepare(
-                new CreateWorkflowRequest("d7.pdf", "SEQUENTIAL", specs), "alice");
-        return workflows.createWorkflow(prep.request(), pdf(), "alice").workflowId();
+        return workflows.createWorkflow(
+                new CreateWorkflowRequest("d7.pdf", null), pdf(), signer).workflowId();
     }
 
     /**

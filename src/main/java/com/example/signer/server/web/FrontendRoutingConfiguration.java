@@ -96,14 +96,14 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String DOCUMENT_PAGE = "/document";
 
     /**
-     * Sending a document out: the file, the signers, the order.
+     * Uploading a document to sign: just the file and its name.
      *
      * <p>The one page that uploads anything, and the only website route that
      * is multipart. It needs no id of its own — what it creates is identified
      * by the answer, which is why it ends by going to {@link #DOCUMENT_PAGE}
-     * for the workflow it just started.
+     * for the document it just uploaded.
      */
-    public static final String SEND_PAGE = "/send";
+    public static final String UPLOAD_PAGE = "/upload";
 
     /**
      * The hand-off: the screen that opens the desktop application at one
@@ -114,11 +114,10 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
      * it loads, and that code is good for two minutes — so the path is not
      * worth bookmarking and nothing is lost if it is.
      *
-     * <p><b>Not {@code /sign}</b>, although that is what the button says.
-     * {@code /sign/{token}} is already the public, server-rendered invitation
-     * page, and a second meaning one segment away from it is the kind of
-     * neighbourhood where a matcher written {@code /sign*} quietly covers a
-     * page nobody meant it to. {@code /open} also says what the screen does.
+     * <p><b>Not {@code /sign}</b>, although that is what the button says: a
+     * matcher written {@code /sign*} would then cover {@code /sign-in} and
+     * {@code /sign-up} as well, and {@code /open} says what the screen does
+     * without sitting one character away from two others.
      */
     public static final String OPEN_PAGE = "/open";
 
@@ -141,7 +140,7 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String[] PAGES = {
         VERIFY_EMAIL_PAGE, RESET_PASSWORD_PAGE,
         SIGN_IN_PAGE, SIGN_UP_PAGE, FORGOT_PASSWORD_PAGE, CHANGE_PASSWORD_PAGE,
-        ACCOUNT_PAGE, DOCUMENTS_PAGE, DOCUMENT_PAGE, SEND_PAGE, OPEN_PAGE, DOWNLOAD_PAGE,
+        ACCOUNT_PAGE, DOCUMENTS_PAGE, DOCUMENT_PAGE, UPLOAD_PAGE, OPEN_PAGE, DOWNLOAD_PAGE,
     };
 
     /**

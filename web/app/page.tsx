@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CreditCard, FileUp, PenLine, ShieldCheck, Users } from "lucide-react";
+import { CreditCard, Download, FileUp, PenLine, ShieldCheck } from "lucide-react";
 import { SiteFooter, SiteHeader } from "@/components/chrome";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,26 +11,26 @@ import { Card, CardContent } from "@/components/ui/card";
  *
  * It replaces a long marketing page — hero, proof strip, role tabs over
  * feature cards, how it works, the security case, a closing call to action —
- * with a headline, three steps and two buttons. Somebody arriving here has
- * either been sent a document or wants to send one; neither needs persuading,
- * and the page that tried to do both was the longest thing in the website.
+ * with a headline, three steps and two buttons. Somebody arriving here has a
+ * PDF to sign and a card to sign it with; that needs no persuading, and the
+ * page that tried to do it was the longest thing in the website.
  */
 
 const STEPS = [
   {
-    Icon: FileUp,
-    title: "Upload your PDF",
-    detail: "Choose the document you want signed.",
+    Icon: Download,
+    title: "Install SignFlow",
+    detail: "The app that does the signing, on your own computer.",
   },
   {
-    Icon: Users,
-    title: "Add the signers",
-    detail: "Their email addresses, in order or in any order.",
+    Icon: FileUp,
+    title: "Upload your PDF",
+    detail: "Choose the document you want to sign.",
   },
   {
     Icon: PenLine,
-    title: "Everyone signs",
-    detail: "Each person signs on their own computer, with their own card.",
+    title: "Sign it",
+    detail: "Place your signature and sign with the card in your reader.",
   },
 ];
 
@@ -63,8 +63,8 @@ export default function Home() {
               Sign documents securely with your smart card
             </h1>
             <p className="mx-auto mt-5 max-w-xl text-pretty text-lg text-muted-foreground">
-              Send a PDF, see who still has to sign, and sign with the
-              certificate on your own card.
+              Upload a PDF and sign it with the certificate on your own card.
+              It never leaves the card, and never reaches this website.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <Button asChild size="lg" className="w-full sm:w-auto">

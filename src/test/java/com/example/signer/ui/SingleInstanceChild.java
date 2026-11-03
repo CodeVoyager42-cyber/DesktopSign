@@ -32,7 +32,7 @@ public final class SingleInstanceChild {
         }
         if (!mode.equals("nolisten")) {
             guard.startActivationListener(arg -> {
-                say("GOT " + (arg == null ? "NONE" : arg.kind() + " " + arg.value()));
+                say("GOT " + (arg == null ? "NONE" : "LAUNCH " + arg.value()));
                 return SingleInstanceGuard.Reply.ACCEPTED;
             });
         }

@@ -7,8 +7,8 @@ import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.EmailVerificationTokenRepository;
 import com.example.signer.server.db.repository.PasswordResetTokenRepository;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.EmailService;
-import com.example.signer.server.invites.InvitationLinkResolver;
+import com.example.signer.server.email.EmailService;
+import com.example.signer.server.email.PublicBaseUrlResolver;
 
 import org.junit.jupiter.api.Test;
 
@@ -52,7 +52,7 @@ class WebAccountNoticeTests {
         return new WebAccountService(users,
                 mock(com.example.signer.server.db.repository.LoginFailureRepository.class),
                 verifications, resets, email,
-                mock(InvitationLinkResolver.class), refreshTokens, webSessions,
+                mock(PublicBaseUrlResolver.class), refreshTokens, webSessions,
                 Clock.fixed(Instant.parse("2026-10-21T17:00:00Z"), ZoneOffset.UTC), 3);
     }
 

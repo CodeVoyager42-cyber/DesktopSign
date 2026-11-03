@@ -3,7 +3,6 @@ package com.example.signer.server.launch;
 import com.example.signer.server.WorkflowServerApplication;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
-import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 import com.example.signer.server.security.RateLimitTestSupport;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -39,8 +38,8 @@ import java.util.concurrent.Future;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Phase B: website launch codes over real HTTP, database mode. {@code alice}
- * owns the workflows; {@code bob} and {@code charlie} sign or are strangers.
+ * Phase B: website launch codes over real HTTP, database mode. Each document is
+ * uploaded and signed by one account; the others are strangers to it.
  */
 @SpringBootTest(classes = WorkflowServerApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -69,9 +68,6 @@ class LaunchCodeHttpTests {
 
     @Autowired
     private RemoteWorkflowService workflows;
-
-    @Autowired
-    private WorkflowInvitationCoordinator coordinator;
 
     @Autowired
     private DataSource dataSource;
@@ -147,18 +143,13 @@ class LaunchCodeHttpTests {
         }
     }
 
-    /** alice's sequential workflow with the given slots (userId, fingerprint-or-null). */
-    private String workflow(String... slots) {
-        List<CreateWorkflowRequest.SignerSpec> specs = new ArrayList<>();
-        for (int i = 0; i < slots.length; i += 2) {
-            specs.add(new CreateWorkflowRequest.SignerSpec(i / 2 + 1, slots[i], slots[i + 1]));
-        }
-        WorkflowInvitationCoordinator.Preparation prep = coordinator.prepare(
-                new CreateWorkflowRequest("launch.pdf", "SEQUENTIAL", specs), "alice");
-        WorkflowView view = workflows.createWorkflow(prep.request(), pdf(), "alice");
-        if (!prep.pendingInvites().isEmpty()) {
-            coordinator.invite(view.workflowId(), prep.pendingInvites(), "alice");
-        }
+    /**
+     * A document uploaded by {@code signer}, who is its only signer.
+     * {@code fingerprint} may be null to leave the slot unbound.
+     */
+    private String workflow(String signer, String fingerprint) {
+        WorkflowView view = workflows.createWorkflow(
+                new CreateWorkflowRequest("launch.pdf", fingerprint), pdf(), signer);
         return view.workflowId();
     }
 
@@ -330,23 +321,16 @@ class LaunchCodeHttpTests {
     }
 
     @Test
-    void onlyTheSignerWhoseTurnItIsGetsACode() throws Exception {
-        String wf = workflow("bob", fp(), "charlie", fp());
+    void onlyTheSignerOfTheDocumentGetsACode() throws Exception {
+        String wf = workflow("bob", fp());
         String missing = "WF-" + (900_000_000 + RANDOM.nextInt(99_999_999));
-        String alice = login("alice");
         String charlie = login("charlie");
-        // Stranger to this workflow: exactly the "does not exist" answer.
-        String only = workflow("bob", fp());
-        Reply stranger = call("POST", "/api/workflows/" + only + "/launch-codes", charlie, null);
+        // Stranger to this workflow: exactly the "does not exist" answer, so
+        // a workflow id is never confirmed to somebody with no part in it.
+        Reply stranger = call("POST", "/api/workflows/" + wf + "/launch-codes", charlie, null);
         Reply none = call("POST", "/api/workflows/" + missing + "/launch-codes", charlie, null);
         assertThat(stranger.status()).isEqualTo(404);
         assertThat(stranger.body()).isEqualTo(none.body());
-        // Owner who is not a signer.
-        Reply owner = call("POST", "/api/workflows/" + wf + "/launch-codes", alice, null);
-        assertThat(owner.status()).isEqualTo(403);
-        // Signer whose turn it is not (sequential, slot 2).
-        Reply early = call("POST", "/api/workflows/" + wf + "/launch-codes", charlie, null);
-        assertThat(early.status()).isEqualTo(409);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM launch_codes l JOIN workflows w"
                 + " ON w.id = l.workflow_id WHERE w.workflow_id = ? AND l.username = 'charlie'",
                 Long.class, wf)).isZero();
@@ -356,7 +340,7 @@ class LaunchCodeHttpTests {
     void aCodeStopsWorkingWhenTheTaskChangesBeforeItIsUsed() throws Exception {
         String wf = workflow("bob", fp());
         String code = issue(wf, login("bob"));
-        assertThat(call("POST", "/api/workflows/" + wf + "/cancel", login("alice"), null)
+        assertThat(call("POST", "/api/workflows/" + wf + "/cancel", login("bob"), null)
                 .status()).isIn(200, 204);
         Reply r = exchange(code, APP);
         assertThat(r.status()).isEqualTo(400);

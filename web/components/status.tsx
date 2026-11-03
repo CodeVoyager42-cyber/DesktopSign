@@ -37,7 +37,7 @@ const STATES: Record<string, { tone: Tone; Icon: typeof Clock }> = {
   COMPLETED: { tone: "done", Icon: CheckCircle2 },
   CANCELLED: { tone: "stopped", Icon: CircleSlash },
   FAILED: { tone: "stopped", Icon: CircleAlert },
-  // A draft is waiting for the signers to register the card they will sign
+  // A draft is waiting for the signer to register the card they will sign
   // with, which is why its icon is a card and not a clock.
   DRAFT: { tone: "attention", Icon: CreditCard },
   READY_FOR_SIGNING: { tone: "waiting", Icon: Clock },

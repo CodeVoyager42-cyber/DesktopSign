@@ -146,10 +146,8 @@ export function SectionCard({
  * Asking before something irreversible.
  *
  * An `AlertDialog` rather than a second inline panel: it takes focus, closes
- * on Escape, and names the consequence in its own body — and it is the same
- * dialog for cancelling a document as for withdrawing an invitation, so the
- * reader learns the shape once. `destructive` is the default because
- * everything that needs confirming here is.
+ * on Escape, and names the consequence in its own body. `destructive` is the
+ * default because everything that needs confirming here is.
  */
 export function ConfirmDialog({
   open,

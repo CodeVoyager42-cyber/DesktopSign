@@ -10,10 +10,9 @@ import java.util.regex.Pattern;
  *
  * <table>
  *   <caption>Requires a verified address</caption>
- *   <tr><td>POST</td><td>/api/workflows/{id}/claim</td><td>take the signing turn</td></tr>
  *   <tr><td>GET</td><td>/api/workflows/{id}/document</td><td>download the revision to sign</td></tr>
  *   <tr><td>POST</td><td>/api/workflows/{id}/signatures</td><td>submit a signature</td></tr>
- *   <tr><td>POST</td><td>/api/workflows/{id}/signers/{user}/certificate</td><td>bind a signing certificate</td></tr>
+ *   <tr><td>POST</td><td>/api/workflows/{id}/signers/{user}/certificate</td><td>register a signing certificate</td></tr>
  *   <tr><td>POST</td><td>/api/workflows/{id}/launch-codes</td><td>open a desktop signing session</td></tr>
  * </table>
  *
@@ -21,19 +20,17 @@ import java.util.regex.Pattern;
  * deliberately: it is the first step of signing rather than a way of looking
  * around, and handing out the document to an account that has not proved its
  * address serves no purpose when it cannot submit the result. Listing
- * workflows, reading a task, its revisions and its audit trail stay open — an
+ * documents, reading a task, its revisions and its audit trail stay open — an
  * unverified account may still sign in and see where it stands.
  *
- * <p>{@code POST /api/workflows} (starting a signing request) is not here
+ * <p>{@code POST /api/workflows} (uploading a document to sign) is not here
  * either — it is gated inside {@code RemoteWorkflowService.createWorkflow},
  * because that rule has to hold for every caller path including the website,
  * which this policy's filter does not see.
  *
- * <p><b>Guests are not subject to this.</b> A guest signing session proves
- * control of its address by receiving an e-mailed code, and has no account to
- * verify; {@link GuestAccessPolicy} is what bounds it. Desktop task sessions
- * (Phase B launch codes) are not checked here either — their launch code is
- * re-evaluated on every request, and that check includes the same rule.
+ * <p>Desktop task sessions (Phase B launch codes) are not checked here:
+ * their launch code is re-evaluated on every request, and that check
+ * includes the same rule.
  *
  * <p>Matching is on the raw request URI, exact and anchored, in the style of
  * {@link TaskAccessPolicy}: this policy only ever <i>adds</i> a requirement,
@@ -43,7 +40,7 @@ public final class SigningActionPolicy {
 
     private static final Pattern PATH = Pattern.compile(
             "^/api/workflows/[^/]+/"
-                    + "(claim|document|signatures|launch-codes|signers/[^/]+/certificate)$");
+                    + "(document|signatures|launch-codes|signers/[^/]+/certificate)$");
 
     private SigningActionPolicy() {
     }

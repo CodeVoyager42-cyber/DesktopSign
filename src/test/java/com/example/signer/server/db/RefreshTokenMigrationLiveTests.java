@@ -97,7 +97,7 @@ class RefreshTokenMigrationLiveTests {
     void constraintsProtectTheTable() throws SQLException {
         flyway(null).migrate();
         exec(testUrl(), "INSERT INTO users (username, email, status, created_at, updated_at)"
-                + " VALUES ('alice', 'alice@example.test', 'PENDING_INVITE', now(), now())");
+                + " VALUES ('alice', 'alice@example.test', 'PLACEHOLDER', now(), now())");
         String hash = "a".repeat(64);
         String insert = "INSERT INTO refresh_tokens (token_hash, username, family_id, issued_at, expires_at)"
                 + " VALUES ('%s', '%s', gen_random_uuid(), now(), now() + interval '1 hour')";
@@ -117,20 +117,26 @@ class RefreshTokenMigrationLiveTests {
         assertThat(one("SELECT count(*) FROM refresh_tokens")).isEqualTo("0");
     }
 
+    /**
+     * V7 added the guest-verification columns to {@code invitations}, and
+     * V14 drops that table with the signing-invitation feature. Both steps
+     * must still apply in order on a V6 database, and nothing of the guest
+     * code may be left behind at head.
+     */
     @Test
-    void v7AddsGuestCodeColumnsWithSafeDefaults() throws SQLException {
+    void v7AppliesAndItsGuestCodeColumnsAreGoneByHead() throws SQLException {
         flyway("6").migrate();
         flyway(null).migrate();
         assertThat(one("SELECT count(*) FROM flyway_schema_history WHERE version = '7' AND success"))
                 .isEqualTo("1");
-        assertThat(one("SELECT count(*) FROM information_schema.columns WHERE table_name = 'invitations'"
-                + " AND column_name IN ('guest_code_hash','guest_code_expires_at','guest_code_sent_at',"
-                + "'guest_code_attempts','guest_code_failures')")).isEqualTo("5");
-        assertThat(one("SELECT column_default FROM information_schema.columns WHERE table_name ="
-                + " 'invitations' AND column_name = 'guest_code_failures'")).isEqualTo("0");
+        assertThat(one("SELECT count(*) FROM flyway_schema_history WHERE version = '14' AND success"))
+                .isEqualTo("1");
+        assertThat(one("SELECT count(*) FROM information_schema.tables"
+                + " WHERE table_schema = 'public' AND table_name = 'invitations'"))
+                .isEqualTo("0");
         assertThat(one("SELECT count(*) FROM pg_constraint WHERE conname IN"
                 + " ('ck_invitations_guest_code_attempts','ck_invitations_guest_code_failures')"))
-                .isEqualTo("2");
+                .isEqualTo("0");
     }
 
     @Test

@@ -107,7 +107,7 @@ class ProductionStartupTests {
                 "--signature.remote-server.database.url=jdbc:postgresql://localhost:5432/" + db,
                 "--signature.remote-server.database.username=" + user,
                 "--signature.remote-server.database.password=" + password,
-                "--signature.remote-server.invitation.public-base-url=https://signflow.example.com",
+                "--signature.remote-server.public-base-url=https://signflow.example.com",
                 "--signature.remote-server.email.mode=smtp",
                 "--spring.mail.host=localhost");
         args.remove("--signature.remote-server.database.enabled=false");

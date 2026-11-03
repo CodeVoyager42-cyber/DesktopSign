@@ -57,7 +57,7 @@ public class DevUserSeeder implements ApplicationRunner {
             UserEntity existing = users.findByUsername(username).orElse(null);
             if (existing != null) {
                 // FileStoreImporter runs before this seeder and creates
-                // PENDING_INVITE placeholders — no e-mail, no password — for
+                // PLACEHOLDER placeholders — no e-mail, no password — for
                 // the signers of imported legacy workflows. A dev account can
                 // therefore already exist as an unusable stub; complete it
                 // instead of skipping it, or it can never sign in.
@@ -102,7 +102,7 @@ public class DevUserSeeder implements ApplicationRunner {
      * active one are never touched.
      */
     private static boolean isPlaceholder(UserEntity user) {
-        return user.getStatus() == AccountStatus.PENDING_INVITE
+        return user.getStatus() == AccountStatus.PLACEHOLDER
                 && user.getPasswordHash() == null;
     }
 

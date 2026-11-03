@@ -34,14 +34,14 @@ import java.util.Locale;
  *       (Spring Boot {@code server.ssl.enabled} or an explicit
  *       {@code signature.remote-server.tls-offloaded=true} for a TLS reverse
  *       proxy); plaintext passwords are refused; in database mode the
- *       emailed invitation links must be {@code https} and email must be
+ *       emailed account links must be {@code https} and email must be
  *       really delivered (SMTP), not printed to a console.</li>
  *   <li><b>Packaged builds</b> ({@code -Dsignflow.packaged=true} from
  *       package.sh, or jpackage's {@code jpackage.app-version})
- *       can never run the {@code dev} profile. There is no override:
- *       to exercise an installed build against the development server, run
- *       it UNPACKAGED instead (the portable app-image, or
- *       {@code run-app.cmd} from a source checkout).</li>
+ *       can never run the {@code dev} profile — unless the operator
+ *       explicitly opts in with the environment variable
+ *       {@code ALLOW_DEV_PROFILE=true}, e.g. to test an installed build
+ *       against the development server on the same machine.</li>
  * </ul>
  *
  * <p>The JWT secret rule lives in {@code JwtService}, which fails on its own
@@ -63,19 +63,32 @@ public class ProductionSafetyValidator {
         boolean desktop = environment.acceptsProfiles(Profiles.of("desktop"));
 
         if (dev) {
-            // A packaged build can NEVER run the dev profile (security Phase B).
-            // There is deliberately no override: an escape hatch compiled into
-            // the installer is one an environment variable can trip by accident,
-            // and this profile means the mock signing token, the default test
-            // accounts and plain HTTP. Testing an installed build against the
-            // development server is done by running it UNPACKAGED instead.
-            if (isPackagedBuild()) {
+            boolean packaged = System.getProperty("jpackage.app-version") != null
+                    || Boolean.getBoolean("signflow.packaged");
+            // Escape hatch for operators testing an INSTALLED build (e.g.
+            // the MSI on this machine) against the development mock server.
+            // Read through the Environment so BOTH the process environment
+            // variable ALLOW_DEV_PROFILE=true and -DALLOW_DEV_PROFILE=true
+            // are honoured; the value must be exactly "true" (whitespace and
+            // other values keep the packaged build blocked).
+            boolean override = Boolean.parseBoolean(
+                    environment.getProperty("ALLOW_DEV_PROFILE", "false"));
+            if (packaged && !override) {
                 throw new IllegalStateException("The 'dev' profile cannot be used by an"
                         + " installed SignFlow build: it enables the development mock"
-                        + " token, default accounts and plain HTTP. To test against a"
-                        + " development server, run SignFlow unpackaged instead: the"
-                        + " portable app-image from the release zip, or run-app.cmd"
-                        + " from a source checkout.");
+                        + " token, default accounts and plain HTTP. To test an installed"
+                        + " build deliberately, set the environment variable"
+                        + " ALLOW_DEV_PROFILE=true.");
+            }
+            if (packaged) {
+                log.warn("=================================================================");
+                log.warn(" ALLOW_DEV_PROFILE=true: a PACKAGED build is running in"
+                        + " DEVELOPMENT mode (profile 'dev').");
+                log.warn(" Development accounts and the mock signing token are active"
+                        + " for this run.");
+                log.warn(" NEVER use this configuration in production.");
+                log.warn("=================================================================");
+                return;
             }
             log.warn("=================================================================");
             log.warn(" SignFlow is running in DEVELOPMENT mode (profile 'dev'):");
@@ -131,60 +144,6 @@ public class ProductionSafetyValidator {
             problems.add("The coordination server URL must use https:// (got " + remote
                     + "). Passwords, tokens and documents never travel over plain HTTP.");
         }
-        // The shape of the address, by the same rules the build applies when
-        // it bakes one into an installer (ServerUrlRules). The scheme is
-        // judged above - loopback HTTP stays allowed for development - so
-        // plain HTTP is tolerated here and only the rest is checked.
-        if (!remote.isBlank()) {
-            String shape = ServerUrlRules.problem(remote, true);
-            if (shape != null) {
-                problems.add("The coordination server URL is unusable: " + shape
-                        + ". Expected just a scheme, host and optional port,"
-                        + " e.g. https://signflow.example.com");
-            }
-        }
-        // An installed build has to point at a server other people can
-        // reach. scripts/package.sh already refuses to produce one without
-        // an address; this is the same rule at the other end, for an
-        // app-image assembled by some other route.
-        if (isPackagedBuild()) {
-            if (remote.isBlank()) {
-                problems.add("This is a packaged SignFlow build with no coordination"
-                        + " server address. Build the installer with"
-                        + " SIGNFLOW_SERVER_URL=https://... (scripts/package.sh), or set "
-                        + DesktopSettingsFile.SERVER_URL + " in "
-                        + DesktopSettingsFile.defaultSettingsFile() + ".");
-            } else if (ServerUrlRules.isLoopback(remote) && !isLocalBuild()) {
-                problems.add("This packaged SignFlow build points at " + remote
-                        + ", which is this machine. An installer somebody else runs"
-                        + " cannot reach it. Rebuild with"
-                        + " SIGNFLOW_SERVER_URL=https://<your server>, or set "
-                        + DesktopSettingsFile.SERVER_URL + " in "
-                        + DesktopSettingsFile.defaultSettingsFile() + ".");
-            }
-        }
-    }
-
-    /**
-     * Whether this process is a packaged build: {@code signflow.packaged} from
-     * {@code scripts/package.sh}, or {@code jpackage.app-version}, which
-     * jpackage's own launcher sets. Read as system properties only - never
-     * through the {@link Environment} - so no environment variable can
-     * persuade an installed build that it is running from source.
-     */
-    private static boolean isPackagedBuild() {
-        return System.getProperty("jpackage.app-version") != null
-                || Boolean.getBoolean("signflow.packaged");
-    }
-
-    /**
-     * Whether this package was deliberately built to talk to this machine
-     * ({@code scripts/package.sh --local}). It only excuses a loopback
-     * address; it does not relax TLS, and it is NOT a way into the
-     * {@code dev} profile, which stays refused in any packaged build.
-     */
-    private static boolean isLocalBuild() {
-        return Boolean.getBoolean("signflow.local-build");
     }
 
     /** Scan roots for the auto-detection: the {@code auto-detect-dirs} config, default System32. */
@@ -237,19 +196,13 @@ public class ProductionSafetyValidator {
         boolean database = Boolean.parseBoolean(
                 env.getProperty("signature.remote-server.database.enabled", "false"));
         if (database) {
-            String publicBase = env.getProperty("signature.remote-server.invitation.public-base-url", "");
+            String publicBase = env.getProperty("signature.remote-server.public-base-url", "");
             String appBase = env.getProperty("app.base-url", "");
             String linkBase = !publicBase.isBlank() ? publicBase : appBase;
             if (!linkBase.toLowerCase(Locale.ROOT).startsWith("https://")) {
-                problems.add("Invitation links must be https: set SIGNER_PUBLIC_BASE_URL to"
-                        + " the public https:// address of this server (got '"
+                problems.add("Account e-mail links must be https: set SIGNER_PUBLIC_BASE_URL"
+                        + " to the public https:// address of this server (got '"
                         + linkBase + "').");
-            }
-            if (!Boolean.parseBoolean(env.getProperty(
-                    "signature.remote-server.invitation.guest-verification", "true"))) {
-                problems.add("SIGNER_GUEST_VERIFICATION=false lets an invitation link alone"
-                        + " open a guest signing session (the sender, or anyone the e-mail"
-                        + " reaches, could sign in the invitee's place).");
             }
             if (Boolean.parseBoolean(env.getProperty(
                     "signature.remote-server.desktop.accept-unknown-version", "false"))) {
@@ -260,7 +213,7 @@ public class ProductionSafetyValidator {
             String mode = env.getProperty("signature.remote-server.email.mode", "console");
             if (!"smtp".equalsIgnoreCase(mode.trim())) {
                 problems.add("SIGNER_EMAIL_MODE must be smtp: the console mailbox is a"
-                        + " development tool and never delivers invitations.");
+                        + " development tool and never delivers e-mail.");
             }
             // The website chain is active exactly when the database is, since
             // its session store is PostgreSQL (security Phase C).

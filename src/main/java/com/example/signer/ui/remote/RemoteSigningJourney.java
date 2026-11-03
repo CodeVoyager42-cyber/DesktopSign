@@ -78,9 +78,9 @@ final class RemoteSigningJourney {
 
         WorkflowApiClient client();
 
-        boolean guestMode();
+        boolean taskSessionMode();
 
-        /** "Signing as": the invited address for a guest, else the account. */
+        /** "Signing as": the signed-in account. */
         String signingAsLabel();
 
         String signedInUser();
@@ -796,7 +796,7 @@ final class RemoteSigningJourney {
         close.setMaxWidth(Region.USE_PREF_SIZE);
         close.setOnAction(e -> {
             leaveSigning();
-            if (host.guestMode()) {
+            if (host.taskSessionMode()) {
                 host.window().close();
             } else {
                 host.showTasks();
@@ -931,7 +931,7 @@ final class RemoteSigningJourney {
             detailsText.setManaged(show);
             details.setText(show ? "Hide Details" : "View Details");
         });
-        Button tasks = SignFlowUi.secondary(host.guestMode()
+        Button tasks = SignFlowUi.secondary(host.taskSessionMode()
                 ? "Back to the signing task" : "Back to signing tasks");
         tasks.setOnAction(e -> {
             leaveSigning();

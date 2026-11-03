@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   fileSize,
   groupedChecksum,
+  installerFailure,
   releaseDate,
   verifyCommand,
   versionLabel,
@@ -76,4 +77,22 @@ test("the verification command carries the real file name", () => {
   );
   assert.equal(verifyCommand(null), "");
   assert.equal(verifyCommand("   "), "");
+});
+
+test("a failed download says what the reader can do about it", () => {
+  // Each status has a different thing to do, which is why these are mapped
+  // here rather than passed through from the server.
+  assert.match(installerFailure(404), /published/);
+  assert.match(installerFailure(429), /Wait a minute/);
+  assert.match(installerFailure(0), /connection/);
+  // Anything unforeseen still says something, and never nothing.
+  assert.match(installerFailure(500), /Try again/);
+  assert.match(installerFailure(418), /Try again/);
+});
+
+test("no session is a redirect, so it has no message of its own", () => {
+  // 401 falls through to the generic line on purpose: the button sends the
+  // reader to sign in instead of rendering anything, and a caller that shows
+  // this string for a 401 has already failed to do that.
+  assert.equal(installerFailure(401), installerFailure(500));
 });

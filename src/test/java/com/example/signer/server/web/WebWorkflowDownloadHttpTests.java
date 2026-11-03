@@ -126,13 +126,11 @@ class WebWorkflowDownloadHttpTests {
     /* ----------------------------- the tests ---------------------------- */
 
     @Test
-    void theFinishedDocumentGoesToEveryoneWhoTookPart() throws Exception {
-        String owner = account();
+    void theFinishedDocumentGoesToTheAccountThatSignedIt() throws Exception {
         String signer = account();
-        String workflow = signedWorkflow(owner, signer, "quarterly report.pdf");
+        String workflow = signedWorkflow(signer, "quarterly report.pdf");
 
-        // The sender, who signed nothing and could never download before.
-        HttpResponse<byte[]> sent = download(workflow, signIn(owner));
+        HttpResponse<byte[]> sent = download(workflow, signIn(signer));
         assertThat(sent.statusCode()).isEqualTo(200);
         assertThat(sent.headers().firstValue("content-type"))
                 .hasValue("application/pdf");
@@ -141,31 +139,29 @@ class WebWorkflowDownloadHttpTests {
         assertThat(new String(sent.body(), 0, 5, StandardCharsets.ISO_8859_1))
                 .as("a PDF, not an error page").isEqualTo("%PDF-");
 
-        // And the signer, whose turn is long over.
-        HttpResponse<byte[]> signed = download(workflow, signIn(signer));
-        assertThat(signed.statusCode()).isEqualTo(200);
-        assertThat(signed.body()).isEqualTo(sent.body());
+        // Asking twice hands over the same bytes: the signed revision is
+        // immutable.
+        HttpResponse<byte[]> again = download(workflow, signIn(signer));
+        assertThat(again.statusCode()).isEqualTo(200);
+        assertThat(again.body()).isEqualTo(sent.body());
     }
 
     @Test
     void beforeItIsFinishedThereIsNothingToDownload() throws Exception {
-        String owner = account();
         String signer = account();
-        String workflow = workflow(owner, signer, "contract.pdf");
+        String workflow = workflow(signer, "contract.pdf");
 
-        // Waiting for its signature: a half-signed revision is a working
-        // copy, and neither the sender nor the signer gets it from here.
-        for (String caller : new String[] {owner, signer}) {
-            HttpResponse<byte[]> refused = download(workflow, signIn(caller));
-            assertThat(refused.statusCode()).as("download as " + caller).isEqualTo(409);
-            assertThat(new String(refused.body(), StandardCharsets.UTF_8))
-                    .contains("INVALID_WORKFLOW_STATE");
-        }
+        // Waiting for its signature: an unsigned revision is a working copy,
+        // and not even its own signer gets it from here.
+        HttpResponse<byte[]> refused = download(workflow, signIn(signer));
+        assertThat(refused.statusCode()).as("download as " + signer).isEqualTo(409);
+        assertThat(new String(refused.body(), StandardCharsets.UTF_8))
+                .contains("INVALID_WORKFLOW_STATE");
     }
 
     @Test
     void aStrangerGetsExactlyTheAnswerForAWorkflowThatDoesNotExist() throws Exception {
-        String workflow = signedWorkflow(account(), account(), "private.pdf");
+        String workflow = signedWorkflow(account(), "private.pdf");
         String stranger = signIn(account());
         String missing = "WF-" + (900_000_000 + RANDOM.nextInt(99_999_999));
 
@@ -181,7 +177,7 @@ class WebWorkflowDownloadHttpTests {
 
     @Test
     void withoutASessionThereIsNoDownload() throws Exception {
-        String workflow = signedWorkflow(account(), account(), "contract.pdf");
+        String workflow = signedWorkflow(account(), "contract.pdf");
 
         HttpResponse<byte[]> refused = this.http.send(
                 HttpRequest.newBuilder(uri("/web/api/workflows/" + workflow + "/download"))
@@ -226,23 +222,21 @@ class WebWorkflowDownloadHttpTests {
         return name;
     }
 
-    /** A workflow of {@code owner} with one slot, held by {@code signer}. */
-    private String workflow(String owner, String signer, String documentName)
+    /** A document uploaded by {@code signer}, who is its only signer. */
+    private String workflow(String signer, String documentName)
             throws Exception {
         return this.workflows.createWorkflow(
-                new CreateWorkflowRequest(documentName, "SEQUENTIAL",
-                        List.of(new CreateWorkflowRequest.SignerSpec(
-                                1, signer, cardFingerprint()))),
-                onePagePdf(), owner).workflowId();
+                new CreateWorkflowRequest(documentName, cardFingerprint()),
+                onePagePdf(), signer).workflowId();
     }
 
     /**
      * The same workflow, actually signed: the document is fetched the way the
      * desktop fetches it, signed with the mock card, and submitted.
      */
-    private String signedWorkflow(String owner, String signer, String documentName)
+    private String signedWorkflow(String signer, String documentName)
             throws Exception {
-        String workflow = workflow(owner, signer, documentName);
+        String workflow = workflow(signer, documentName);
 
         Path dir = Files.createTempDirectory("web-download");
         Path unsigned = dir.resolve("unsigned.pdf");
@@ -255,7 +249,7 @@ class WebWorkflowDownloadHttpTests {
                 Files.readAllBytes(signed),
                 new SignatureSubmissionRequest(0, null, "op-" + workflow))
                 .completed()).as("the one signature completes it").isTrue();
-        assertThat(this.workflows.getWorkflow(workflow, owner).status())
+        assertThat(this.workflows.getWorkflow(workflow, signer).status())
                 .isEqualTo("COMPLETED");
         return workflow;
     }

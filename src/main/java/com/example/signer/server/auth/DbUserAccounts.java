@@ -4,7 +4,7 @@ import com.example.signer.server.db.entity.LoginFailureEntity;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.LoginFailureRepository;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.EmailService;
+import com.example.signer.server.email.EmailService;
 import com.example.signer.server.security.IdentityRateLimiter;
 import com.example.signer.server.security.InMemoryRateLimitStore;
 import com.example.signer.server.security.RateLimitStore;
@@ -195,13 +195,9 @@ public class DbUserAccounts implements UserAccountService {
         if (usernameOrEmail == null || usernameOrEmail.isBlank() || password == null) {
             return false;
         }
-        // Both identifier forms are case-insensitive, matching the email
-        // normalization and the uq_users_username_ci uniqueness index: the
-        // form promises "email or username", and a typed "Alice" must find
-        // the account stored as "alice".
         Optional<UserEntity> account = usernameOrEmail.contains("@")
                 ? users.findByEmail(UserEntity.normalizeEmail(usernameOrEmail))
-                : users.findByUsernameIgnoreCase(usernameOrEmail.trim());
+                : users.findByUsername(usernameOrEmail.trim());
         UserEntity user = account.orElse(null);
         if (user == null || !user.isActive()) {
             // Same answer as a wrong password, after the same bcrypt work, so
@@ -480,7 +476,7 @@ public class DbUserAccounts implements UserAccountService {
     }
 
     /**
-     * Registered = ACTIVE with a password. A {@code PENDING_INVITE}
+     * Registered = ACTIVE with a password. A {@code PLACEHOLDER}
      * placeholder is deliberately NOT registered: the invited person exists
      * only as an invitation identity until they complete registration.
      */
@@ -510,7 +506,7 @@ public class DbUserAccounts implements UserAccountService {
                     .map(UserEntity::getUsername)
                     .orElse(identifier);
         }
-        return users.findByUsernameIgnoreCase(identifier)
+        return users.findByUsername(identifier)
                 .map(UserEntity::getUsername)
                 .orElse(identifier);
     }
@@ -570,7 +566,7 @@ public class DbUserAccounts implements UserAccountService {
      * <p>The guards are in {@link UserRepository#deleteNeverVerifiedBefore},
      * spelled out in SQL because this is the only statement in the
      * application that removes a {@code users} row. In particular it never
-     * touches an invitation identity ({@code PENDING_INVITE}), an account an
+     * touches an invitation identity ({@code PLACEHOLDER}), an account an
      * operator disabled, one that has ever been signed in to, or one that
      * holds a signer slot, owns a workflow or holds a claimed turn.
      *

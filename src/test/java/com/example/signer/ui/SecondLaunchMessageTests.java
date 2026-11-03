@@ -1,6 +1,6 @@
 package com.example.signer.ui;
 
-import com.example.signer.ui.InvitationLinks.LaunchArgument;
+import com.example.signer.ui.LaunchLinks.LaunchArgument;
 import com.example.signer.ui.SingleInstanceGuard.Outcome;
 
 import org.junit.jupiter.api.Test;
@@ -17,26 +17,30 @@ class SecondLaunchMessageTests {
     @Test
     void aLaunchLinkThatWasNotPassedOnSendsTheUserBackToTheWebsite() {
         String text = SignerFxApplication.alreadyRunningMessage(Outcome.ALREADY_RUNNING_UNVERIFIED,
-                new LaunchArgument(LaunchArgument.Kind.LAUNCH, CODE));
+                new LaunchArgument(CODE));
         assertThat(text).contains("not passed on").contains("website").contains("2 minutes")
-                .doesNotContain(CODE).doesNotContain("open the link again from there");
+                .doesNotContain(CODE);
     }
 
     @Test
-    void anInvitationLinkPointsBackToTheEmailAndABusyCopyIsNotCalledDead() {
+    void aBusyCopyIsNotCalledDead() {
         String text = SignerFxApplication.alreadyRunningMessage(Outcome.OTHER_UNRESPONSIVE,
-                new LaunchArgument(LaunchArgument.Kind.INVITATION, "t".repeat(40)));
-        assertThat(text).contains("busy").contains("invitation link in your e-mail")
-                .doesNotContain("stuck").doesNotContain("Restart");
-        assertThat(SignerFxApplication.alreadyRunningMessage(Outcome.ALREADY_RUNNING_UNVERIFIED,
-                null)).contains("Switch to the open SignFlow window");
+                new LaunchArgument(CODE));
+        assertThat(text).contains("busy").contains("website")
+                .doesNotContain("stuck").doesNotContain("Restart").doesNotContain(CODE);
+    }
+
+    @Test
+    void withoutALinkTheUserIsOnlyAskedToSwitchWindows() {
+        assertThat(SignerFxApplication.alreadyRunningMessage(
+                Outcome.ALREADY_RUNNING_UNVERIFIED, null))
+                .contains("Switch to the open SignFlow window");
     }
 
     @Test
     void launchLinksNeverReachSpring() {
         String[] args = SignerFxApplication.springArguments(List.of(
-                "signflow://launch?v=1&c=" + CODE, "--spring.profiles.active=dev",
-                "signflow://invitation/" + "t".repeat(40), CODE));
+                "signflow://launch?v=1&c=" + CODE, "--spring.profiles.active=dev", CODE));
         assertThat(args).containsExactly("--spring.profiles.active=dev");
     }
 }
