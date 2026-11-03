@@ -6,7 +6,8 @@ and what each of those steps deliberately does not do.
 The website cannot sign anything: the certificate lives on a smart card and
 the desktop application is what reaches it. So the download is not a
 convenience, it is the second half of the product, and finding it must not
-require an account — somebody invited to sign has no account yet.
+require an account — somebody who has not signed up yet still has to be able
+to get the application.
 
 ---
 
@@ -136,7 +137,7 @@ hear about it at once, rather than serving 404s that read like "no release
 published yet".
 
 Unset is supported: the website then offers `SIGNER_DOWNLOAD_URL` if that is
-configured (the link the invitation page has used since Phase 3), and
+configured, and
 otherwise says the download is not available yet.
 
 ### What is served, and what is refused
@@ -146,12 +147,12 @@ is who may ask, not what they get:
 
 | Route | Sign-in | Saved as | For |
 | --- | --- | --- | --- |
-| `GET /downloads/{fileName}` | none | the published name, e.g. `SignFlow-0.1.0.msi` | an invited signer, who has no account yet |
+| `GET /downloads/{fileName}` | none | the published name, e.g. `SignFlow-0.1.0.msi` | anyone who has not got an account yet |
 | `GET /web/api/desktop/installer` | **session required** | `SIGNER_INSTALLER_FILENAME`, default `SignFlow-Setup.msi` | the signed-in dashboard button |
 
-The public one is public deliberately: somebody invited to sign a document
-cannot be asked to create an account before installing the application that
-does the signing. The signed-in one is what the dashboard's **Download for
+The public one is public deliberately: somebody evaluating SignFlow cannot be
+asked to create an account before installing the application that does the
+signing. The signed-in one is what the dashboard's **Download for
 Windows** button uses, so a reader who *does* have an account is served
 through the session they already have, under a stable name that does not
 change from release to release.

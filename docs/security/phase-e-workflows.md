@@ -1,5 +1,11 @@
 # Phase E — workflows on the website
 
+> **Superseded in part.** The signing-invitation feature described here was
+> removed: a document now has exactly one signer, the account that uploaded it
+> (`src/main/resources/db/migration/V14__remove_invitations_single_signer.sql`).
+> Everything below about invitations, guest sessions, signing order, turn claims
+> or co-signers is a record of the design at the time, not current behaviour.
+
 The website can manage an account (Phase D) but knows nothing about
 documents. Phase E gives it the workflow routes under `/web/api`, in three
 parts:

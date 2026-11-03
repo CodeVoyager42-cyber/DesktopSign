@@ -1,8 +1,9 @@
 # SignFlow — PDF Digital Signature Desktop App
 
 A local desktop application for signing PDF documents with cryptographic tokens (PKCS#11).
-Built with Java 21, JavaFX, and Spring Boot, it supports sequential multi-signer workflows
-(1, 2, or 3 signers) and chain-aware signature verification.
+Built with Java 21, JavaFX, and Spring Boot. One document has one signer — the account
+that uploaded it — and verification is chain-aware, so a document that already carries
+signatures keeps them valid.
 
 [![Build](https://github.com/CodeVoyager42-cyber/DesktopSign/actions/workflows/build.yml/badge.svg)](https://github.com/CodeVoyager42-cyber/DesktopSign/actions/workflows/build.yml)
 
@@ -10,8 +11,9 @@ Built with Java 21, JavaFX, and Spring Boot, it supports sequential multi-signer
 
 - **Document-centric signing workspace** — page rendering, thumbnails, zoom, precise
   signature placement with drag-and-resize, and a live stamp preview
-- **Sequential multi-signer workflow** — 1, 2, or 3 people sign one after another;
-  each signature is an incremental PDF revision so previous signatures stay valid
+- **One document, one signer** — the account that uploads a document is the account
+  that signs it; the signature is an incremental PDF revision, so anything already
+  signed on that document stays valid
 - **Chain-aware verification** — later valid signatures counter-sign incremental
   updates instead of being rejected as tampering; every signature in the chain is
   checked and reported (signer, algorithm, timestamp, validity)
@@ -48,8 +50,8 @@ carries its own Java runtime.
 ### For the people who will use it
 
 **From your own SignFlow server: `/download`.** A public page — no account
-needed, because somebody invited to sign has not got one yet — offering the
-installer with its version, size and SHA-256, the three install steps, and
+needed, because somebody evaluating SignFlow has not got one yet — offering
+the installer with its version, size and SHA-256, the three install steps, and
 what to do about the SmartScreen warning. The server serves it from
 `SIGNER_DOWNLOAD_DIR`; see [docs/desktop-download.md](docs/desktop-download.md)
 for how a release is published into that folder.
@@ -195,16 +197,16 @@ launcher prints a warning asking you to move it. Never commit secrets:
 ├── src/main/java/com/example/signer/
 │   ├── ui/                 JavaFX desktop app
 │   │   ├── (root)          App shell: SignerFxApplication, AppNavigator, single-instance guard
-│   │   ├── dialog/         Login, home screen, invitation and inviter dialogs
-│   │   ├── workspace/      Local signing (1–3 signers on this PC, continue a workflow PDF)
-│   │   ├── remote/         Server-backed screens (tasks, remote signing journey, wizard)
+│   │   ├── dialog/         Login, home screen and launch-link dialogs
+│   │   ├── workspace/      Local signing on this PC (continue a workflow PDF)
+│   │   ├── remote/         Server-backed screens (documents, upload, remote signing journey)
 │   │   ├── kit/            Reusable controls
 │   │   └── support/        Background threads, error messages, helpers
 │   ├── client/             HTTP client for the SignFlow server + remote signing service
 │   ├── server/             Coordination server (Spring Boot, profile "server")
 │   │   ├── api/            REST controllers and API contracts
-│   │   ├── auth/           JWT, refresh tokens, guest sessions, accounts
-│   │   ├── invites/        Invitations, emails, public sign page
+│   │   ├── auth/           JWT, refresh tokens, accounts
+│   │   ├── email/          Account e-mails (verification, password reset, notices)
 │   │   ├── workflow/       Workflow aggregate, state machine, service, stores
 │   │   └── db/             JPA entities, repositories, PostgreSQL store
 │   ├── workflow/           Portable workflow manifest, reconciliation, local engine

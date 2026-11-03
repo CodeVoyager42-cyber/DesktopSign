@@ -1,5 +1,11 @@
 # Website + desktop launch-code handover — audit and plan (Phase A)
 
+> **Superseded in part.** The signing-invitation feature described here was
+> removed: a document now has exactly one signer, the account that uploaded it
+> (`src/main/resources/db/migration/V14__remove_invitations_single_signer.sql`).
+> Everything below about invitations, guest sessions, signing order, turn claims
+> or co-signers is a record of the design at the time, not current behaviour.
+
 Status: **proposal, awaiting approval.** No source file has been changed.
 Audited against the code that includes security Phases 2, 2.1 and 3
 (patch `signflow-security-phase3.patch`).

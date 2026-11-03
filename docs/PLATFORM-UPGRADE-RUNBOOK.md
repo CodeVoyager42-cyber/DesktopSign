@@ -1,5 +1,11 @@
 # Platform Upgrade — PostgreSQL, Invitations, Email (Runbook)
 
+> **Superseded in part.** The signing-invitation feature described here was
+> removed: a document now has exactly one signer, the account that uploaded it
+> (`src/main/resources/db/migration/V14__remove_invitations_single_signer.sql`).
+> Everything below about invitations, guest sessions, signing order, turn claims
+> or co-signers is a record of the design at the time, not current behaviour.
+
 Companion to [ARCHITECTURE-ASSESSMENT.md](ARCHITECTURE-ASSESSMENT.md). Covers
 what the platform upgrade added and how to run everything.
 

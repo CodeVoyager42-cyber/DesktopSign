@@ -1,5 +1,11 @@
 # Security Phase 1 — identity foundation
 
+> **Superseded in part.** The signing-invitation feature described here was
+> removed: a document now has exactly one signer, the account that uploaded it
+> (`src/main/resources/db/migration/V14__remove_invitations_single_signer.sql`).
+> Everything below about invitations, guest sessions, signing order, turn claims
+> or co-signers is a record of the design at the time, not current behaviour.
+
 Status: implemented. Scope: the account data model and password handling only.
 Authentication flow, Spring Security filter chain, authorization, partner
 credentials and the desktop session are later phases and are unchanged here.

@@ -9,7 +9,7 @@ SignFlow has two runtime postures, selected by the Spring profile `dev`.
 | JWT secret | Random per process when `SIGNER_SERVER_JWT_SECRET` is empty | `SIGNER_SERVER_JWT_SECRET` (≥ 32 bytes) required; startup fails without it |
 | Mock-token certificates | Accepted by the server | Rejected (`DEVELOPMENT_IDENTITY_REJECTED`) |
 | Transport | Plain HTTP allowed | HTTPS required (plain HTTP only to `localhost`/`127.0.0.1`) |
-| Email | Console mailbox allowed | SMTP required; invitation links must be `https://` |
+| Email | Console mailbox allowed | SMTP required; account e-mail links must be `https://` |
 
 `run-app.cmd`, `run-server.cmd` and `mvnw javafx:run` are **development
 launchers** and activate `dev`. Installed builds (`scripts/package.sh`) carry
@@ -39,7 +39,7 @@ Pick one:
    `SIGNER_TLS_OFFLOADED=true`. Do not expose the plain-HTTP port to the
    network in this mode.
 
-Also set `SIGNER_PUBLIC_BASE_URL=https://<host>` so emailed invitation links
+Also set `SIGNER_PUBLIC_BASE_URL=https://<host>` so emailed account links
 are HTTPS, and `SIGNER_SERVER_URL=https://<host>` on every desktop.
 
 ## How the desktop trusts the server certificate
@@ -65,12 +65,13 @@ machine's loopback address unless the `dev` profile is active.
 
 ## What travels over the connection
 
-Passwords (login/registration), access JWTs, refresh tokens, invitation
+Passwords (login/registration), access JWTs, refresh tokens, account
 tokens and PDF revisions. All of them therefore require HTTPS in production.
-The server never logs raw invitation tokens, passwords, JWTs or refresh
+The server never logs raw e-mail tokens, passwords, JWTs or refresh
 tokens; in console (development) mail mode the full email is printed to
 standard output only and the log contains a redacted link.
 
-The browser invitation page (`/invitations/{token}`) no longer offers a PDF
-download: the document is reviewed in the desktop app after sign-in, through
-the authenticated workflow API.
+No browser page offers a PDF download of an unsigned document: a document is
+reviewed in the desktop app after sign-in, through the authenticated workflow
+API. The website hands over the finished document only, once it is signed
+(`GET /web/api/workflows/{id}/download`).

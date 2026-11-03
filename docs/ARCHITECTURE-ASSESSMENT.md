@@ -1,5 +1,11 @@
 # Architecture Assessment — Remote Multi-Signer Signing Platform
 
+> **Superseded in part.** The signing-invitation feature described here was
+> removed: a document now has exactly one signer, the account that uploaded it
+> (`src/main/resources/db/migration/V14__remove_invitations_single_signer.sql`).
+> Everything below about invitations, guest sessions, signing order, turn claims
+> or co-signers is a record of the design at the time, not current behaviour.
+
 Phase 0 deliverable. Inspection of the existing codebase **before** the
 PostgreSQL / invitation / persistence migration. Every statement below was
 verified against the source on this branch.

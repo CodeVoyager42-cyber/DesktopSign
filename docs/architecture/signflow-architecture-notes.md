@@ -1,5 +1,11 @@
 # SignFlow – sequence diagrams and architecture notes
 
+> **Superseded in part.** The signing-invitation feature described here was
+> removed: a document now has exactly one signer, the account that uploaded it
+> (`src/main/resources/db/migration/V14__remove_invitations_single_signer.sql`).
+> Everything below about invitations, guest sessions, signing order, turn claims
+> or co-signers is a record of the design at the time, not current behaviour.
+
 Status: October 2026. Everything marked **implemented** was checked against the source code
 (`src/main/java/com/example/signer/**`, Flyway `V1`–`V4`). Everything marked **planned** does not
 exist yet.

@@ -8,10 +8,10 @@
 SignFlow is a desktop-centric PDF digital-signing product built around PKCS#11 smart-card
 tokens. One Maven artifact ships two applications selected by Spring profile:
 
-- **Desktop app** (JavaFX, profile `desktop`/`dev`): local sequential signing by 1–3 signers,
+- **Desktop app** (JavaFX, profile `desktop`/`dev`): local signing on this computer,
   remote signing against a coordination server, chain-aware signature verification.
 - **Coordination server** (Spring Boot servlet, profile `server`): accounts + JWT auth,
-  workflows, invitations by email, guest signing sessions, desktop launch codes, the
+  workflows, account e-mails, desktop launch codes, the
   built-in website (Next.js static export), and the desktop installer download
   (`SignFlow-<version>.msi` + `.sha256` from `SIGNER_DOWNLOAD_DIR`) — the headline feature
   of this `feature-desktop-download` branch (docs/desktop-download.md §1–§6,
@@ -56,16 +56,16 @@ src/main/java/com/example/signer/
   verification/ DefaultPdfVerificationService (chain-aware, streaming 64 KiB hashing)
   pdf/       DocumentAnalysis, PdfboxPdfRenderService(+DocumentRenderer), metadata records
   token/     TokenService+TokenStateMachine; mock/ (dev P12), pkcs11/ (SunPKCS11 + wrapper bridge)
-  server/    api/ (workflow + auth + invitations controllers), auth/ (JwtService, refresh
-             rotation, deny list, accounts), invites/ (invitation lifecycle, guest codes,
-             sign page, email), launch/ (launch codes for desktop hand-off), downloads/
+  server/    api/ (workflow + auth controllers), auth/ (JwtService, refresh
+             rotation, deny list, accounts), email/ (verification, password reset and
+             notice e-mails), launch/ (launch codes for desktop hand-off), downloads/
              (installer catalog/controller), security/ (both filter chains, rate limiters),
              web/ (website session controllers + FrontendRoutingConfiguration),
              workflow/ (RemoteWorkflowService 1263 lines, aggregate, stores), db/
              (entities, repositories, DbPersistenceConfiguration, JpaWorkflowStore)
-web/         Next.js source; app/ pages (sign-in, documents, document, send, open, download,
-             account, verify-email, reset-password…), lib/ (api.ts is the only server client,
-             dashboard/send/timeline/handoff/download.ts helpers + *.test.ts, 48 tests)
+web/         Next.js source; app/ pages (sign-in, documents, document, upload, open,
+             download, account, verify-email, reset-password…), lib/ (api.ts is the only
+             server client, dashboard/upload/timeline/handoff/download.ts helpers + *.test.ts)
 docs/        ARCHITECTURE-ASSESSMENT.md, desktop-download.md, TRANSPORT-SECURITY.md, workflow.md,
              architecture/ (sequence diagrams), security/ (phase 1–F write-ups)
 packaging/windows/  main.wxs (full WiX replacement; registers signflow://), main.wxs.jdk-base
@@ -90,16 +90,17 @@ run-app.cmd / run-server.cmd  Windows launcher scripts (dev profile; secrets fil
 ## 5. Architecture in brief
 
 Two filter chains (`server/security/SecurityConfig` bearer chain, `WebSecurityConfig`
-order-1 web chain). JWT types: `access` (accounts, 15 min), `guest` (invitation-scoped ≤60 min),
-`task` (launch-code session ≤30 min, no refresh, cannot bind certificates).
+order-1 web chain). JWT types: `access` (accounts, 15 min) and `task` (launch-code
+session ≤30 min, no refresh, cannot bind certificates). A token claiming `typ=guest`
+authenticates nobody: guest sessions went with the invitation feature (V14).
 Refresh tokens rotate in one family (SHA-256 at rest; reuse revokes the family).
 Access-token logout deny-list keyed by `jti`. Rate limiting DB-backed sliding windows
 (`DbRateLimitStore`) shared by both chains.
 
 Workflow state machine `server/workflow/WorkflowState`:
 DRAFT → READY_FOR_SIGNING → WAITING_FOR_SIGNER → SIGNATURE_SUBMITTED → VALIDATING →
-{WAITING_FOR_SIGNER | COMPLETED | FAILED/CANCELLED}. Policies: SEQUENTIAL and FLEXIBLE
-(single persisted 30-min turn claim; first claim wins, second gets 409).
+{COMPLETED | FAILED/CANCELLED}. No signing policy and no turn to claim: the one signer
+holds the turn until the signature is accepted (V14).
 All mutations funnel through `RemoteWorkflowService` under `store.lockFor(id)` +
 optimistic `workflows.version` (Flyway V3). PDF bytes always on disk under
 `DocumentFileStorage` (`{storage}/workflows/{id}/revisions/<n>.pdf`), even in DB mode.
@@ -112,16 +113,18 @@ Web sessions: Spring Session JDBC (V9), `__Host-SF_SESSION` cookie, CSRF in sess
 
 ## 6. Key flows (verified in source)
 
-1. **Local signing**: `MultiSignerWorkspaceFlow` → `WorkflowSigningEngine.sign` →
+1. **Local signing**: `SigningWorkspaceFlow` → `WorkflowSigningEngine.sign` →
    `DefaultPdfSigningService.signPdf` (incremental save; CMS signed attrs; adbe.pkcs7.detached)
-   → `DefaultPdfVerificationService.verifyPdf` re-verifies whole chain after every signer.
+   → `DefaultPdfVerificationService.verifyPdf` re-verifies the whole chain afterwards.
    Private key never leaves token; PIN handled as char[] and wiped.
-2. **Remote signing (desktop)**: login → tasks → claim → download revision →
+2. **Remote signing (desktop)**: login → tasks → download revision →
    `RemoteSigningService.signRemoteStep` (stale-revision check before token unlock) →
    sign → `submitIdempotently` (same `signingOperationId`+bytes, 3 attempts on transport
    failure, server dedups by operation id in `RemoteWorkflowService#submitSignature`).
-3. **Guest signing (no account)**: `/invitations/{token}` public page → guest-code email
-   (6-digit, V7 columns) → guest JWT → allow-listed actions only (`server/security/GuestAccessPolicy`).
+3. **Certificate enrollment**: a document uploaded without a fingerprint stays DRAFT with
+   no revision 0; the signer registers the certificate from the machine its token is in
+   (`POST /api/workflows/{id}/signers/{user}/certificate`), which prepares revision 0.
+   Until then `GET .../document` answers 409 `CERTIFICATE_NOT_BOUND`.
 4. **Website → desktop hand-off (Phase B/F)**: website `POST /web/api/workflows/{id}/launch-codes`
    → `signflow://launch?v=1&c=<43-char code>` (120 s TTL, store = SHA-256, V8) → OS scheme
    handler → `SignerFxApplication` → `SingleInstanceGuard` UDS hand-off →

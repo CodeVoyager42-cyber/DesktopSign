@@ -1,5 +1,11 @@
 # SignFlow website — design system
 
+> **Superseded in part.** The signing-invitation feature described here was
+> removed: a document now has exactly one signer, the account that uploaded it
+> (`src/main/resources/db/migration/V14__remove_invitations_single_signer.sql`).
+> Everything below about invitations, guest sessions, signing order, turn claims
+> or co-signers is a record of the design at the time, not current behaviour.
+
 What the website is built from, and what the later screens are planned to be.
 The security reasoning behind the same-origin decision, the
 Content-Security-Policy and the wording of refusals lives in
@@ -243,8 +249,8 @@ helpful here would undo the server's work.
 |---|---|---|
 | **The public page** | `/` | headline, three steps, two buttons |
 | **Documents** | `/documents` | tabs: To sign (count) · Sent by me · Shared with me |
-| **One document** | `/document?id=…` | state, signers, the main action, and the history behind a disclosure |
-| **Send a document** | `/send` | a three-step wizard; the only page that uploads |
+| **One document** | `/document?id=…` | state, the main action, and the history behind a disclosure |
+| **Upload a document** | `/upload` | the only page that uploads |
 | **Open in the app** | `/open?id=…` | the hand-off, with the two-minute clock |
 | Sign in | `/sign-in` | one message for every kind of refusal |
 | Create an account | `/sign-up` | 202 either way; the confirmation page is worded for both |

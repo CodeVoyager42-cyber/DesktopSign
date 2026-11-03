@@ -1,5 +1,11 @@
 # Security Phase 3 — authorization
 
+> **Superseded in part.** The signing-invitation feature described here was
+> removed: a document now has exactly one signer, the account that uploaded it
+> (`src/main/resources/db/migration/V14__remove_invitations_single_signer.sql`).
+> Everything below about invitations, guest sessions, signing order, turn claims
+> or co-signers is a record of the design at the time, not current behaviour.
+
 Status: **implemented** (2026-10-19). Planned after the Phase 2 review; the
 plan's decisions were taken with the recommended defaults.
 

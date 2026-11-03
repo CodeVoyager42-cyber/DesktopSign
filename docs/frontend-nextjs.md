@@ -166,9 +166,9 @@ too.
 | `/` | the public page: hero, features, how it works, security, CTA |
 | `/sign-in`, `/sign-up`, `/forgot-password` | the account screens |
 | `/verify-email?token=…`, `/reset-password?token=…` | the e-mailed links |
-| `/documents` | the dashboard: action required, waiting for others, finished |
-| `/document?id=…` | one document: its state, its history, and the owner's invitations |
-| `/send` | starting a signing request: the only page that uploads |
+| `/documents` | the dashboard: action required, in progress, finished |
+| `/document?id=…` | one document: its state and its history |
+| `/upload` | uploading a document to sign: the only page that uploads |
 | `/account`, `/change-password` | the account screens behind a session |
 
 The document screen takes its workflow id in the **query string** for the
@@ -204,12 +204,9 @@ people you are signing with, and those are not always Latin.
 - **The grouping logic** — `web/lib/dashboard.test.ts` (9 tests) in Node's
   own runner: a document in both lists appears once, the viewer's own slot
   decides the group, cancelled and failed are finished.
-- **The sending logic** — `web/lib/send.test.ts` (12 tests), same runner:
-  blank signer rows dropped with the numbering closed up behind them, a slot
-  trimmed, no certificate ever named from the browser, the one missing thing
-  reported in order, and how a slot's row reads — signed winning over an
-  invitation that is still `PENDING`, an undelivered e-mail saying so, and no
-  action offered against a signature.
+- **The upload logic** — `web/lib/upload.test.ts`, same runner: the document
+  name trimmed and required, no certificate ever named from the browser, and
+  the one missing thing reported first.
 
   The multipart create is the one call that cannot go through `post`: the
   `Content-Type` is left to the browser, which alone knows the boundary it is
