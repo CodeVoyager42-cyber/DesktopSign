@@ -1,0 +1,132 @@
+%% SignFlow — PROPOSED partner integration (NOT implemented yet)
+%% Planned = Partner API, partner auth, sign requests, launch codes, trust/revocation, outbox, webhooks.
+%% Reused  = invitations (hashed tokens), guest signing session, server-side PDF validation, revision storage.
+sequenceDiagram
+    autonumber
+    box rgb(228,237,248) Coworker's system
+        actor BU as Business user
+        participant WA as Coworker web app
+        participant CB as Coworker backend
+        participant WH as Coworker webhook endpoint
+    end
+    participant BR as User's browser
+    box rgb(221,241,238) SignFlow server
+        participant PA as Partner REST API (planned)
+        participant PZ as Partner authN/authZ (planned)
+        participant SR as Signing request service (planned)
+        participant IS as Invitation service (exists)
+        participant DB as PostgreSQL
+        participant OS as PDF storage
+        participant IP as Web invitation page /invitations/{token} (exists)
+        participant VS as Signature validation (exists, + trust policy planned)
+        participant OB as Webhook outbox + dispatcher (planned)
+    end
+    box rgb(248,227,225) User's PC
+        participant D as SignFlow Desktop (JavaFX)
+        participant P as Local PKCS#35;11 provider
+        participant C as USB token / smart card
+    end
+
+    Note over CB,PA: Trust boundary 1: partner API key / client credential lives ONLY in the coworker backend.<br/>Never in the browser or the desktop app.
+
+    BU->>WA: Clicks "Approve contract"
+    WA->>CB: Approve request (user session of the coworker app)
+    CB->>CB: Business rules: contract ready? who must sign?
+
+    CB->>PA: POST /api/partner/v1/sign-requests (HTTPS, multipart PDF + metadata, Idempotency-Key)
+    PA->>PZ: Authenticate partner credential, check scope sign_requests:create
+    alt Invalid or revoked credential
+        PZ-->>CB: 401 / 403
+    else Authorised
+        PA->>SR: Create request (partnerId, externalRef, signer, callbackUrl, returnUrl)
+        SR->>SR: Validate PDF (size, parseable, not encrypted), returnUrl on partner allow-list
+        SR->>OS: Store original PDF
+        SR->>IS: Create one-signer workflow + invitation
+        IS->>DB: sign_requests (status PENDING, document SHA-256, expiry), invitations (token SHA-256 only)
+        SR-->>PA: id, status, expiresAt, signUrl
+        PA-->>CB: 201 Created { id, status, expiresAt, signUrl }
+    end
+
+    CB-->>WA: signUrl
+    WA-->>BR: Redirect to signUrl
+    BR->>IP: GET /invitations/{token}
+    alt Expired, revoked or already used
+        IP-->>BR: Friendly page "link expired / ask sender"
+    else Valid
+        IP->>DB: Create launch code (random, single use, about 2 minutes, bound to invitation)
+        IP-->>BR: Page: "Open in SignFlow" (signflow://launch/{code}) or "Download SignFlow"
+    end
+
+    BR->>D: signflow://launch/{code} (OS protocol handler)
+    Note over D: Trust boundary 2: the deep link carries only an opaque code.<br/>Desktop ignores any URL, id or data in it and uses its configured server.
+    D->>PA: POST /api/launch/exchange { code } (HTTPS)
+    PA->>DB: Consume code atomically (unused, not expired)
+    alt Code invalid, reused or expired
+        PA-->>D: 401
+        D-->>BU: "Link expired, open it again from the email or website"
+    else OK
+        PA-->>D: Signing-session JWT scoped to ONE request and ONE signer slot (short TTL)
+    end
+
+    D->>PA: GET signing task + PDF (Bearer signing-session JWT)
+    PA->>OS: Read PDF
+    PA-->>D: Request details + PDF
+    D->>D: Show document, partner name, reason
+
+    D->>P: Detect token, list certificates (no PIN)
+    alt Token missing or disconnected
+        P-->>D: Error
+        D-->>BU: "Insert your card" (retry)
+    else Present
+        BU->>D: Select certificate, confirm "Ready to Sign"
+        BU->>D: Enter PIN
+        D->>P: C_Login, then C_Sign over CMS signed attributes
+        P->>C: Sign inside the chip
+        Note over C: Trust boundary 3: private key never leaves the token. PIN never leaves the PC.
+        C-->>D: Signature
+        D->>D: Build signed PDF (incremental), verify locally
+    end
+
+    alt User rejects / cancels
+        D->>PA: POST decline (optional reason)
+        PA->>SR: Status DECLINED
+        SR->>OB: Outbox event sign_request.declined
+    else Signs
+        D->>PA: POST signed PDF (parent hash, signingOperationId)
+        PA->>VS: Validate before accepting
+        VS->>VS: Incremental update of original, crypto valid, cert = bound or allowed,<br/>chain to trusted CA, OCSP/CRL revocation per policy
+        alt Upload failed (network)
+            D->>PA: Retry with same signingOperationId (idempotent)
+        else Invalid signature, untrusted or revoked certificate
+            VS-->>PA: Rejected
+            PA-->>D: 422 with reason, status unchanged
+        else Valid
+            VS->>OS: Store signed PDF (immutable)
+            VS->>DB: One transaction: status SIGNED + signed PDF SHA-256 + audit event + outbox row
+            PA-->>D: 200 Signed
+            D-->>BU: Success, "Back to contract app" (opens allow-listed returnUrl)
+        end
+    end
+
+    Note over OB,WH: Asynchronous from here: delivery never blocks the signer.
+    loop Until delivered or max retries (exponential backoff)
+        OB-)WH: POST webhook {eventId, type, requestId, externalRef}<br/>X-SignFlow-Timestamp + HMAC-SHA256 signature
+        alt 2xx
+            WH-->>OB: Acknowledged, outbox row DELIVERED
+        else Timeout / 5xx
+            WH-->>OB: Failed, schedule retry
+        end
+    end
+    WH->>WH: Verify HMAC + timestamp window, skip duplicate eventId (idempotent)
+    WH->>CB: Mark contract as signed (business record)
+    CB->>PA: GET /api/partner/v1/sign-requests/{id}/document (partner credential)
+    PA->>PZ: Request belongs to this partner?
+    alt Not owner or not yet SIGNED
+        PZ-->>CB: 404 / 409
+    else OK
+        PA->>OS: Read signed PDF
+        PA-->>CB: Signed PDF + SHA-256
+    end
+    opt Webhook never arrived
+        CB->>PA: GET /api/partner/v1/sign-requests/{id} (polling fallback)
+    end

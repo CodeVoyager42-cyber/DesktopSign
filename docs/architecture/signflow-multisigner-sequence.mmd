@@ -1,0 +1,55 @@
+%% SignFlow — PROPOSED evolution: one partner request, three signers on separate computers.
+%% The current server already has multi-signer workflows (SEQUENTIAL / FLEXIBLE) for its own users;
+%% what is NEW here is driving them from the Partner API with per-signer launch codes and webhooks.
+sequenceDiagram
+    autonumber
+    participant CB as Coworker backend
+    participant PA as SignFlow Partner API
+    participant WF as Workflow + request service
+    participant DB as PostgreSQL + PDF storage
+    participant OB as Webhook outbox
+    participant S1 as Signer 1 PC (SignFlow + card)
+    participant S2 as Signer 2 PC (SignFlow + card)
+    participant S3 as Signer 3 PC (SignFlow + card)
+
+    CB->>PA: POST sign-requests {signers: [A, B, C], policy}
+    PA->>WF: Create ONE workflow with three signer tasks
+    WF->>DB: Workflow, 3 tasks, 3 invitations (token hashes), revision 0
+    PA-->>CB: 201 {id, tasks[ {signer, signUrl} x3 ]}
+    Note over CB,S3: Each signer gets their own link, launch code and signing session.<br/>No signer can act on another signer's task.
+
+    alt SEQUENTIAL policy
+        WF-)S1: Invitation to signer 1 only
+        S1->>PA: Exchange launch code, download revision 0, sign, upload
+        PA->>DB: Validate, store revision 1, task 1 SIGNED
+        PA-)OB: task.signed (1 of 3)
+        WF-)S2: Invitation to signer 2
+        S2->>PA: Download revision 1, sign, upload
+        PA->>DB: Validate (sig 1 still valid), store revision 2
+        WF-)S3: Invitation to signer 3
+        S3->>PA: Download revision 2, sign, upload
+        PA->>DB: Validate all 3, store revision 3
+    else PARALLEL policy (any order, one at a time)
+        WF-)S1: Invitations to all three
+        WF-)S2: Invitations to all three
+        WF-)S3: Invitations to all three
+        S2->>PA: Claim turn, download latest revision, sign, upload
+        S1->>PA: Upload based on an older revision
+        PA-->>S1: 409 conflict, re-download latest revision and sign again
+        Note over PA,DB: PDF signatures are serial: "parallel" means any order,<br/>each signer signs on top of the latest accepted revision.
+    end
+
+    alt A signer declines
+        S2->>PA: Decline
+        PA->>DB: Workflow REJECTED, other tasks closed
+        PA-)OB: sign_request.rejected
+    else An invitation expires
+        WF->>DB: Task EXPIRED (sweeper)
+        PA-)OB: task.expired, partner may resend
+    else Upload or validation fails
+        PA-->>S3: Error, task stays open, signer can retry
+    else All three tasks SIGNED
+        PA->>DB: Workflow COMPLETED (only after every required task is valid)
+        PA-)OB: sign_request.completed
+        OB-)CB: Webhook (HMAC), then CB downloads final PDF with all 3 signatures
+    end

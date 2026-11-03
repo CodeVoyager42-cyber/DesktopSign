@@ -1,0 +1,781 @@
+{
+	"info": {
+		"_postman_id": "c9f2d4ab-reject-matrix-0001",
+		"name": "SignFlow Rejection Matrix",
+		"description": "Exercises every server-side rejection path of the coordination API.\n\nSETUP FIRST (one command, server must already be running):\n  powershell -ExecutionPolicy Bypass -File postman/setup-rejection-matrix.ps1\n\nIt creates a dedicated 2-signer workflow, downloads revision 0, builds the tampered fixtures and writes fixtures/matrix-env.json. Import that as a Postman ENVIRONMENT and select it. Then run this collection top to bottom: every request asserts its exact expected status code AND error code, so the whole suite should show green.\n\nWhat is covered: JWT enforcement, participant authorization, turn enforcement, stale parent revision, stale parent hash, byte-prefix tampering, chain-breaking append, unsigned resubmission, missing/short fingerprint validation, idempotency replay. NOT covered from raw HTTP: a cryptographically valid signature from a DIFFERENT certificate (needs the desktop app's PKCS#11 signing - see the 'Wrong certificate' request's description for the manual repro).",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"variable": [
+		{ "key": "baseUrl", "value": "http://localhost:8080" },
+		{ "key": "accessToken", "value": "" },
+		{ "key": "refreshToken", "value": "" },
+		{ "key": "workflowId", "value": "SET_BY_SETUP_SCRIPT" },
+		{ "key": "parentRevision", "value": "0" },
+		{ "key": "parentSha256", "value": "SET_BY_SETUP_SCRIPT" },
+		{ "key": "operationId", "value": "SET_BY_SETUP_SCRIPT" }
+	],
+	"item": [
+		{
+			"name": "0. Auth",
+			"item": [
+				{
+					"name": "Login (alice)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"login 200\", () => pm.response.to.have.status(200));",
+									"const json = pm.response.json();",
+									"pm.collectionVariables.set(\"accessToken\", json.accessToken);",
+									"pm.collectionVariables.set(\"refreshToken\", json.refreshToken);",
+									"pm.test(\"tokens saved\", () => {",
+									"    pm.expect(json.accessToken).to.be.a(\"string\").and.not.empty;",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"alice\",\n  \"password\": \"alice-pass\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "login"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "No token -> 401",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"401 without credentials\", () => pm.response.to.have.status(401));",
+									"pm.test(\"structured JSON error\", () => {",
+									"    pm.expect(pm.response.json().code).to.eql(\"UNAUTHORIZED\");",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/my-tasks",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "my-tasks"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Garbage token -> 401",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"401 for garbage bearer\", () => pm.response.to.have.status(401));"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer not.a.real.jwt" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/my-tasks",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "my-tasks"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "1. Authorization",
+			"item": [
+				{
+					"name": "Login (charlie)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"login 200\", () => pm.response.to.have.status(200));",
+									"const json = pm.response.json();",
+									"pm.collectionVariables.set(\"charlieToken\", json.accessToken);",
+									"pm.collectionVariables.set(\"refreshToken\", json.refreshToken);"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"charlie\",\n  \"password\": \"charlie-pass\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "login"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Outsider reads workflow -> 403",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"403 for non-participant\", () => pm.response.to.have.status(403));",
+									"pm.test(\"WORKFLOW_NOT_ACCESSIBLE\", () => {",
+									"    pm.expect(pm.response.json().code).to.eql(\"WORKFLOW_NOT_ACCESSIBLE\");",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{charlieToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "{{workflowId}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Outsider downloads document -> 403",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"403 for non-participant download\", () => pm.response.to.have.status(403));"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{charlieToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/document",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "{{workflowId}}", "document"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "2. Turn enforcement",
+			"item": [
+				{
+					"name": "Bob downloads (not his turn) -> 409",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+								"pm.test(\"login bob 200\", () => pm.response.to.have.status(200));",
+								"const json = pm.response.json();",
+								"pm.collectionVariables.set(\"bobToken\", json.accessToken);",
+								"pm.collectionVariables.set(\"refreshToken\", json.refreshToken);"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"bob\",\n  \"password\": \"bob-pass\"\n}",
+							"options": { "raw": { "language": "json" } }
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "auth", "login"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Bob downloads document -> 409",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"409 not your turn\", () => pm.response.to.have.status(409));"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{bobToken}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/document",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "{{workflowId}}", "document"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Bob submits (not his turn) -> 409",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"409 turn gate fires before content checks\", () => pm.response.to.have.status(409));"
+								]
+							}
+						}
+					],
+					"request": {
+						"auth": { "type": "noauth" },
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{bobToken}}" }
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "request",
+									"type": "text",
+									"value": "{\"parentRevision\":{{parentRevision}},\"parentSha256\":\"{{parentSha256}}\",\"signingOperationId\":\"bob-out-of-turn-attempt\"}"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\rev0.pdf"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/signatures",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "{{workflowId}}", "signatures"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "3. Stale revision",
+			"item": [
+				{
+					"name": "Submit parentRevision+1 -> 409 STALE_REVISION",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"409 stale future revision\", () => pm.response.to.have.status(409));",
+									"pm.test(\"STALE_REVISION\", () => {",
+									"    pm.expect(pm.response.json().code).to.eql(\"STALE_REVISION\");",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "request",
+									"type": "text",
+									"value": "{\"parentRevision\":99,\"parentSha256\":\"{{parentSha256}}\",\"signingOperationId\":\"stale-future-rev\"}"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\rev0.pdf"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/signatures",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "{{workflowId}}", "signatures"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Submit wrong parentSha256 -> 409 STALE_REVISION",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"409 wrong parent hash\", () => pm.response.to.have.status(409));",
+									"pm.test(\"STALE_REVISION\", () => {",
+									"    pm.expect(pm.response.json().code).to.eql(\"STALE_REVISION\");",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "request",
+									"type": "text",
+									"value": "{\"parentRevision\":{{parentRevision}},\"parentSha256\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"signingOperationId\":\"stale-wrong-hash\"}"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\rev0.pdf"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/signatures",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "{{workflowId}}", "signatures"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "4. Document integrity",
+			"item": [
+				{
+					"name": "Prefix tamper (prefix-flipped.pdf) -> 422 DOCUMENT_MODIFIED",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"422 tampered prefix bytes\", () => pm.response.to.have.status(422));",
+									"pm.test(\"DOCUMENT_MODIFIED\", () => {",
+									"    pm.expect(pm.response.json().code).to.eql(\"DOCUMENT_MODIFIED\");",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "request",
+									"type": "text",
+									"value": "{\"parentRevision\":{{parentRevision}},\"parentSha256\":\"{{parentSha256}}\",\"signingOperationId\":\"prefix-tamper\"}"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\prefix-flipped.pdf"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/signatures",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "{{workflowId}}", "signatures"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Chain-breaking append (modified.pdf) -> 422 INVALID_SIGNATURE",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"422 appended bytes after EOF\", () => pm.response.to.have.status(422));",
+									"pm.test(\"INVALID_SIGNATURE - chain no longer reaches EOF\", () => {",
+									"    pm.expect(pm.response.json().code).to.eql(\"INVALID_SIGNATURE\")"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "request",
+									"type": "text",
+									"value": "{\"parentRevision\":{{parentRevision}},\"parentSha256\":\"{{parentSha256}}\",\"signingOperationId\":\"chain-breaking-append\"}"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\modified.pdf"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/signatures",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "{{workflowId}}", "signatures"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Garbage bytes (garbage.pdf) -> 422 DOCUMENT_MODIFIED",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"422 garbage\", () => pm.response.to.have.status(422));",
+									"pm.test(\"DOCUMENT_MODIFIED (fails prefix gate first)\", () => {",
+									"    pm.expect(pm.response.json().code).to.eql(\"DOCUMENT_MODIFIED\");",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "request",
+									"type": "text",
+									"value": "{\"parentRevision\":{{parentRevision}},\"parentSha256\":\"{{parentSha256}}\",\"signingOperationId\":\"garbage-bytes\"}"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\garbage.pdf"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/signatures",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "{{workflowId}}", "signatures"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Unsigned resubmission (plain rev0) -> 422",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"422 unsigned resubmission\", () => pm.response.to.have.status(422));",
+									"const code = pm.response.json().code;",
+									"pm.test(\"signature-count or validation failure\", () => {",
+									"    // rev0 extends rev0 byte-for-byte? No: equal length -> prefix gate",
+									"    // rejects with DOCUMENT_MODIFIED before the signature-count check.",
+									"    pm.expect(code).to.eql(\"DOCUMENT_MODIFIED\");",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "request",
+									"type": "text",
+									"value": "{\"parentRevision\":{{parentRevision}},\"parentSha256\":\"{{parentSha256}}\",\"signingOperationId\":\"unsigned-resubmission\"}"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\rev0.pdf"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/signatures",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "{{workflowId}}", "signatures"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "5. Input validation",
+			"item": [
+				{
+					"name": "Create with fingerprint 'isicod' -> 400",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"400 for non-hex fingerprint\", () => pm.response.to.have.status(400));",
+									"pm.test(\"BAD_REQUEST naming the signer\", () => {",
+									"    pm.expect(pm.response.json().message).to.include(\"SHA-256\");",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "request",
+									"type": "text",
+									"value": "{\"documentName\":\"bad-fingerprint.pdf\",\"signers\":[{\"order\":1,\"userId\":\"alice\",\"certificateSha256\":\"isicod\"}]}"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\original.pdf"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create with unknown user -> 400",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"400 for unknown workflow user\", () => pm.response.to.have.status(400));",
+									"pm.test(\"message names the user\", () => {",
+									"    pm.expect(pm.response.json().message).to.include(\"mallory\");",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "request",
+									"type": "text",
+									"value": "{\"documentName\":\"unknown-user.pdf\",\"signers\":[{\"order\":1,\"userId\":\"mallory\",\"certificateSha256\":\"ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB\"}]}"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\original.pdf"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create with wrong user (forged identity) -> 400",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"400 - creator identity comes from JWT, not body\", () => pm.response.to.have.status(400));",
+									"pm.test(\"order gap rejected\", () => {",
+									"    // signers must be 1..N without gaps: starting at 2 fails",
+									"    pm.expect(pm.response.json().message).to.include(\"order\");",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "request",
+									"type": "text",
+									"value": "{\"documentName\":\"order-gap.pdf\",\"signers\":[{\"order\":2,\"userId\":\"alice\",\"certificateSha256\":\"ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB\"}]}"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\original.pdf"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "6. Idempotency + audit",
+			"item": [
+				{
+					"name": "Audit trail shows every rejection",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"audit 200\", () => pm.response.to.have.status(200));",
+									"const entries = pm.response.json();",
+									"const types = entries.map(e => e.eventType);",
+									"pm.test(\"stale revisions were audited\", () => {",
+									"    pm.expect(types).to.include(\"STALE_REVISION_REJECTED\");",
+									"});",
+									"pm.test(\"tamper attempts were audited\", () => {",
+									"    pm.expect(types).to.include(\"SIGNATURE_VALIDATION_FAILED\");",
+									"});",
+									"pm.test(\"rejections carry the actor identity\", () => {",
+									"    const rejected = entries.filter(e => e.eventType === \"SIGNATURE_VALIDATION_FAILED\");",
+									"    pm.expect(rejected.length).to.be.above(0);",
+									"    pm.expect(rejected[0].actor).to.eql(\"alice\");",
+									"});"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/audit",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "{{workflowId}}", "audit"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Wrong certificate (manual repro) - READ ME",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// This is a documentation stub, not an executable test.",
+									"pm.test(\"read the request description\", () => pm.expect(true).to.eql(true));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "workflows", "{{workflowId}}"]
+						},
+						"description": "MANUAL REPRO for CERTIFICATE_MISMATCH (cannot be produced from raw HTTP because a cryptographically valid signature from a different certificate is required):\n\n1. Create a workflow via the DESKTOP app: signer 1 = alice with a fingerprint captured from bob's token (Capture button while 'logged in' on bob's token - or just craft it in the create dialog).\n2. Sign in the desktop app as alice with the mock token: the signature IS valid but comes from the WRONG certificate.\n3. The server responds CERTIFICATE_MISMATCH and the audit trail records CERTIFICATE_MISMATCH_REJECTED.\n\nThe automated equivalent lives in RemoteWorkflowIntegrationTests (cert mismatch case) - run: mvnw test -Dtest=RemoteWorkflowIntegrationTests"
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

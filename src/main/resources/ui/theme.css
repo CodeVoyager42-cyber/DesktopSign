@@ -1,0 +1,105 @@
+/* ==========================================================================
+   theme.css — Design tokens (the ONLY place hex colors are allowed)
+   ==========================================================================
+   GoSign-style enterprise palette, expressed as JavaFX looked-up colors on
+   .root. JavaFX CSS has no var(): these names are referenced directly by
+   every other stylesheet and re-resolve automatically when the dark-mode
+   overlay (loaded after this file by ThemeManager) redefines them.
+
+   application.css keeps its historical token names (-bg, -surface, …) as
+   aliases of these -sig-* tokens, so the rest of the existing stylesheet —
+   which already references only token names — retints without any churn.
+
+   Identity: WHITE surfaces with BLUE as the single accent color. The
+   -sig-navy token survives by name (it is referenced by shell.css) but its
+   role is now "sidebar surface": white, with blue active states.
+   ========================================================================== */
+
+.root {
+    /* ---- core palette (light) ---- */
+    -sig-navy:             #FFFFFF;
+    -sig-canvas:           #EFF6FF;
+    -sig-primary:          #2563EB;
+    -sig-primary-hover:    #1D4ED8;
+    -sig-accent:           #06B6D4;
+    -sig-bg:               #F8FAFC;
+    -sig-surface:          #FFFFFF;
+    -sig-text:             #1E293B;
+    -sig-text-secondary:   #64748B;
+    -sig-border:           #E2E8F0;
+    -sig-success:          #16A34A;
+    -sig-warning:          #D97706;
+    -sig-error:            #DC2626;
+    -sig-disabled:         #94A3B8;
+
+    /* ---- derived (contrast + states) ---- */
+    -sig-success-text:     #15803D;
+    -sig-warning-text:     #B45309;
+    -sig-success-bg:       #DCFCE7;
+    -sig-warning-bg:       #FEF3C7;
+    -sig-error-bg:         #FEE2E2;
+    -sig-primary-bg:       #DBEAFE;
+    -sig-navy-hover:       #EFF6FF;
+    -sig-navy-text:        #475569;
+    -sig-hover:            #F1F5F9;
+    -sig-primary-active:   #1E40AF;
+    -sig-text-muted:       #94A3B8;
+    -sig-border-light:     #F1F5F9;
+    -sig-surface-subtle:   #F8FAFC;
+    -sig-warning-light:    #FEF3C7;
+    -sig-error-light:      #FEE2E2;
+    -sig-info:             #2563EB;
+    -sig-info-light:       #DBEAFE;
+    -sig-accent-light:     #ECFEFF;
+
+    /* ---- Modena overrides ---- */
+    -fx-base:              -sig-surface;
+    -fx-background:        -sig-bg;
+    -fx-control-inner-background: -sig-surface;
+    -fx-text-background-color:    -sig-text;
+    -fx-accent:            -sig-primary;
+    -fx-focus-color:       -sig-accent;
+    -fx-faint-focus-color: transparent;
+
+    /* ---- aliases: historical names used by the rest of the sheets ---- */
+    -bg:                -sig-bg;
+    -surface:           -sig-surface;
+    -surface-hover:     -sig-hover;
+    -surface-subtle:    -sig-surface-subtle;
+    -border:            -sig-border;
+    -border-light:      -sig-border-light;
+    -border-focus:      -sig-primary;
+    -text-primary:      -sig-text;
+    -text-secondary:    -sig-text-secondary;
+    -text-muted:        -sig-text-muted;
+    -text-disabled:     -sig-disabled;
+
+    -primary:           -sig-primary;
+    -primary-hover:     -sig-primary-hover;
+    -primary-active:    -sig-primary-active;
+    -primary-light:     -sig-primary-bg;
+    -primary-disabled:  -sig-disabled;
+    -primary-text:      #FFFFFF;
+
+    -secondary-bg:      -sig-surface;
+    -secondary-border:  -sig-border;
+    -secondary-text:    -sig-text;
+    -secondary-hover-bg: -sig-hover;
+    -secondary-hover-border: #CBD5E1;
+
+    -danger:            -sig-error;
+    -danger-hover:      #B91C1C;
+    -danger-light:      -sig-error-bg;
+    -danger-text:       #FFFFFF;
+
+    -success:           -sig-success;
+    -success-light:     -sig-success-bg;
+    -warning:           -sig-warning;
+    -warning-light:     -sig-warning-bg;
+    -error:             -sig-error;
+    -error-light:       -sig-error-bg;
+    -info:              -sig-info;
+    -info-light:        -sig-info-light;
+    -accent:            -sig-accent;
+    -accent-light:      -sig-accent-light;
+}

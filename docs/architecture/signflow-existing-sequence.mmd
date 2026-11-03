@@ -1,0 +1,129 @@
+%% SignFlow — IMPLEMENTED remote signing flow (verified against the code, Oct 2026)
+%% Desktop: ui/, client/, token/, signing/, verification/   Server: server/** (profile "server")
+sequenceDiagram
+    autonumber
+    actor U as User
+    box rgb(228,237,248) User's PC - local only
+        participant D as SignFlow Desktop (JavaFX)
+        participant P as PKCS#35;11 provider (SunPKCS11 + vendor DLL)
+        participant C as USB token / smart card
+    end
+    box rgb(221,241,238) SignFlow server - Spring Boot
+        participant S as REST controllers
+        participant A as Spring Security (SecurityConfig, AuthenticatedRequestFilter) + GuestAccessPolicy
+        participant W as RemoteWorkflowService
+        participant I as InvitationService
+        participant DB as PostgreSQL (JPA, Flyway V1-V6)
+        participant F as DocumentFileStorage (PDF files on disk)
+    end
+
+    Note over D: Local start-up gate (LoginDialog): checks signature.login.* in config.<br/>It is NOT a server login.
+
+    alt Account holder (sender or registered signer)
+        U->>D: Username + password
+        D->>S: POST /api/auth/login
+        S->>DB: Check bcrypt hash (users)
+        alt Wrong credentials
+            S-->>D: 401
+            D-->>U: "Incorrect username or password"
+        else Valid
+            S-->>D: Access JWT (15 min) + refresh token
+            Note over D,S: Refresh: POST /api/auth/refresh with rotation and reuse detection
+        end
+    else Invited signer (no account)
+        U->>D: Clicks email link /invitations/{token} then signflow://invitation/{token}
+        Note over D: Only the token is read from the link.<br/>The server URL comes from local config.
+        D->>S: GET /api/invitations/{token} (preview)
+        S->>I: Look up SHA-256(token), check status and expiry
+        I->>DB: invitations, workflows
+        D->>S: POST /api/invitations/{token}/guest-code
+        alt Expired, revoked, replaced or already used by another slot
+            S-->>D: 4xx (INVITATION_EXPIRED / REVOKED / ALREADY_USED)
+            D-->>U: Error message, ask sender to resend
+        else Valid
+            I->>DB: Store SHA-256 of a one-time 6-digit code (10 min, 5 tries)
+            I-->>U: E-mail the code to the invited address only
+            U->>D: Type the code
+            D->>S: POST /api/invitations/{token}/guest-session (code)
+            I->>DB: Check and consume the code, status ACCEPTED, audit SIGNING_SESSION_CREATED
+            S-->>D: Guest JWT scoped to one workflow and one signer slot
+        end
+    end
+
+    D->>S: GET /api/workflows/{id}/task (Bearer JWT)
+    S->>A: Validate JWT (guest: GuestAccessPolicy allow-list)
+    A->>W: Authorised user or guest
+    W->>DB: Workflow, signer slots, current revision
+    S-->>D: Task view (turn, policy, bound certificate, placement)
+    D->>S: GET /api/workflows/{id}/document
+    W->>F: Read current revision PDF
+    S-->>D: PDF bytes
+    D->>D: Load manifest + verify existing signatures locally (WorkflowSigningService)
+
+    D->>P: TokenService.detect()
+    P->>C: C_GetSlotList, C_GetTokenInfo, C_FindObjects (certificates, no PIN)
+    alt No token / driver not loaded
+        P-->>D: Exception
+        D-->>U: Red status "Smart card driver problem / could not be read"
+    else Token present
+        C-->>D: Token info + certificates
+        D->>D: SigningCardCheck: compare with fingerprint bound to this step
+    end
+
+    opt Slot still unbound (workflow in DRAFT)
+        D->>S: POST /api/workflows/{id}/signers/{user}/certificate (SHA-256 fingerprint)
+        W->>DB: Bind fingerprint. Last binding prepares revision 0
+    end
+
+    loop Until unlocked or user cancels
+        U->>D: Enter PIN (char[] wiped after use)
+        D->>P: AuthProvider.login (C_Login)
+        alt Wrong PIN
+            P-->>D: CKR_PIN_INCORRECT
+            D-->>U: "Incorrect PIN", card locks after a few tries
+        else PIN locked
+            P-->>D: CKR_PIN_LOCKED
+            D-->>U: "PIN locked", stop
+        else OK
+            P-->>D: Session authenticated
+        end
+    end
+
+    U->>D: Place stamp, confirm in "Ready to Sign" checkpoint
+    D->>D: PDFBox incremental revision + manifest. Build CMS signed attributes (SHA-256)
+    D->>P: Signature SHA256withRSA (signed attributes)
+    P->>C: C_Sign with on-card private key
+    C-->>D: Signature bytes (private key never leaves the card)
+    D->>D: Embed CMS (adbe.pkcs7.detached), re-open, verify whole chain
+    alt Local verification fails
+        D-->>U: "Signing failed: document not modified"
+    end
+
+    D->>S: POST /api/workflows/{id}/signatures (signed PDF, parentRevision, parentSha256, signingOperationId)
+    S->>A: Validate JWT / guest scope
+    A->>W: submitSignature
+    alt Same signingOperationId already accepted
+        W-->>D: Previous result (idempotent replay)
+    else Not this user's turn
+        W-->>D: 409 NOT_YOUR_TURN
+    else Parent revision or hash is stale
+        W-->>D: 409 revision conflict
+    else Validation fails
+        Note over W: Checks: pure incremental update of parent bytes, every signature valid,<br/>exactly parent+1 signatures, newest cert = bound fingerprint, no mock identity
+        W->>DB: Audit SIGNATURE_VALIDATION_FAILED (status unchanged)
+        W-->>D: 4xx (DOCUMENT_MODIFIED / INVALID_SIGNATURE / CERTIFICATE_MISMATCH)
+    else Accepted
+        W->>F: Write immutable revision N+1
+        W->>DB: document_versions, signer signed, audit events
+        W->>DB: SIGNATURE_SUBMITTED -> VALIDATING -> WAITING_FOR_SIGNER or COMPLETED
+        S-->>D: Accepted as revision N+1 + new state
+    end
+
+    D-->>U: Success screen (view document, signature details, download signed PDF)
+    opt Later
+        U->>D: Open task again
+        D->>S: GET /api/workflows/{id}/document and /revisions, /audit
+        S-->>D: Final signed PDF + history
+    end
+
+    Note over S,DB: Not implemented: certificate trust/revocation (TrustStatus NOT_VERIFIED),<br/>timestamping, webhooks, partner API. Only the first invitation is emailed.

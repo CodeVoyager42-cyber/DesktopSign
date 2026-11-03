@@ -1,0 +1,2445 @@
+/* ==========================================================================
+   PDF Digital Signer — Professional Design System
+   ==========================================================================
+   A restrained, enterprise-grade stylesheet for a security-focused desktop
+   PDF signing application.  Colors and shadows are centralized via
+   looked-up values on .root.
+
+   NOTE: JavaFX only resolves looked-up values for paint/Effect-typed
+   properties.  Font sizes, font weights, and radii MUST be written as
+   literals at each use site — the -font-* and -radius-* tokens on .root
+   are the design reference only and are NOT resolved in declarations.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1.  DESIGN TOKENS — aliases of the -sig-* layer in theme.css
+   theme.css loads FIRST and owns the palette (white + blue identity); this
+   block only maps the historical names onto those tokens so the rest of
+   this stylesheet re-resolves automatically. No literal colors here.
+   -------------------------------------------------------------------------- */
+.root {
+    /* ---- palette (aliased: single source of truth is theme.css) ---- */
+    -bg:                -sig-bg;
+    -surface:           -sig-surface;
+    -surface-hover:     -sig-hover;
+    -surface-subtle:    -sig-surface-subtle;
+    -border:            -sig-border;
+    -border-light:      -sig-border-light;
+    -border-focus:      -sig-primary;
+    -text-primary:      -sig-text;
+    -text-secondary:    -sig-text-secondary;
+    -text-muted:        -sig-text-muted;
+    -text-disabled:     -sig-disabled;
+
+    /* ---- action colours (blue = the only accent; color communicates) ---- */
+    -primary:           -sig-primary;
+    -primary-hover:     -sig-primary-hover;
+    -primary-active:    -sig-primary-active;
+    -primary-light:     -sig-primary-bg;
+    -primary-disabled:  -sig-disabled;
+    -primary-text:      #FFFFFF;
+
+    -secondary-bg:      -sig-surface;
+    -secondary-border:  -sig-border;
+    -secondary-text:    -sig-text;
+    -secondary-hover-bg:-sig-hover;
+    -secondary-hover-border:#CBD5E1;
+
+    -danger:            -sig-error;
+    -danger-hover:      #B91C1C;
+    -danger-light:      -sig-error-bg;
+    -danger-text:       #FFFFFF;
+
+    /* ---- semantic ---- */
+    -success:           -sig-success;
+    -success-light:     -sig-success-bg;
+    -warning:           -sig-warning;
+    -warning-light:     -sig-warning-bg;
+    -error:             -sig-error;
+    -error-light:       -sig-error-bg;
+    -info:              -sig-info;
+    -info-light:        -sig-info-light;
+    -accent:            -sig-accent;
+    -accent-light:      -sig-accent-light;
+
+    /* ---- radii ---- */
+    -radius-sm:         4px;
+    -radius-md:         6px;
+    -radius-lg:         8px;
+    -radius-xl:         12px;
+    -radius-full:       9999px;
+
+    /* ---- shadows ---- */
+    -shadow-sm:         dropshadow(gaussian, rgba(0,0,0,0.05), 3, 0, 0, 1);
+    -shadow-md:         dropshadow(gaussian, rgba(0,0,0,0.06), 8, 0, 0, 2);
+    -shadow-lg:         dropshadow(gaussian, rgba(0,0,0,0.08), 16, 0, 0, 4);
+
+    /* ---- typography ---- */
+    -font-family:       "Inter", "Segoe UI", "SF Pro Display", -apple-system, sans-serif;
+    -font-mono:         "Cascadia Code", "Fira Code", "Consolas", monospace;
+    -font-size-xs:      11px;
+    -font-size-sm:      12px;
+    -font-size-base:    13px;
+    -font-size-md:      14px;
+    -font-size-lg:      16px;
+    -font-size-xl:      20px;
+    -font-size-2xl:     24px;
+    -font-weight-normal:400;
+    -font-weight-medium:500;
+    -font-weight-semibold:600;
+    -font-weight-bold:  700;
+
+    /* ---- spacing (base = 4px) ---- */
+    -spacing-1:         4px;
+    -spacing-2:         8px;
+    -spacing-3:         12px;
+    -spacing-4:         16px;
+    -spacing-5:         20px;
+    -spacing-6:         24px;
+    -spacing-8:         32px;
+    -spacing-10:        40px;
+    -spacing-12:        48px;
+
+    /* ---- core app chrome ---- */
+    -fx-base:           -surface;
+    -fx-background:     -bg;
+    -fx-control-inner-background: -surface;
+    -fx-text-background-color: -text-primary;
+    -fx-font-family:    -font-family;
+    -fx-font-size:      13px;
+    -fx-focus-color:    -border-focus;
+    -fx-faint-focus-color: transparent;
+}
+
+/* ==========================================================================
+   2.  TYPOGRAPHY
+   ========================================================================== */
+
+/* ---- application chrome ---- */
+.app-title {
+    -fx-font-size:      20px;
+    -fx-font-weight:    700;
+    -fx-text-fill:      -text-primary;
+    -fx-padding:        0 0 2px 0;
+}
+
+.app-subtitle {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+    -fx-padding:        0;
+}
+
+/* ---- sections ---- */
+.section-title {
+    -fx-font-size:      14px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+.section-hint {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-secondary;
+    -fx-line-spacing:   2px;
+}
+
+.muted-text {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-muted;
+}
+
+.mono-text {
+    -fx-font-family:    -font-mono;
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-secondary;
+}
+
+/* ==========================================================================
+   3.  LAYOUT SURFACES
+   ========================================================================== */
+
+.content-pane {
+    -fx-background-color: -bg;
+    -fx-padding:        0;
+}
+
+/* ---- card ---- */
+.card {
+    -fx-background-color: -surface;
+    -fx-background-radius: 8px;
+    -fx-padding:        16px 20px;
+    -fx-effect:         -shadow-sm;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px;
+    -fx-border-radius:  8px;
+}
+
+.card--active {
+    -fx-border-color:   -border-focus;
+    -fx-background-color: -primary-light;
+    -fx-border-width:   2px;
+}
+
+/* Responsive card padding */
+@media screen and (max-width: 800px) {
+    .card {
+        -fx-padding: 12px 14px;
+    }
+    .section-title {
+        -fx-font-size: 12px;
+    }
+    .section-hint {
+        -fx-font-size: 11px;
+    }
+    .button {
+        -fx-padding: 6px 14px;
+        -fx-font-size: 12px;
+    }
+}
+
+/* FlowPane responsive wrapping */
+.flow-pane {
+    -fx-hgap: 8;
+    -fx-vgap: 8;
+}
+
+/* Status bar responsive */
+.status-bar {
+    -fx-padding: 6px 12px;
+    -fx-min-height: 32px;
+}
+
+/* ==========================================================================
+   4.  BUTTONS
+   ========================================================================== */
+
+.button {
+    -fx-cursor:         hand;
+    -fx-background-radius: 8px;
+    -fx-padding:        8px 18px;
+    -fx-font-size:      13px;
+    -fx-font-weight:    500;
+    -fx-label-padding:  0;
+    -fx-content-display: LEFT;
+}
+
+/* ---- primary ---- */
+.btn-primary {
+    -fx-background-color: -primary;
+    -fx-text-fill:      -primary-text;
+    -fx-border:         none;
+}
+.btn-primary:hover {
+    -fx-background-color: -primary-hover;
+}
+.btn-primary:pressed {
+    -fx-background-color: -primary-active;
+}
+.btn-primary:disabled {
+    -fx-background-color: -primary-disabled;
+    -fx-text-fill:      rgba(255,255,255,0.7);
+    -fx-opacity:        1.0;
+}
+.btn-primary:focused {
+    -fx-background-color: -primary-hover;
+    -fx-effect:         dropshadow(gaussian, rgba(37,99,235,0.35), 8, 0, 0, 0);
+}
+/* Icons on the primary action inherit the button text colour, not the
+   global secondary icon tint (slate on blue is illegible). */
+.btn-primary > .font-icon,
+.btn-danger > .font-icon {
+    -fx-icon-color:     -primary-text;
+}
+
+/* ---- secondary ---- */
+.btn-secondary {
+    -fx-background-color: -secondary-bg;
+    -fx-text-fill:      -secondary-text;
+    -fx-border-color:   -secondary-border;
+    -fx-border-width:   1px;
+}
+.btn-secondary:hover {
+    -fx-background-color: -secondary-hover-bg;
+    -fx-border-color:   -secondary-hover-border;
+}
+.btn-secondary:pressed {
+    -fx-background-color: -surface-hover;
+}
+
+/* persistent active state for mode buttons (Place Signature…) */
+.btn-secondary.pressed {
+    -fx-background-color: -primary-light;
+    -fx-border-color:   -border-focus;
+    -fx-text-fill:      -primary;
+}
+.btn-secondary:disabled {
+    -fx-opacity:        0.45;
+}
+
+/* ---- invite signer (inline blue primary to match the email tone) ---- */
+.btn-invite {
+    -fx-background-color: -primary;
+    -fx-text-fill:      -primary-text;
+    -fx-border:         none;
+    -fx-background-radius: 8px;
+}
+.btn-invite:hover {
+    -fx-background-color: -primary-hover;
+}
+.btn-invite:pressed {
+    -fx-background-color: -primary-active;
+}
+.btn-invite:disabled {
+    -fx-background-color: -primary-disabled;
+    -fx-text-fill:      rgba(255,255,255,0.7);
+}
+
+.btn-secondary:focused {
+    -fx-border-color:   -border-focus;
+}
+
+/* ---- danger ---- */
+.btn-danger {
+    -fx-background-color: -danger;
+    -fx-text-fill:      -danger-text;
+    -fx-border:         none;
+}
+.btn-danger:hover {
+    -fx-background-color: -danger-hover;
+}
+.btn-danger:pressed {
+    -fx-background-color: #991B1B;
+}
+.btn-danger:disabled {
+    -fx-opacity:        0.5;
+}
+.btn-danger:focused {
+    -fx-effect:         dropshadow(gaussian, rgba(220,38,38,0.25), 6, 0, 0, 0);
+}
+
+/* ---- ghost (text-only button, no border) ---- */
+.btn-ghost {
+    -fx-background-color: transparent;
+    -fx-text-fill:      -text-secondary;
+    -fx-border:         none;
+    -fx-padding:        6px 12px;
+}
+.btn-ghost:hover {
+    -fx-background-color: -surface-hover;
+    -fx-text-fill:      -text-primary;
+}
+.btn-ghost:pressed {
+    -fx-background-color: -border-light;
+}
+
+/* ---- small (compact) button variant ---- */
+.btn-sm {
+    -fx-padding:        5px 12px;
+    -fx-font-size:      12px;
+}
+
+/* ==========================================================================
+   5.  INPUTS
+   ========================================================================== */
+
+.text-field,
+.password-field,
+.combo-box,
+.combo-box .list-cell {
+    -fx-background-radius: 6px;
+    -fx-border-color:   -border;
+    -fx-border-radius:  6px;
+    -fx-font-size:      13px;
+}
+
+.text-field,
+.password-field {
+    -fx-padding:        8px 12px;
+    -fx-background-color: -surface;
+    -fx-text-fill:      -text-primary;
+    -fx-prompt-text-fill: -text-muted;
+}
+
+.text-field:focused,
+.password-field:focused {
+    -fx-border-color:   -border-focus;
+    -fx-background-color: -surface;
+    -fx-effect:         dropshadow(gaussian, rgba(37,99,235,0.18), 6, 0, 0, 0);
+}
+
+.combo-box {
+    -fx-background-color: -surface;
+    -fx-padding:        4px 8px;
+}
+
+.combo-box:focused {
+    -fx-border-color:   -border-focus;
+}
+
+/* ---- custom combo box arrow ---- */
+.combo-box .arrow-button {
+    -fx-background-color: transparent;
+}
+.combo-box .arrow {
+    -fx-background-color: -text-secondary;
+}
+
+/* ---- check-box ---- */
+.check-box {
+    -fx-text-fill:      -text-primary;
+    -fx-font-size:      13px;
+}
+.check-box .box {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-radius:  4px;
+    -fx-padding:        2px;
+}
+.check-box:selected .box {
+    -fx-background-color: -primary;
+    -fx-border-color:   -primary;
+}
+
+/* ==========================================================================
+   6.  STATUS INDICATORS
+   ========================================================================== */
+
+/* ---- status pill ---- */
+.status-pill {
+    -fx-background-color: -border;
+    -fx-background-radius: 9999px;
+    -fx-padding:        4px 14px;
+    -fx-text-fill:      -text-secondary;
+    -fx-font-weight:    600;
+    -fx-font-size:      11px;
+    -fx-alignment:      CENTER;
+}
+
+.status-pill--active {
+    -fx-background-color: -success-light;
+    -fx-text-fill:      -success;
+}
+
+.status-pill--pending {
+    -fx-background-color: -warning-light;
+    -fx-text-fill:      -warning;
+}
+
+.status-pill--error {
+    -fx-background-color: -error-light;
+    -fx-text-fill:      -error;
+}
+
+/* ---- inline status dot ---- */
+.status-dot {
+    -fx-background-radius: 9999px;
+    -fx-min-width:       8px;
+    -fx-min-height:      8px;
+    -fx-max-width:       8px;
+    -fx-max-height:      8px;
+}
+.status-dot--active {
+    -fx-background-color: -success;
+}
+.status-dot--pending {
+    -fx-background-color: -warning;
+}
+.status-dot--error {
+    -fx-background-color: -error;
+}
+.status-dot--inactive {
+    -fx-background-color: -text-disabled;
+}
+
+/* ==========================================================================
+   7.  STATUS / FOOTER BAR
+   ========================================================================== */
+
+.status-bar {
+    -fx-padding:        8px 20px;
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px 0 0 0;
+    -fx-min-height:     36px;
+}
+
+.status-text {
+    -fx-text-fill:      -text-secondary;
+    -fx-font-size:      12px;
+}
+
+.status-text--error {
+    -fx-text-fill:      -error;
+    -fx-font-weight:    600;
+}
+
+.status-text--success {
+    -fx-text-fill:      -success;
+    -fx-font-weight:    600;
+}
+
+/* ==========================================================================
+   8.  WIZARD STEP INDICATOR
+   ========================================================================== */
+
+.step-indicator {
+    -fx-spacing:        4px;
+    -fx-alignment:      CENTER_LEFT;
+}
+
+.step-number {
+    -fx-background-radius: 9999px;
+    -fx-min-width:      24px;
+    -fx-min-height:     24px;
+    -fx-max-width:      24px;
+    -fx-max-height:     24px;
+    -fx-alignment:      CENTER;
+    -fx-font-size:      11px;
+    -fx-font-weight:    700;
+    -fx-background-color: -border;
+    -fx-text-fill:      -text-secondary;
+}
+
+.step-number--active {
+    -fx-background-color: -primary;
+    -fx-text-fill:      -primary-text;
+}
+
+.step-number--done {
+    -fx-background-color: -success;
+    -fx-text-fill:      -primary-text;
+}
+
+.step-label {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-secondary;
+}
+
+/* ==========================================================================
+   9.  EMPTY STATE
+   ========================================================================== */
+
+.empty-state {
+    -fx-alignment:      CENTER;
+    -fx-spacing:        16px;
+    -fx-padding:        40px 48px;
+    -fx-background-color: -surface;
+    -fx-background-radius: 16px;
+    -fx-border-color:   -border;
+    -fx-border-width:   2px;
+    -fx-border-radius:  16px;
+    -fx-border-style:   segments(8, 6);
+    -fx-effect:         -shadow-sm;
+}
+
+.empty-state-icon {
+    -fx-font-size:      44px;
+    -fx-text-fill:      -text-muted;
+}
+
+.empty-state-title {
+    -fx-font-size:      16px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+.empty-state-hint {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+    -fx-text-alignment: CENTER;
+    -fx-max-width:      440px;
+    -fx-line-spacing:   3px;
+}
+
+/* ==========================================================================
+   10. TOOLBAR (workspace)
+   ========================================================================== */
+
+.toolbar {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   0 0 1px 0;
+    -fx-spacing:        6px;
+    -fx-padding:        8px 14px;
+    -fx-min-height:     40px;
+}
+
+.toolbar-divider {
+    -fx-pref-width:     1px;
+    -fx-min-width:      1px;
+    -fx-max-width:      1px;
+    -fx-pref-height:    22px;
+    -fx-background-color: -border;
+}
+
+/* ---- nav button (workspace toolbar) ---- */
+.nav-btn {
+    -fx-background-color: transparent;
+    -fx-text-fill:      -text-secondary;
+    -fx-border-color:   -border;
+    -fx-border-radius:  6px;
+    -fx-padding:        5px 8px;
+    -fx-font-size:      12px;
+    -fx-cursor:         hand;
+}
+
+/* bundled icon font (Ikonli FontIcons) inside buttons */
+.nav-btn > .font-icon,
+.button > .font-icon {
+    -fx-icon-color:     -text-secondary;
+    -fx-icon-size:      13px;
+}
+
+.btn-primary > .font-icon {
+    -fx-icon-color:     -primary-text;
+}
+
+.btn-secondary:hover > .font-icon,
+.nav-btn:hover > .font-icon {
+    -fx-icon-color:     -text-primary;
+}
+
+.theme-toggle > .font-icon {
+    -fx-icon-color:     -text-secondary;
+    -fx-icon-size:      14px;
+}
+
+.theme-toggle:hover > .font-icon {
+    -fx-icon-color:     -text-primary;
+}
+
+.app-logo > .font-icon {
+    -fx-icon-color:     -primary-text;
+    -fx-icon-size:      14px;
+}
+
+.empty-state-icon > .font-icon {
+    -fx-icon-color:     -text-muted;
+    -fx-icon-size:      42px;
+}
+.nav-btn:hover {
+    -fx-background-color: -surface-hover;
+    -fx-text-fill:      -text-primary;
+    -fx-border-color:   -secondary-hover-border;
+}
+.nav-btn:disabled {
+    -fx-opacity:        0.35;
+}
+.nav-btn:selected,
+.nav-btn:focused {
+    -fx-border-color:   -border-focus;
+    -fx-text-fill:      -primary;
+    -fx-background-color: -primary-light;
+}
+
+.page-label {
+    -fx-text-fill:      -text-primary;
+    -fx-font-weight:    600;
+    -fx-font-size:      12px;
+    -fx-min-width:      100px;
+    -fx-alignment:      CENTER;
+}
+
+.zoom-label {
+    -fx-text-fill:      -text-secondary;
+    -fx-font-size:      12px;
+    -fx-min-width:      42px;
+    -fx-alignment:      CENTER;
+}
+
+/* ---- box info label (telemetry hidden in a tooltip; see workspace) ---- */
+.box-info {
+    -fx-text-fill:      -text-muted;
+    -fx-font-size:      11px;
+}
+
+/* ==========================================================================
+   10b. APP HEADER (workspace)
+   ========================================================================== */
+
+.app-header {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   0 0 1px 0;
+    -fx-padding:        0 16px;
+    -fx-min-height:     56px;
+    -fx-alignment:      CENTER_LEFT;
+}
+
+.app-brand {
+    -fx-spacing:        10px;
+    -fx-alignment:      CENTER_LEFT;
+}
+
+.app-logo {
+    -fx-background-color: -primary;
+    -fx-text-fill:      -primary-text;
+    -fx-font-size:      14px;
+    -fx-font-weight:    700;
+    -fx-min-width:      28px;
+    -fx-max-width:      28px;
+    -fx-min-height:     28px;
+    -fx-max-height:     28px;
+    -fx-background-radius: 6px;
+    -fx-alignment:      CENTER;
+}
+
+.app-name {
+    -fx-font-size:      15px;
+    -fx-font-weight:    700;
+    -fx-text-fill:      -text-primary;
+}
+
+.app-tagline {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-secondary;
+}
+
+/* ---- document chip ---- */
+.doc-chip {
+    -fx-background-color: -surface-subtle;
+    -fx-background-radius: 6px;
+    -fx-border-color:   -border;
+    -fx-border-radius:  6px;
+    -fx-padding:        4px 12px;
+    -fx-spacing:        8px;
+    -fx-alignment:      CENTER_LEFT;
+}
+
+.doc-dot {
+    -fx-text-fill:      -success;
+    -fx-font-size:      10px;
+}
+
+.doc-title {
+    -fx-font-size:      13px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+.doc-meta {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-secondary;
+}
+
+/* ---- header security label ---- */
+.security-label {
+    -fx-font-size:      12px;
+    -fx-font-weight:    600;
+}
+
+/* ==========================================================================
+   10c. DOCUMENT TOOLBAR (workspace) - ToolBar
+   ========================================================================== */
+
+.doc-toolbar {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   0 0 1px 0;
+    -fx-padding:        6px 12px;
+    -fx-min-height:     38px;
+}
+
+.doc-toolbar > .container {
+    -fx-spacing: 6px;
+}
+
+.doc-toolbar .nav-btn {
+    -fx-padding: 4px 10px;
+    -fx-font-size: 12px;
+}
+
+/* ==========================================================================
+   10d. SECURITY BAR (workspace) - ToolBar
+   ========================================================================== */
+
+.security-bar {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px 0 0 0;
+    -fx-padding:        8px 12px;
+}
+
+.security-bar > .container {
+    -fx-spacing: 10px;
+}
+
+/* ==========================================================================
+   10e. ACTION BAR (workspace) - ToolBar
+   ========================================================================== */
+
+/* ---- guided workflow rail (left side of the workspace) ---- */
+/* Scrollable rail wrapper: carries the rail's visual chrome so the inner
+   VBox can scroll without clipping its cards. */
+.workflow-rail-scroll {
+    -fx-background-color: -surface-subtle;
+    -fx-border-color:   -border;
+    -fx-border-width:   0 1px 0 0;
+    -fx-padding:        0;
+}
+
+.workflow-rail-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.workflow-rail {
+    -fx-background-color: transparent;
+    -fx-border-color:   transparent;
+    -fx-padding:        14px;
+    -fx-spacing:        12px;
+}
+
+.step-body {
+    -fx-background-color: -surface;
+    -fx-background-radius: 10px;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px;
+    -fx-border-radius:  10px;
+    -fx-padding:        12px;
+    -fx-spacing:        6px;
+    -fx-effect:         -shadow-sm;
+}
+
+.step-head {
+    -fx-alignment:      CENTER_LEFT;
+}
+
+.step-num {
+    -fx-min-width:      20px;
+    -fx-max-width:      20px;
+    -fx-min-height:     20px;
+    -fx-max-height:     20px;
+    -fx-alignment:      CENTER;
+    -fx-background-color: -primary;
+    -fx-text-fill:      -primary-text;
+    -fx-background-radius: 10px;
+    -fx-font-size:      11px;
+    -fx-font-weight:    700;
+}
+
+.step-title {
+    -fx-font-size:      13px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+.step-check {
+    -fx-icon-color:     -success;
+    -fx-icon-size:      13px;
+}
+
+.step-hint {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.step-empty {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-muted;
+}
+
+/* future steps dim until the previous step is complete */
+.step-dim {
+    -fx-opacity:        0.55;
+}
+
+/* ---- status strip (single bottom line) ---- */
+.status-strip {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px 0 0 0;
+    -fx-padding:        6px 14px;
+    -fx-min-height:     34px;
+}
+
+/* ---- floating viewer toolbar over the canvas ---- */
+.viewer-toolbar {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px;
+    -fx-border-radius:  10px;
+    -fx-padding:        4px 8px;
+    -fx-effect:         -shadow-md;
+}
+
+/* ==========================================================================
+   10e2. LEGACY ACTION BAR (kept for the simple UI)
+   ========================================================================== */
+
+.action-bar {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px 0 0 0;
+    -fx-padding:        8px 12px;
+    -fx-min-height:     52px;
+}
+
+.action-bar .status-text {
+    -fx-min-width: 150px;
+}
+
+/* ---- signature placement instruction banner ---- */
+.placement-banner {
+    -fx-background-color: -surface;
+    -fx-text-fill:      -text-primary;
+    -fx-font-size:      12px;
+    -fx-font-weight:    600;
+    -fx-padding:        8px 18px;
+    -fx-background-radius: 9999px;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px;
+    -fx-border-radius:  9999px;
+    -fx-effect:         -shadow-md;
+}
+
+/* ==========================================================================
+   10f. SIGNATURE CHAIN PANEL (workspace, collapsible TitledPane)
+   ========================================================================== */
+
+.chain-pane {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px 0 0 0;
+}
+
+.chain-pane > .title {
+    -fx-background-color: -surface-subtle;
+    -fx-border-color:   transparent;
+    -fx-padding:        6px 12px;
+    -fx-font-size:      11px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-secondary;
+}
+
+.chain-pane > .title > .text {
+    -fx-fill:           -text-secondary;
+}
+
+.chain-pane > .content {
+    -fx-background-color: -surface;
+    -fx-border-color:   transparent;
+    -fx-padding:        0;
+}
+
+.chain-pane--invalid > .title {
+    -fx-background-color: -error-light;
+}
+
+.chain-pane--invalid > .title > .text {
+    -fx-fill:           -error;
+}
+
+.chain-rows {
+    -fx-spacing:        4px;
+}
+
+.chain-empty {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-muted;
+    -fx-padding:        2px 0 6px 0;
+}
+
+.chain-row {
+    -fx-background-color: -surface-subtle;
+    -fx-background-radius: 6px;
+    -fx-border-color:   -border-light;
+    -fx-border-radius:  6px;
+    -fx-padding:        6px 10px;
+}
+
+.chain-index {
+    -fx-font-family:    -font-mono;
+    -fx-font-size:      11px;
+    -fx-font-weight:    700;
+    -fx-text-fill:      -text-muted;
+    -fx-min-width:      24px;
+}
+
+.chain-signer {
+    -fx-font-size:      12px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+.chain-algorithm {
+    -fx-font-family:    -font-mono;
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.chain-time {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-muted;
+}
+
+.chain-badge {
+    -fx-background-radius: 9999px;
+    -fx-padding:        2px 10px;
+    -fx-font-size:      11px;
+    -fx-font-weight:    700;
+    -fx-alignment:      CENTER;
+}
+
+.chain-badge--valid {
+    -fx-background-color: -success-light;
+    -fx-text-fill:      -success;
+}
+
+.chain-badge--invalid {
+    -fx-background-color: -error-light;
+    -fx-text-fill:      -error;
+}
+
+.empty-state-drag {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-muted;
+}
+
+/* ==========================================================================
+   11. DOCUMENT VIEWER (workspace canvas)
+   ========================================================================== */
+
+.workspace-canvas {
+    -fx-background-color: -sig-canvas;
+}
+
+/* ---- page area ---- */
+.page-layer {
+    -fx-background-color: -surface;
+    -fx-effect:         -shadow-md;
+}
+
+/* ---- signature rectangle (dashed, professional) ----
+   Fixed blue ink: it is drawn over the always-light PDF page, so theme
+   tokens that invert in dark mode must not be used here. */
+.signature-box {
+    -fx-fill:           rgba(37, 99, 235, 0.10);
+    -fx-stroke:         #2563EB;
+    -fx-stroke-width:   1.5;
+    -fx-stroke-dash-array: 6 4;
+    -fx-arc-width:      3;
+    -fx-arc-height:     3;
+}
+
+/* ---- in-box signature label ---- */
+.signature-label {
+    -fx-background-color: #DBEAFE;
+    -fx-background-radius: 4px;
+    -fx-text-fill:      #1D4ED8;
+    -fx-font-size:      11px;
+    -fx-font-weight:    700;
+    -fx-padding:        3px 8px;
+    -fx-text-alignment: CENTER;
+    -fx-alignment:      CENTER;
+}
+
+.signature-label--success {
+    -fx-background-color: #DCFCE7;
+    -fx-text-fill:      #15803D;
+}
+
+/* ---- signature badge ---- */
+.badge {
+    -fx-background-color: -primary;
+    -fx-background-radius: 4px;
+    -fx-padding:        2px 10px;
+    -fx-text-fill:      -primary-text;
+    -fx-font-size:      11px;
+    -fx-font-weight:    600;
+    -fx-effect:         -shadow-sm;
+}
+
+.badge--success {
+    -fx-background-color: -success;
+}
+
+/* ---- busy spinner ---- */
+.busy-spinner {
+    -fx-progress-color: -primary;
+}
+.busy-spinner .percentage {
+    -fx-fill:           null;
+}
+
+/* ==========================================================================
+   12. PROGRESS BAR
+   ========================================================================== */
+
+.progress-bar {
+    -fx-background-radius: 9999px;
+    -fx-min-height:     4px;
+    -fx-max-height:     4px;
+}
+.progress-bar .track {
+    -fx-background-color: -border;
+    -fx-background-radius: 9999px;
+    -fx-min-height:     4px;
+    -fx-max-height:     4px;
+}
+.progress-bar .bar {
+    -fx-background-color: -primary;
+    -fx-background-radius: 9999px;
+    -fx-min-height:     4px;
+    -fx-max-height:     4px;
+}
+
+/* ==========================================================================
+   13. SCROLL PANE (main window)
+   ========================================================================== */
+
+.content-scroll {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding:        0;
+    -fx-border-color:   transparent;
+}
+
+.content-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+
+.content-scroll .corner {
+    -fx-background-color: transparent;
+}
+
+.scroll-pane {
+    -fx-background-color: transparent;
+}
+
+/* ==========================================================================
+   15. LOGIN GATE (start-up authentication)
+   ========================================================================== */
+
+.login-backdrop {
+    -fx-background-color: -bg;
+}
+
+.login-card {
+    -fx-background-color: -surface;
+    -fx-background-radius: 12px;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px;
+    -fx-border-radius:  12px;
+    -fx-padding:        28px;
+    -fx-spacing:        10px;
+    -fx-effect:         -shadow-lg;
+    -fx-max-width:      340px;
+}
+
+.login-brand {
+    -fx-font-size:      18px;
+    -fx-font-weight:    700;
+    -fx-text-fill:      -text-primary;
+}
+
+.login-tagline {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.login-prompt {
+    -fx-font-size:      13px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-secondary;
+    -fx-padding:        6px 0 2px 0;
+}
+
+.login-field {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-radius:  8px;
+    -fx-background-radius: 8px;
+    -fx-padding:        8px 12px;
+    -fx-font-size:      13px;
+}
+
+.login-field:focused {
+    -fx-border-color:   -border-focus;
+}
+
+.login-error {
+    -fx-text-fill:      -error;
+    -fx-font-size:      12px;
+    -fx-font-weight:    600;
+}
+
+/* ==========================================================================
+   14. MISC / UTILITIES
+   ========================================================================== */
+
+/* subtle separator line */
+.separator {
+    -fx-background-color: -border;
+    -fx-pref-height:    1px;
+    -fx-max-height:     1px;
+}
+
+/* ---- drag-and-drop upload feedback ---- */
+/* strong drop-zone affordance: accent dashed outline around the canvas */
+.drop-target {
+    -fx-border-color:   -sig-primary;
+    -fx-border-width:   3px;
+    -fx-border-style:   segments(10, 8);
+    -fx-border-insets:  10px;
+    -fx-border-radius:  16px;
+}
+
+/* focus ring for any focusable element */
+.focus-ring:focused {
+    -fx-effect:         dropshadow(gaussian, -border-focus, 0, 2, 0, 0);
+}
+
+/* ---- theme toggle (header) ----
+   Glyph is set from code; style mirrors the nav buttons so it reads as part
+   of the header furniture in both themes. */
+.theme-toggle {
+    -fx-background-color: transparent;
+    -fx-text-fill:      -text-secondary;
+    -fx-border:         none;
+    -fx-padding:        6px 10px;
+    -fx-font-size:      14px;
+}
+.theme-toggle:hover {
+    -fx-background-color: -surface-hover;
+    -fx-text-fill:      -text-primary;
+    -fx-background-radius: 8px;
+}
+
+/* tooltip styling */
+.tooltip {
+    -fx-background-color: #18181b;
+    -fx-text-fill:      #fafafa;
+    -fx-background-radius: 6px;
+    -fx-padding:        6px 12px;
+    -fx-font-size:      11px;
+    -fx-font-weight:    400;
+    -fx-effect:         -shadow-md;
+}
+
+/* ==========================================================================
+   17. REMOTE WORKFLOW CONNECTIVITY INDICATOR
+   ========================================================================== */
+
+.conn-dot {
+    -fx-min-width:      9px;
+    -fx-min-height:     9px;
+    -fx-pref-width:     9px;
+    -fx-pref-height:    9px;
+    -fx-max-width:      9px;
+    -fx-max-height:     9px;
+    -fx-background-radius: 9999px;
+    -fx-background-color: -text-muted;
+}
+
+.conn-dot--online {
+    -fx-background-color: -success;
+}
+
+.conn-dot--offline {
+    -fx-background-color: -error;
+}
+
+.conn-label {
+    -fx-font-size:      12px;
+}
+
+.conn-label--online {
+    -fx-text-fill:      -success-text;
+}
+
+.conn-label--offline {
+    -fx-text-fill:      -error;
+    -fx-font-weight:    600;
+}
+/* ==========================================================================
+   16. WORKFLOW SELECTION SCREEN  (choose 1 / 2 / 3 signers)
+   ========================================================================== */
+
+.workflow-root {
+    -fx-background-color: -bg;
+}
+
+.workflow-header {
+    -fx-padding: 0;
+}
+
+.workflow-heading {
+    -fx-alignment: center-left;
+}
+
+.workflow-title {
+    -fx-font-size:      20px;
+    -fx-font-weight:    700;
+    -fx-text-fill:      -text-primary;
+}
+
+.workflow-subtitle {
+    -fx-font-size:      13px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.workflow-cards {
+    -fx-alignment: center;
+}
+
+/* ---- selectable card --------------------------------------------------- */
+
+.workflow-card {
+    -fx-background-color: -surface;
+    -fx-background-radius: 12px;
+    -fx-border-color:     -border;
+    -fx-border-radius:    12px;
+    -fx-border-width:     1px;
+    -fx-effect:           -shadow-sm;
+    -fx-cursor:           hand;
+}
+
+.workflow-card:hover {
+    -fx-border-color: -secondary-hover-border;
+    -fx-effect:       -shadow-md;
+}
+
+.workflow-card:selected,
+.workflow-card--selected {
+    -fx-border-color:     -border-focus;
+    -fx-border-width:     2px;
+    -fx-background-color: -surface-hover;
+    -fx-effect:           -shadow-md;
+}
+
+.workflow-card-icon {
+    -fx-icon-color: -text-secondary;
+    -fx-icon-size:  26px;
+}
+
+.workflow-card--selected .workflow-card-icon {
+    -fx-icon-color: -border-focus;
+}
+
+.workflow-card-title {
+    -fx-font-size:      15px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+.workflow-card-description {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.workflow-card-meta {
+    -fx-font-size:      11px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-secondary;
+}
+
+.workflow-card-check {
+    -fx-icon-color: -success;
+    -fx-icon-size:  15px;
+}
+
+.workflow-footer {
+    -fx-padding: 4px 0 0 0;
+}
+
+/* ==========================================================================
+   17. MULTI-SIGNER WORKFLOW SCREEN  (sequential signers, per-signer cards)
+   ========================================================================== */
+
+.multi-root {
+    -fx-background-color: -bg;
+}
+
+.multi-headline {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.multi-instruction {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+    -fx-padding:        0 0 0 2px;
+}
+
+.multi-scroll {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.multi-signer-card {
+    -fx-background-color: -surface;
+    -fx-background-radius: 10px;
+    -fx-border-color:     -border;
+    -fx-border-radius:    10px;
+    -fx-border-width:     1px;
+    -fx-padding:          14px 16px;
+}
+
+.multi-signer-card--current {
+    -fx-border-color:   -border-focus;
+    -fx-border-width:   1.5px;
+    -fx-effect:         -shadow-md;
+}
+
+.multi-card-icon {
+    -fx-icon-color: -text-secondary;
+    -fx-icon-size:  16px;
+}
+
+.multi-card-title {
+    -fx-font-size:      14px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+.multi-status-icon {
+    -fx-icon-size:      14px;
+    -fx-icon-color:     -text-secondary;
+}
+
+.multi-status-icon--ok {
+    -fx-icon-color:     -success;
+}
+
+.multi-status-icon--warn {
+    -fx-icon-color:     -warning;
+}
+
+.multi-token-status {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.multi-field-label {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.multi-name-field {
+    -fx-font-size:      12px;
+}
+
+.multi-pin-field {
+    -fx-font-size:      13px;
+}
+
+.multi-status {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+}
+
+/* ==========================================================================
+   18. MULTI-SIGNER WORKSPACE (per-signer signing flow)
+   ========================================================================== */
+
+.mws-root { -fx-background-color: -bg; }
+.mws-doc-chip {
+    -fx-background-color: -surface;
+    -fx-background-radius: 6;
+    -fx-border-color: -border;
+    -fx-border-radius: 6;
+    -fx-padding: 3 10 3 10;
+    -fx-text-fill: -text-primary;
+}
+.mws-strip { -fx-alignment: center-left; }
+.mws-chip {
+    -fx-background-radius: 12;
+    -fx-padding: 3 12 3 12;
+    -fx-font-size: 11px;
+    -fx-text-fill: -text-primary;
+}
+.mws-chip {
+  /* Ellipsized names stay centered inside a bounded chip. */
+  -fx-alignment: center-left;
+}
+.mws-chip--pending { -fx-background-color: -surface; -fx-border-color: -border; -fx-border-radius: 12; -fx-opacity: 0.7; }
+.mws-chip--active { -fx-background-color: -info-light; -fx-text-fill: -info; -fx-font-weight: bold; }
+.mws-chip--done { -fx-background-color: -success-light; -fx-text-fill: -success; }
+.mws-chip--failed { -fx-background-color: -error-light; -fx-text-fill: -danger; }
+.mws-strip-arrow { -fx-icon-color: -text-muted; -fx-icon-size: 9; }
+
+.mws-strip-row {
+    -fx-padding: 2 16 6 16;
+    -fx-background-color: -bg;
+}
+
+.mws-toolbar { -fx-background-color: -surface; -fx-background-radius: 8; -fx-border-color: -border; -fx-border-radius: 8; }
+.mws-place-hint {
+  /* Floating pill above the page while a signature is being drawn. */
+  -fx-background-color: -surface;
+  -fx-border-color: -border;
+  -fx-background-radius: 8;
+  -fx-border-radius: 8;
+  -fx-padding: 6 12 6 12;
+  -fx-text-fill: -text-primary;
+  -fx-font-size: 12px;
+  -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.15), 6, 0.1, 0, 2);
+}
+.mws-busy { -fx-progress-color: -info; }
+.mws-page-label { -fx-text-fill: -text-muted; -fx-font-size: 12px; -fx-min-width: 90; -fx-alignment: center; }
+.mws-zoom-label { -fx-text-fill: -text-muted; -fx-font-size: 12px; -fx-min-width: 48; -fx-alignment: center; }
+
+.mws-viewer-column { -fx-min-width: 0; }
+.mws-viewer { -fx-background-color: -bg; }
+.mws-page-layer { -fx-background-color: white; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.18), 8, 0.1, 0, 2); }
+
+.mws-pending-box {
+    -fx-stroke: -info;
+    -fx-stroke-width: 1.6;
+    -fx-stroke-type: inside;
+    -fx-fill: rgba(79, 70, 229, 0.08);
+    -fx-arc-width: 6;
+    -fx-arc-height: 6;
+}
+.mws-previous-box {
+    -fx-stroke: -success;
+    -fx-stroke-width: 1.2;
+    -fx-stroke-type: inside;
+    -fx-fill: rgba(22, 163, 74, 0.07);
+    -fx-arc-width: 6;
+    -fx-arc-height: 6;
+}
+
+.mws-thumbnail-pane {
+    -fx-background-color: transparent;
+    -fx-padding: 4;
+    -fx-min-width: 128;
+    -fx-pref-width: 128;
+    -fx-max-width: 128;
+}
+.mws-thumbnail-caption { -fx-text-fill: -text-muted; -fx-font-size: 10px; -fx-padding: 2 4 6 4; }
+.mws-thumbnail {
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+    -fx-padding: 6 4 6 4;
+    -fx-alignment: center;
+    -fx-text-fill: -text-muted;
+    -fx-font-size: 10px;
+    -fx-cursor: hand;
+}
+.mws-thumbnail-image { -fx-cursor: hand; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.12), 3, 0.05, 0, 1); }
+.mws-thumbnail-image--current { -fx-effect: dropshadow(gaussian, -info, 6, 0.3, 0, 0); }
+
+.mws-panel-root { -fx-max-width: 340; }
+.mws-panel-scroll { -fx-background-color: transparent; }
+.mws-panel { -fx-background-color: transparent; -fx-padding: 0; }
+.mws-panel-title { -fx-font-size: 15px; -fx-font-weight: bold; -fx-text-fill: -text-primary; }
+.mws-panel .titled-pane > .title {
+    -fx-background-color: -surface;
+    -fx-border-color: transparent transparent -border transparent;
+    -fx-font-size: 12px;
+}
+.mws-panel .titled-pane > .content { -fx-background-color: -surface; -fx-border-color: -border; }
+.mws-preview { -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 4, 0.05, 0, 1); }
+.mws-overlap-warning { -fx-text-fill: -warning; -fx-font-size: 11px; }
+
+.mws-identity-box {
+    -fx-background-color: -info-light;
+    -fx-background-radius: 8px;
+    -fx-padding: 8px;
+}
+
+.mws-identity-name {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -text-primary;
+}
+
+.mws-row-key { -fx-text-fill: -text-muted; -fx-font-size: 11px; -fx-min-width: 110; }
+.mws-row-value { -fx-text-fill: -text-primary; -fx-font-size: 11px; }
+
+.mws-checkpoint { -fx-background-color: -surface; }
+.mws-checkpoint-preview { -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.15), 6, 0.1, 0, 2); }
+.mws-checkpoint-summary .label { -fx-font-size: 12px; }
+.mws-checkpoint-warning { -fx-text-fill: -text-muted; -fx-font-size: 11px; }
+.mws-checkpoint-confirm { -fx-font-size: 12px; }
+
+.mws-completion { -fx-background-color: -surface; -fx-background-radius: 12; -fx-border-color: -success; -fx-border-width: 1; -fx-border-radius: 12; -fx-max-width: 520; -fx-alignment: top-center; }
+.mws-completion-title { -fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: -success; }
+.mws-completion-doc { -fx-font-size: 14px; -fx-text-fill: -text-primary; }
+.mws-completion-pane { -fx-background-color: -bg; -fx-padding: 40; -fx-alignment: top-center; }
+.mws-dialog { -fx-background-color: -bg; -fx-padding: 12; }
+
+/* ---- Cross-PC workflow continuation (WorkflowContinuationDialog) ---- */
+.wf-root { -fx-background-color: -bg; }
+.wf-timeline { -fx-padding: 4 0 0 0; }
+.wf-step--done .chain-badge { -fx-background-color: -success-light; -fx-text-fill: -success; }
+.wf-step--current { -fx-background-color: -surface; -fx-background-radius: 8; -fx-border-color: -primary; -fx-border-width: 1; -fx-border-radius: 8; }
+.wf-step--current .chain-badge { -fx-background-color: -primary; -fx-text-fill: -surface; -fx-font-weight: bold; }
+.wf-step--waiting .chain-badge { -fx-background-color: -surface-subtle; -fx-text-fill: -text-muted; }
+.wf-banner--success { -fx-border-color: -success; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-color: -success-light; }
+.wf-banner--warn { -fx-border-color: -warning; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-color: -warning-light; }
+.wf-banner--danger { -fx-border-color: -danger; -fx-border-width: 1; -fx-border-radius: 8; -fx-background-color: -danger-light; }
+
+/* ====================================================================
+ * Workflow wizard (document → signers → review & send)
+ * ==================================================================== */
+
+.wizard-steps {
+    -fx-spacing:        8px;
+    -fx-padding:        0 0 6px 0;
+}
+
+.wizard-step {
+    -fx-background-color: -surface-subtle;
+    -fx-background-radius: 9999px;
+    -fx-padding:        5px 14px;
+    -fx-text-fill:      -text-muted;
+    -fx-font-size:      11.5px;
+    -fx-font-weight:    600;
+}
+
+.wizard-step--active {
+    -fx-background-color: -primary;
+    -fx-text-fill:      -primary-text;
+}
+
+.wizard-step--done {
+    -fx-background-color: -success-light;
+    -fx-text-fill:      -success;
+}
+
+/* ---- signer cards ---- */
+
+.signer-list {
+    -fx-spacing:        10px;
+}
+
+.signer-card {
+    -fx-background-color: -surface;
+    -fx-background-radius: 12px;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px;
+    -fx-border-radius:  12px;
+}
+
+.signer-sub {
+    -fx-spacing:        8px;
+}
+
+.signer-sub > Label {
+    -fx-font-size:      11px;
+    -fx-text-fill:      -text-muted;
+    -fx-font-weight:    600;
+}
+
+.signer-order {
+    -fx-background-color: -primary-light;
+    -fx-text-fill:      -primary;
+    -fx-background-radius: 9999px;
+    -fx-alignment:      CENTER;
+    -fx-min-width:      26px;
+    -fx-min-height:     26px;
+    -fx-max-width:      26px;
+    -fx-max-height:     26px;
+    -fx-font-size:      12px;
+    -fx-font-weight:    700;
+}
+
+.role-badge {
+    -fx-font-size:      11px;
+    -fx-font-weight:    600;
+    -fx-background-radius: 9999px;
+    -fx-padding:        2px 10px;
+}
+
+.role-badge--email {
+    -fx-background-color: -primary-light;
+    -fx-text-fill:      -primary;
+}
+
+.role-badge--username {
+    -fx-background-color: -surface-subtle;
+    -fx-text-fill:      -text-secondary;
+}
+
+.btn-add-signer {
+    -fx-background-color: transparent;
+    -fx-border-color:   -primary;
+    -fx-border-width:   2px;
+    -fx-border-radius:  10px;
+    -fx-border-style:   segments(6, 4) line-cap round;
+    -fx-text-fill:      -primary;
+    -fx-font-weight:    700;
+    -fx-padding:        10px 16px;
+    -fx-cursor:         hand;
+}
+
+.btn-add-signer:hover {
+    -fx-background-color: -primary-light;
+}
+
+.btn-icon {
+    -fx-background-color: transparent;
+    -fx-padding:        4px 6px;
+    -fx-text-fill:      -text-secondary;
+    -fx-cursor:         hand;
+}
+
+.btn-icon:hover {
+    -fx-text-fill:      -primary;
+}
+
+.doc-name {
+    -fx-font-size:      14px;
+    -fx-font-weight:    700;
+    -fx-text-fill:      -text-primary;
+}
+
+.success-title {
+    -fx-font-size:      18px;
+    -fx-font-weight:    700;
+    -fx-text-fill:      -success;
+}
+
+/* ---- status badges (timeline + invitation tracking) ---- */
+
+.badge {
+    -fx-background-radius: 9999px;
+    -fx-padding:        3px 12px;
+    -fx-font-size:      11px;
+    -fx-font-weight:    700;
+    -fx-background-color: -surface-subtle;
+    -fx-text-fill:      -text-secondary;
+}
+
+.badge--signed,
+.badge--accepted {
+    -fx-background-color: -success-light;
+    -fx-text-fill:      -success;
+}
+
+.badge--turn {
+    -fx-background-color: -primary;
+    -fx-text-fill:      -primary-text;
+}
+
+.badge--waiting {
+    -fx-background-color: -surface-subtle;
+    -fx-text-fill:      -text-secondary;
+}
+
+.badge--unbound,
+.badge--expired {
+    -fx-background-color: -warning-light;
+    -fx-text-fill:      -warning;
+}
+
+.badge--revoked {
+    -fx-background-color: -error-light;
+    -fx-text-fill:      -error;
+}
+
+/* ---- signing timeline ---- */
+
+.timeline-row {
+    -fx-padding:        8px 2px;
+    -fx-border-color:   transparent transparent -border transparent;
+    -fx-border-width:   0 0 1px 0;
+}
+
+.timeline-name {
+    -fx-font-size:      13px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+/* ==========================================================================
+   30.  SIGNING TASKS WORKSPACE (remote signing, brief §2–§10)
+   ========================================================================== */
+
+/* ---- app header ------------------------------------------------------- */
+.tasks-header {
+    -fx-background-color: -surface;
+    -fx-border-color:   -border;
+    -fx-border-width:   0 0 1px 0;
+}
+
+.tasks-brand {
+    -fx-font-size:      16px;
+    -fx-font-weight:    700;
+    -fx-text-fill:      -primary;
+}
+
+.tasks-screen {
+    -fx-font-size:      13px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-secondary;
+    -fx-padding:        2px 0 0 10px;
+    -fx-border-color:   transparent transparent transparent -border;
+    -fx-border-width:   0 0 0 1px;
+}
+
+/* ---- profile menu ------------------------------------------------------ */
+.profile-btn {
+    -fx-background-color: transparent;
+    -fx-border-color:   transparent;
+    -fx-padding:        4px 10px;
+    -fx-background-radius: 8px;
+}
+.profile-btn:hover, .profile-btn:focused, .profile-btn:showing {
+    -fx-background-color: -surface-hover;
+}
+.profile-btn > .label { -fx-padding: 0; }
+
+.profile-avatar {
+    -fx-min-width:      28px;
+    -fx-min-height:     28px;
+    -fx-max-width:      28px;
+    -fx-max-height:     28px;
+    -fx-alignment:      CENTER;
+    -fx-background-color: -primary;
+    -fx-background-radius: 9999px;
+    -fx-text-fill:      -primary-text;
+    -fx-font-size:      12px;
+    -fx-font-weight:    700;
+}
+
+.profile-name {
+    -fx-font-size:      13px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+.profile-online {
+    -fx-font-size:      10px;
+    -fx-text-fill:      -success;
+    -fx-font-weight:    600;
+}
+
+.profile-signout { -fx-text-fill: -error; }
+
+/* ---- page titles ------------------------------------------------------- */
+.tasks-title {
+    -fx-font-size:      20px;
+    -fx-font-weight:    700;
+    -fx-text-fill:      -text-primary;
+}
+
+.tasks-subtitle {
+    -fx-font-size:      13px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.tasks-summary {
+    -fx-font-size:      12px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -primary;
+}
+
+/* ---- toolbar ----------------------------------------------------------- */
+.tasks-toolbar { -fx-min-height: 44px; -fx-alignment: CENTER_LEFT; }
+
+.search-field {
+    -fx-background-radius: 8px;
+    -fx-padding:        8px 12px;
+}
+
+/* segmented filter group */
+.seg-group { -fx-background-color: transparent; }
+
+.seg {
+    -fx-background-color: transparent;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px;
+    -fx-border-radius:  0;
+    -fx-background-radius: 0;
+    -fx-padding:        6px 12px;
+    -fx-font-size:      12px;
+    -fx-font-weight:    500;
+    -fx-text-fill:      -text-secondary;
+    -fx-cursor:         hand;
+}
+.seg:first {
+    -fx-border-radius:  8px 0 0 8px;
+    -fx-background-radius: 8px 0 0 8px;
+}
+.seg:last {
+    -fx-border-radius:  0 8px 8px 0;
+    -fx-background-radius: 0 8px 8px 0;
+}
+.seg:selected, .seg:hover {
+    -fx-background-color: -primary-light;
+    -fx-text-fill:      -primary;
+    -fx-border-color:   -primary;
+    -fx-font-weight:    600;
+}
+
+/* ---- scroll area ------------------------------------------------------- */
+.tasks-scroll,
+.tasks-scroll > .viewport {
+    -fx-background-color: transparent;
+}
+.tasks-scroll { -fx-padding: 4px 24px 24px 24px; }
+
+/* ---- section rows ------------------------------------------------------ */
+.section-row { -fx-padding: 8px 0 2px 0; }
+
+.tasks-section {
+    -fx-font-size:      13px;
+    -fx-font-weight:    700;
+    -fx-text-fill:      -text-primary;
+}
+
+.tasks-section-count {
+    -fx-font-size:      12px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-secondary;
+}
+
+/* ---- document cards ---------------------------------------------------- */
+.task-card {
+    -fx-background-color: -surface;
+    -fx-background-radius: 10px;
+    -fx-border-color:   -border;
+    -fx-border-width:   1px;
+    -fx-border-radius:  10px;
+    -fx-padding:        14px 16px;
+    -fx-effect:         -shadow-sm;
+    -fx-max-width:      860px;
+}
+.task-card--action { -fx-border-color: -primary; -fx-border-width: 1.5px; }
+
+.task-doc-icon {
+    -fx-icon-color:     -error;
+    -fx-font-size:      22px;
+}
+
+.task-title {
+    -fx-font-size:      15px;
+    -fx-font-weight:    600;
+    -fx-text-fill:      -text-primary;
+}
+
+.task-sender {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.task-date, .task-progress {
+    -fx-font-size:      12px;
+    -fx-text-fill:      -text-secondary;
+}
+
+.task-dot {
+    -fx-background-radius: 9999px;
+    -fx-min-width:      8px;
+    -fx-min-height:     8px;
+    -fx-max-width:      8px;
+    -fx-max-height:     8px;
+}
+.task-dot--action { -fx-background-color: -primary; }
+.task-dot--waiting { -fx-background-color: -warning; }
+.task-dot--done { -fx-background-color: -success; }
+.task-dot--bad { -fx-background-color: -error; }
+.task-dot--warn { -fx-background-color: -warning; }
+
+/* status badge variants matching the presentation styles */
+.badge--task-action {
+    -fx-background-color: -primary;
+    -fx-text-fill:      -primary-text;
+}
+.badge--task-waiting {
+    -fx-background-color: -warning-light;
+    -fx-text-fill:      -warning;
+}
+.badge--task-done {
+    -fx-background-color: -success-light;
+    -fx-text-fill:      -success;
+}
+.badge--task-bad {
+    -fx-background-color: -error-light;
+    -fx-text-fill:      -error;
+}
+.badge--task-warn {
+    -fx-background-color: -warning-light;
+    -fx-text-fill:      -warning;
+}
+
+/* ---- skeleton loading -------------------------------------------------- */
+.skeleton-line {
+    -fx-background-color: -surface-hover;
+    -fx-background-radius: 6px;
+    -fx-min-height:     12px;
+    -fx-pref-height:    12px;
+}
+
+.skeleton-icon {
+    -fx-background-color: -surface-hover;
+    -fx-background-radius: 8px;
+    -fx-min-width:      36px;
+    -fx-min-height:     36px;
+    -fx-max-width:      36px;
+    -fx-max-height:     36px;
+}
+
+/* ---- error state ------------------------------------------------------- */
+.error-state-icon { -fx-icon-color: -error; -fx-font-size: 36px; }
+.error-state .empty-state-icon { -fx-icon-color: -error; }
+
+/* ==========================================================================
+   SIGNING SCREENS (invitation, confirm, progress, success, signature
+   properties) — ui/kit/SignFlowUi. Navy step rail + one centered card.
+   ========================================================================== */
+
+.sf-window {
+    -fx-background-color: -sig-bg;
+}
+
+.sf-scroll,
+.sf-scroll > .viewport {
+    -fx-background-color: transparent;
+    -fx-background: -sig-bg;
+}
+
+.sf-rail {
+    -fx-background-color: #0F172A;
+    -fx-min-width:  210px;
+    -fx-pref-width: 210px;
+    -fx-padding:    20px 14px;
+}
+
+.sf-rail-brand {
+    -fx-text-fill:   #FFFFFF;
+    -fx-font-size:   17px;
+    -fx-font-weight: 700;
+    -fx-padding:     0 6px 22px 6px;
+    -fx-graphic-text-gap: 10px;
+}
+
+.sf-rail-brand .font-icon {
+    -fx-icon-color: #60A5FA;
+    -fx-icon-size:  20px;
+}
+
+.sf-step {
+    -fx-padding: 9px 10px;
+    -fx-background-radius: 8px;
+}
+
+.sf-step--current {
+    -fx-background-color: #1E293B;
+}
+
+.sf-step-number {
+    -fx-min-width: 24px;
+    -fx-min-height: 24px;
+    -fx-alignment: center;
+    -fx-background-radius: 12px;
+    -fx-background-color: #334155;
+    -fx-text-fill: #CBD5E1;
+    -fx-font-size: 11px;
+    -fx-font-weight: 700;
+}
+
+.sf-step--current .sf-step-number {
+    -fx-background-color: -sig-primary;
+    -fx-text-fill: #FFFFFF;
+}
+
+.sf-step--done .sf-step-number {
+    -fx-background-color: -sig-success;
+}
+
+.sf-step--done .sf-step-number .font-icon {
+    -fx-icon-color: #FFFFFF;
+    -fx-icon-size: 10px;
+}
+
+.sf-step-text {
+    -fx-text-fill: #94A3B8;
+    -fx-font-size: 13px;
+}
+
+.sf-step--current .sf-step-text {
+    -fx-text-fill: #FFFFFF;
+    -fx-font-weight: 600;
+}
+
+.sf-step--done .sf-step-text {
+    -fx-text-fill: #CBD5E1;
+}
+
+.sf-card {
+    -fx-background-color: -sig-surface;
+    -fx-background-radius: 14px;
+    -fx-border-color: -sig-border;
+    -fx-border-radius: 14px;
+    -fx-effect: dropshadow(gaussian, rgba(15, 23, 42, 0.08), 18, 0, 0, 4);
+}
+
+.sf-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: 700;
+    -fx-text-fill: -sig-text;
+}
+
+.sf-doc-name {
+    -fx-font-size: 18px;
+    -fx-font-weight: 700;
+    -fx-text-fill: -sig-text;
+}
+
+.sf-doc-icon {
+    -fx-icon-color: -sig-primary;
+    -fx-icon-size: 30px;
+}
+
+.sf-text {
+    -fx-font-size: 13px;
+    -fx-text-fill: -sig-text-secondary;
+}
+
+.sf-chip {
+    -fx-padding: 3px 10px;
+    -fx-background-radius: 999px;
+    -fx-font-size: 11px;
+    -fx-font-weight: 700;
+}
+
+.sf-chip.sf-tone-ok    { -fx-background-color: -sig-success-bg; -fx-text-fill: -sig-success-text; }
+.sf-chip.sf-tone-info  { -fx-background-color: -sig-primary-bg; -fx-text-fill: -sig-primary; }
+.sf-chip.sf-tone-warn  { -fx-background-color: -sig-warning-bg; -fx-text-fill: -sig-warning-text; }
+.sf-chip.sf-tone-error { -fx-background-color: -sig-error-bg;   -fx-text-fill: -sig-error; }
+
+.sf-state-icon {
+    -fx-background-radius: 32px;
+}
+
+.sf-state-icon.sf-tone-ok    { -fx-background-color: -sig-success-bg; }
+.sf-state-icon.sf-tone-info  { -fx-background-color: -sig-primary-bg; }
+.sf-state-icon.sf-tone-warn  { -fx-background-color: -sig-warning-bg; }
+.sf-state-icon.sf-tone-error { -fx-background-color: -sig-error-bg; }
+
+.sf-state-glyph { -fx-icon-size: 28px; }
+.sf-tone-ok    .sf-state-glyph { -fx-icon-color: -sig-success; }
+.sf-tone-info  .sf-state-glyph { -fx-icon-color: -sig-primary; }
+.sf-tone-warn  .sf-state-glyph { -fx-icon-color: -sig-warning; }
+.sf-tone-error .sf-state-glyph { -fx-icon-color: -sig-error; }
+
+.sf-details {
+    -fx-padding: 4px 0;
+}
+
+.sf-detail-key {
+    -fx-font-size: 12px;
+    -fx-text-fill: -sig-text-secondary;
+}
+
+.sf-detail-value {
+    -fx-font-size: 13px;
+    -fx-font-weight: 600;
+    -fx-text-fill: -sig-text;
+}
+
+.sf-note {
+    -fx-padding: 12px 14px;
+    -fx-background-radius: 10px;
+    -fx-border-radius: 10px;
+    -fx-border-width: 1px;
+}
+
+.sf-note.sf-tone-info  { -fx-background-color: -sig-primary-bg; -fx-border-color: -sig-primary-bg; }
+.sf-note.sf-tone-ok    { -fx-background-color: -sig-success-bg; -fx-border-color: -sig-success-bg; }
+.sf-note.sf-tone-warn  { -fx-background-color: -sig-warning-bg; -fx-border-color: -sig-warning-bg; }
+.sf-note.sf-tone-error { -fx-background-color: -sig-error-bg;   -fx-border-color: -sig-error-bg; }
+
+.sf-note-glyph { -fx-icon-size: 16px; }
+.sf-note.sf-tone-info  .sf-note-glyph { -fx-icon-color: -sig-primary; }
+.sf-note.sf-tone-ok    .sf-note-glyph { -fx-icon-color: -sig-success; }
+.sf-note.sf-tone-warn  .sf-note-glyph { -fx-icon-color: -sig-warning; }
+.sf-note.sf-tone-error .sf-note-glyph { -fx-icon-color: -sig-error; }
+
+.sf-primary {
+    -fx-font-size: 14px;
+    -fx-padding: 11px 18px;
+}
+
+.sf-progress-row .font-icon { -fx-icon-size: 14px; }
+.sf-progress-done .font-icon    { -fx-icon-color: -sig-success; }
+.sf-progress-current .font-icon { -fx-icon-color: -sig-primary; }
+.sf-progress-pending .font-icon { -fx-icon-color: -sig-disabled; }
+.sf-progress-failed .font-icon  { -fx-icon-color: -sig-error; }
+.sf-progress-current { -fx-font-weight: 700; }
+
+/* ---- Signing Tasks list & task page (UX pass) -------------------------- */
+.tasks-search-icon { -fx-icon-color: -text-secondary; -fx-icon-size: 14px; }
+.tasks-updated { -fx-font-size: 11px; -fx-text-fill: -text-secondary; }
+.tasks-next-banner {
+    -fx-background-color: -sig-primary-bg;
+    -fx-background-radius: 10px;
+    -fx-padding: 10px 14px;
+}
+.tasks-next-icon { -fx-icon-color: -sig-primary; -fx-icon-size: 18px; }
+.tasks-next-text { -fx-font-size: 13px; -fx-font-weight: 600; -fx-text-fill: -text-primary; }
+.task-next-step { -fx-font-size: 12px; -fx-text-fill: -text-secondary; }
+.task-card:hover { -fx-border-color: -primary; }
+.task-progress-bar { -fx-pref-height: 6px; -fx-max-height: 6px; }
+.task-progress-bar > .track { -fx-background-color: -border; -fx-background-radius: 3px; }
+.task-progress-bar > .bar {
+    -fx-background-color: -sig-success;
+    -fx-background-radius: 3px;
+    -fx-background-insets: 0;
+}
+.task-signer-row {
+    -fx-padding: 8px 10px;
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-radius: 8px;
+    -fx-background-radius: 8px;
+}
+.task-signer-number--todo { -fx-background-color: -border; -fx-text-fill: -text-primary; }
+.task-signer-number--done { -fx-background-color: -sig-success; }
+.task-signer-number--done .font-icon { -fx-icon-color: #FFFFFF; -fx-icon-size: 10px; }
+
+/* ---- Documents to sign: layout pass 2 (single header, chips, rows) ----- */
+.tasks-view { -fx-background-color: transparent; }
+.tasks-header {
+    -fx-background-color: transparent;
+    -fx-border-width: 0;
+}
+.tasks-title { -fx-font-size: 22px; -fx-font-weight: 700; }
+.tasks-summary { -fx-font-size: 13px; -fx-font-weight: 600; }
+
+.tasks-search-box {
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-radius: 10px;
+    -fx-background-radius: 10px;
+    -fx-padding: 2px 6px 2px 12px;
+}
+.tasks-search-box:focus-within { -fx-border-color: -primary; }
+.tasks-search-box .search-field,
+.tasks-search-box .search-field:focused {
+    -fx-background-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 8px 4px;
+}
+.tasks-search-clear { -fx-padding: 4px 6px; }
+
+.tasks-filter {
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-radius: 9999px;
+    -fx-background-radius: 9999px;
+    -fx-padding: 5px 14px;
+    -fx-font-size: 12px;
+    -fx-font-weight: 600;
+    -fx-text-fill: -text-secondary;
+    -fx-cursor: hand;
+}
+.tasks-filter:hover { -fx-border-color: -primary; -fx-text-fill: -primary; }
+.tasks-filter:selected {
+    -fx-background-color: -primary;
+    -fx-border-color: -primary;
+    -fx-text-fill: -primary-text;
+}
+
+.task-card {
+    -fx-padding: 12px 16px 12px 0;
+    -fx-background-radius: 12px;
+    -fx-border-radius: 12px;
+    -fx-max-width: 980px;
+}
+.task-card:hover {
+    -fx-border-color: -primary;
+    -fx-effect: dropshadow(gaussian, rgba(37,99,235,0.18), 14, 0, 0, 3);
+}
+.task-card--action { -fx-border-color: -border; -fx-border-width: 1px; }
+.task-stripe { -fx-background-radius: 12px 0 0 12px; }
+.task-stripe--action  { -fx-background-color: -primary; }
+.task-stripe--waiting { -fx-background-color: -warning; }
+.task-stripe--done    { -fx-background-color: -success; }
+.task-stripe--bad     { -fx-background-color: -error; }
+.task-stripe--warn    { -fx-background-color: -warning; }
+
+.task-doc-icon-box {
+    -fx-background-color: -error-light;
+    -fx-background-radius: 10px;
+}
+.task-doc-glyph { -fx-icon-color: -error; -fx-icon-size: 18px; }
+.task-title { -fx-font-size: 14px; }
+.task-next-step { -fx-font-size: 12px; -fx-text-fill: -text-primary; }
+
+/* ==========================================================================
+   31.  SIGNING TASKS — redesign (st-*)
+   Dark navigation, light workspace; colour is used for STATE only.
+   ========================================================================== */
+.st-root { -fx-background-color: -bg; }
+.st-main { -fx-background-color: -bg; }
+.st-scroll, .st-scroll > .viewport { -fx-background-color: transparent; }
+
+/* ---- sidebar ---------------------------------------------------------- */
+.st-sidebar {
+    -fx-background-color: #0F172A;
+    -fx-padding: 18px 14px 16px 14px;
+}
+.st-brand {
+    -fx-text-fill: #FFFFFF;
+    -fx-font-size: 17px;
+    -fx-font-weight: 700;
+    -fx-graphic-text-gap: 10px;
+}
+.st-brand .font-icon { -fx-icon-color: #60A5FA; -fx-icon-size: 18px; }
+.st-nav-item {
+    -fx-padding: 9px 10px;
+    -fx-background-radius: 8px;
+}
+.st-nav-item:hover { -fx-background-color: #1E293B; }
+.st-nav-item:focused { -fx-border-color: #60A5FA; -fx-border-radius: 8px; }
+.st-nav-item--selected { -fx-background-color: #1E3A8A; }
+.st-nav-icon { -fx-icon-color: #94A3B8; -fx-icon-size: 14px; }
+.st-nav-item--selected .st-nav-icon { -fx-icon-color: #FFFFFF; }
+.st-nav-text { -fx-text-fill: #CBD5E1; -fx-font-size: 13px; }
+.st-nav-item--selected .st-nav-text { -fx-text-fill: #FFFFFF; -fx-font-weight: 600; }
+.st-nav-badge {
+    -fx-background-color: #F59E0B;
+    -fx-text-fill: #0F172A;
+    -fx-font-size: 11px;
+    -fx-font-weight: 700;
+    -fx-padding: 1px 8px;
+    -fx-background-radius: 9999px;
+}
+.st-send { -fx-padding: 9px 12px; }
+.st-nav-link { -fx-text-fill: #93C5FD; -fx-border-width: 0; -fx-padding: 2px 4px; }
+.st-avatar {
+    -fx-min-width: 30px; -fx-min-height: 30px; -fx-max-width: 30px; -fx-max-height: 30px;
+    -fx-alignment: center;
+    -fx-background-color: #2563EB;
+    -fx-background-radius: 9999px;
+    -fx-text-fill: #FFFFFF;
+    -fx-font-weight: 700;
+}
+.st-user { -fx-text-fill: #FFFFFF; -fx-font-weight: 600; -fx-font-size: 13px; }
+
+/* ---- header / search -------------------------------------------------- */
+.st-title { -fx-font-size: 24px; -fx-font-weight: 700; -fx-text-fill: -text-primary; }
+.st-subtitle { -fx-font-size: 13px; -fx-text-fill: -text-secondary; }
+.st-updated { -fx-font-size: 11px; -fx-text-fill: -text-secondary; }
+.st-search {
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-radius: 10px;
+    -fx-background-radius: 10px;
+    -fx-padding: 1px 6px 1px 12px;
+}
+.st-search:focus-within { -fx-border-color: -primary; }
+.st-search-icon { -fx-icon-color: -text-secondary; -fx-icon-size: 13px; }
+.st-search-field, .st-search-field:focused {
+    -fx-background-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 9px 4px;
+    -fx-font-size: 13px;
+}
+
+/* ---- summary tiles ---------------------------------------------------- */
+.st-tile {
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-radius: 12px;
+    -fx-background-radius: 12px;
+    -fx-padding: 12px 16px;
+}
+.st-tile:hover { -fx-border-color: -primary; }
+.st-tile:focused { -fx-border-color: -primary; -fx-border-width: 2px; }
+.st-tile--selected {
+    -fx-border-color: -primary;
+    -fx-border-width: 2px;
+    -fx-background-color: -sig-primary-bg;
+}
+.st-tile-label { -fx-font-size: 12px; -fx-font-weight: 600; -fx-text-fill: -text-secondary; }
+.st-tile-count { -fx-font-size: 26px; -fx-font-weight: 700; -fx-text-fill: -text-primary; }
+.st-tile-unit { -fx-font-size: 12px; -fx-text-fill: -text-secondary; }
+.st-tile--needs_action .st-tile-count { -fx-text-fill: -primary; }
+.st-more-filter { -fx-font-size: 12px; -fx-border-width: 0; }
+.st-more-filter--selected { -fx-font-weight: 700; -fx-underline: true; }
+
+/* ---- action banner ---------------------------------------------------- */
+.st-action-banner {
+    -fx-background-color: -sig-primary-bg;
+    -fx-border-color: -primary;
+    -fx-border-width: 0 0 0 4px;
+    -fx-background-radius: 10px;
+    -fx-border-radius: 10px;
+    -fx-padding: 12px 16px;
+}
+.st-banner-icon { -fx-icon-color: -primary; -fx-icon-size: 18px; }
+.st-banner-text { -fx-font-size: 14px; -fx-font-weight: 600; -fx-text-fill: -text-primary; }
+
+/* ---- list ------------------------------------------------------------- */
+.st-section { -fx-font-size: 11px; -fx-font-weight: 700; -fx-text-fill: -text-secondary; }
+.st-section-count {
+    -fx-font-size: 11px; -fx-font-weight: 700;
+    -fx-text-fill: -text-secondary;
+    -fx-background-color: -border;
+    -fx-background-radius: 9999px;
+    -fx-padding: 0 7px;
+}
+.st-card {
+    -fx-background-color: -surface;
+    -fx-border-color: -border;
+    -fx-border-radius: 12px;
+    -fx-background-radius: 12px;
+    -fx-padding: 14px 18px 14px 0;
+    -fx-effect: dropshadow(gaussian, rgba(15,23,42,0.05), 6, 0, 0, 1);
+}
+.st-card:hover {
+    -fx-border-color: -primary;
+    -fx-effect: dropshadow(gaussian, rgba(37,99,235,0.16), 14, 0, 0, 3);
+}
+.st-card:focused { -fx-border-color: -primary; -fx-border-width: 2px; }
+.st-card--muted { -fx-opacity: 0.85; }
+.st-stripe { -fx-background-radius: 12px 0 0 12px; -fx-background-color: -border; }
+.st-stripe--action  { -fx-background-color: -primary; }
+.st-stripe--waiting { -fx-background-color: -warning; }
+.st-stripe--done    { -fx-background-color: -success; }
+.st-stripe--bad     { -fx-background-color: -error; }
+.st-stripe--muted   { -fx-background-color: #94A3B8; }
+
+.st-state {
+    -fx-font-size: 10px;
+    -fx-font-weight: 800;
+    -fx-padding: 2px 8px;
+    -fx-background-radius: 9999px;
+    -fx-graphic-text-gap: 5px;
+}
+.st-state .font-icon { -fx-icon-size: 10px; }
+.st-state--action  { -fx-background-color: -primary; -fx-text-fill: -primary-text; }
+.st-state--action .font-icon { -fx-icon-color: -primary-text; }
+.st-state--waiting { -fx-background-color: -warning-light; -fx-text-fill: -warning; }
+.st-state--waiting .font-icon { -fx-icon-color: -warning; }
+.st-state--done    { -fx-background-color: -success-light; -fx-text-fill: -success; }
+.st-state--done .font-icon { -fx-icon-color: -success; }
+.st-state--bad     { -fx-background-color: -error-light; -fx-text-fill: -error; }
+.st-state--bad .font-icon { -fx-icon-color: -error; }
+.st-state--muted   { -fx-background-color: -border; -fx-text-fill: -text-secondary; }
+.st-state--muted .font-icon { -fx-icon-color: -text-secondary; }
+
+.st-doc-title { -fx-font-size: 16px; -fx-font-weight: 700; -fx-text-fill: -text-primary; }
+.st-explain-strong { -fx-font-size: 13px; -fx-font-weight: 600; -fx-text-fill: -text-primary; }
+.st-explain { -fx-font-size: 13px; -fx-text-fill: -text-primary; }
+.st-meta { -fx-font-size: 12px; -fx-text-fill: -text-secondary; }
+.st-meta .font-icon { -fx-icon-color: -text-secondary; -fx-icon-size: 11px; }
+.st-expires-soon { -fx-font-size: 12px; -fx-font-weight: 700; -fx-text-fill: -warning; }
+.st-expires-soon .font-icon { -fx-icon-color: -warning; -fx-icon-size: 11px; }
+.st-tech-link { -fx-font-size: 11px; -fx-text-fill: -text-secondary; -fx-border-width: 0; }
+
+/* signing order chain */
+.st-chain { -fx-padding: 4px 0 0 0; }
+.st-chain-mode { -fx-font-size: 11px; -fx-font-weight: 700; -fx-text-fill: -text-secondary; }
+.st-chain-person { -fx-font-size: 12px; -fx-graphic-text-gap: 5px; }
+.st-chain-person--signed  { -fx-text-fill: -text-primary; }
+.st-chain-person--current { -fx-text-fill: -primary; -fx-font-weight: 700; }
+.st-chain-person--waiting { -fx-text-fill: -text-secondary; }
+.st-chain-dot--signed  { -fx-icon-color: -success; -fx-icon-size: 12px; }
+.st-chain-dot--current { -fx-icon-color: -primary; -fx-icon-size: 12px; }
+.st-chain-dot--waiting { -fx-icon-color: #94A3B8; -fx-icon-size: 12px; }
+.st-chain-arrow { -fx-icon-color: #94A3B8; -fx-icon-size: 12px; }
+
+/* empty / error */
+.st-empty { -fx-padding: 48px 20px; -fx-spacing: 10px; }
+.st-empty-icon { -fx-icon-color: -success; -fx-icon-size: 40px; }
+.st-error-icon { -fx-icon-color: -error; -fx-icon-size: 36px; }
+.st-empty-title { -fx-font-size: 17px; -fx-font-weight: 700; -fx-text-fill: -text-primary; }
+.st-empty-hint { -fx-font-size: 13px; -fx-text-fill: -text-secondary; -fx-text-alignment: center; }
