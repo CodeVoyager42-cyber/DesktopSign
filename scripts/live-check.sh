@@ -4,9 +4,9 @@
 #
 # Every route the website's screens call, in the order a person would cause
 # it: register, confirm the address from the console mailbox, sign in, read a
-# CSRF token, send a document as multipart, read it back, read its audit
-# trail, read the invitations, resend one, prove CSRF and the session cookie
-# are enforced, cancel, and read both dashboard lists.
+# CSRF token, upload a document as multipart, read it back, read its audit
+# trail, see it waiting for the uploader's own certificate, prove CSRF and
+# the session cookie are enforced, cancel, and read both dashboard lists.
 #
 # It exists because every one of those routes was green in the test suite and
 # three defects still surfaced in the first five minutes against a real
@@ -71,7 +71,19 @@ session_cookie() { # header file -> "name=value"
 }
 
 field() { grep -o "\"$1\":\"[^\"]*\"" "$2" 2>/dev/null | head -1 | cut -d'"' -f4; }
-number() { grep -o "\"$1\":[0-9]*" "$2" 2>/dev/null | head -1 | cut -d: -f2; }
+flag() { grep -o "\"$1\":\(true\|false\)" "$2" 2>/dev/null | head -1 | cut -d: -f2; }
+
+# myStateLabel of ONE workflow in a /participating list. Split per task on
+# "workflowId" rather than taking the first match in the body: with
+# LIVE_EMAIL the account may already own several tasks, and the list is
+# ordered by document name, so the first one is not necessarily ours.
+# Splitting on "{" would not do — myState is a nested object, so the chunk
+# holding the id would not hold the label.
+task_state() { # workflowId, body file
+  tr '\n' ' ' < "$2" 2>/dev/null | sed 's/"workflowId"/\n"workflowId"/g' \
+    | grep "\"workflowId\":\"$1\"" | grep -o '"myStateLabel":"[A-Z_]*"' \
+    | head -1 | cut -d'"' -f4
+}
 events() { grep -o '"eventType":"[A-Z_]*"' "$1" 2>/dev/null | cut -d'"' -f4 | tr '\n' ' '; }
 count_of() { grep -o '"workflowId"' "$1" 2>/dev/null | wc -l; }
 
@@ -81,7 +93,11 @@ if ! curl -sf -m 5 "$BASE/api/health" > /dev/null 2>&1; then
 fi
 
 echo "=============== 1. the pages exist and are public ==============="
-for p in / /sign-in /sign-up /forgot-password /documents /document /send /open /account; do
+# Exactly FrontendRoutingConfiguration.PAGES, plus the index. That array is
+# what SecurityConfig.PUBLIC reads, so listing the same paths here means a
+# page added there and forgotten here shows up as one this loop never probed.
+for p in / /sign-in /sign-up /forgot-password /verify-email /reset-password \
+         /change-password /account /documents /document /upload /open /download; do
   printf "  GET %-18s -> %s\n" "$p" "$(code "$BASE$p")"
 done
 printf "  GET %-18s -> %s (public, no auth)\n" "/api/health" "$(code "$BASE/api/health")"
@@ -139,13 +155,15 @@ echo "  rotated session : $(echo "${SESS#*=}" | cut -c1-10)…"
 echo "  rotated XSRF    : ${XSRF:0:10}…"
 echo "  profile         : $(cat "$B")"
 
-SIGNER="live-check-signer-$RANDOM@example.com"
 echo
-echo "=============== 6. send a document (multipart) ==============="
+echo "=============== 6. upload a document (multipart) ==============="
+# One document, one signer: the account that uploads it. There is nobody to
+# name and no order to choose, so the request body carries the document's
+# name and nothing else — the same body lib/api.ts createWorkflow sends.
 cat > "$REQ" <<JSON
-{"documentName":"live-check.pdf","signingPolicy":"SEQUENTIAL","signers":[{"order":1,"userId":"$SIGNER","certificateSha256":null}]}
+{"documentName":"live-check.pdf"}
 JSON
-echo "  signer slot 1   : $SIGNER (an address, so it is invited)"
+echo "  signer          : $EMAIL (the uploader — there is no other)"
 # The request part is typed application/json: a plain string part arrives as
 # text/plain, which Spring will not bind to @RequestPart.
 curl -sS -D "$H" -o "$B" -X POST "$BASE/web/api/workflows" \
@@ -165,17 +183,15 @@ echo
 echo "=============== 7. read it back, as /document does ==============="
 curl -sS -o "$B" -H "Cookie: $JAR" "$BASE/web/api/workflows/$WF" \
   -w "  GET /web/api/workflows/{id} -> %{http_code}\n"
-echo "  status          : $(field status "$B")  (DRAFT until every slot binds"
-echo "                    a certificate — the website never names one)"
+echo "  status          : $(field status "$B")  (DRAFT until the signer"
+echo "                    registers a certificate from their own machine)"
+echo "  awaiting cert   : $(flag awaitingYourCertificate "$B") (true: what is"
+echo "                    missing is the uploader's own card)"
 curl -sS -o "$B" -H "Cookie: $JAR" "$BASE/web/api/workflows/$WF/audit" \
   -w "  GET …/audit -> %{http_code}\n"
 echo "  events          : $(events "$B")"
-echo "                    (one WORKFLOW_CREATED, then CERTIFICATES_PENDING —"
+echo "                    (one WORKFLOW_CREATED, then CERTIFICATE_PENDING —"
 echo "                     two WORKFLOW_CREATED means section 7.2 regressed)"
-curl -sS -o "$B" -H "Cookie: $JAR" "$BASE/web/api/workflows/$WF/invitations" \
-  -w "  GET …/invitations -> %{http_code}\n"
-INV=$(number invitationId "$B")
-echo "  invitation      : id $INV, $(field status "$B"), e-mail $(field emailStatus "$B")"
 
 curl -sS -o "$B" -H "Cookie: $JAR" "$BASE/web/api/workflows/owned" \
   -w "  GET …/owned -> %{http_code}\n"
@@ -183,14 +199,20 @@ OWNED_BEFORE=$(count_of "$B")
 echo "  owned before    : $OWNED_BEFORE"
 
 echo
-echo "=============== 8. resend that invitation ==============="
-if [ -n "$INV" ]; then
-  curl -sS -o "$B" -X POST "$BASE/web/api/invitations/$INV/resend" \
-    -H "X-XSRF-TOKEN: $XSRF" -H "Cookie: $JAR" \
-    -w "  POST /web/api/invitations/$INV/resend -> %{http_code}\n"
-  echo "  a new link went out; the previous one no longer works"
+echo "=============== 8. the uploader is the signer ==============="
+# The single-signer fact, read from the route the dashboard's own "to sign"
+# list uses: the document just uploaded is already this account's signing
+# task. No invitation was created, no slot is waiting to be filled, and
+# there is nobody else to hear from.
+curl -sS -o "$B" -H "Cookie: $JAR" "$BASE/web/api/workflows/participating" \
+  -w "  GET …/participating -> %{http_code}\n"
+if grep -q "\"$WF\"" "$B"; then
+  echo "  my task         : $WF, state $(task_state "$WF" "$B")"
+  echo "                    (CERTIFICATE_PENDING — waiting for a card, not"
+  echo "                     for another person)"
 else
-  echo "  !! no invitation id to resend"
+  echo "  !! REGRESSED: the uploader's own document is not in /participating" >&2
+  exit 1
 fi
 
 echo
@@ -199,10 +221,12 @@ curl -sS -o "$B" -H "Cookie: $JAR" "$BASE/web/api/app-info" \
   -w "  GET /web/api/app-info -> %{http_code}\n"
 LINK=$(field downloadUrl "$B")
 echo "  install link    : ${LINK:-none configured (null, as shipped)}"
-# The sender is not a signer of this workflow, so the server refuses them a
-# launch link: there is no signing task of theirs to open. 403 is the answer
-# that proves the route is on the session chain and applying Phase B's rules.
-printf "  POST …/launch-codes as the sender -> %s (403: not a signer)\n" \
+# The uploader IS the signer now, so the refusal is no longer "not a signer".
+# It is 409 CERTIFICATE_NOT_BOUND: a launch never enrols a certificate (the
+# Phase B review's H2), so the card must be registered from the signed-in
+# desktop first. That refusal still proves what the 403 used to — the route
+# is on the session chain and applying requireLaunchableSlot's rules in order.
+printf "  POST …/launch-codes, no certificate -> %s (409 expected)\n" \
   "$(code -X POST "$BASE/web/api/workflows/$WF/launch-codes" \
       -H "X-XSRF-TOKEN: $XSRF" -H "Cookie: $JAR")"
 curl -sS -o "$B" -X POST "$BASE/web/api/workflows/$WF/launch-codes" \

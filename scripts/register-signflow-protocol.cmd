@@ -2,8 +2,10 @@
 rem ============================================================
 rem  Registers the signflow:// URL protocol for the CURRENT
 rem  Windows user (HKCU - no admin rights needed). After this,
-rem  clicking an emailed signflow://invitation/... link opens
-rem  the SignFlow desktop app with the invitation pre-loaded.
+rem  the website's "Sign" button opens the SignFlow desktop app
+rem  at that one signing task: it hands over a launch link,
+rem  signflow://launch?v=1^&c=<43-character one-time code>, which
+rem  is the only form the app understands (see ui/LaunchLinks).
 rem  If SignFlow is already running, the link is forwarded to
 rem  the running window instead.
 rem
@@ -28,7 +30,7 @@ if "%APP_JAR%"=="" (
     echo before clicking a signflow:// link.
 )
 
-reg add "HKCU\Software\Classes\signflow" /ve /d "url:SignFlow Invitation" /f >nul
+reg add "HKCU\Software\Classes\signflow" /ve /d "url:SignFlow Launch" /f >nul
 if errorlevel 1 goto :failed
 reg add "HKCU\Software\Classes\signflow" /v "URL Protocol" /d "" /f >nul
 reg add "HKCU\Software\Classes\signflow\DefaultIcon" /ve /d "\"%JAVA_EXE%\",0" /f >nul
@@ -44,7 +46,15 @@ echo.
 echo Registered signflow:// for the current user.
 echo Handler: "%JAVA_EXE%" %JAVA_OPTS% -jar "%APP_JAR%" --spring.profiles.active=dev "link"
 echo.
-echo Try it:  press Win+R and run   signflow://invitation/test
+echo Try it:  press Win+R and run this link. The code is the right
+echo shape but is not a real one, so SignFlow should OPEN and then
+echo say the signing link could not be used - which is exactly what
+echo proves the registration works. A real code comes from the
+echo website's Sign button and lasts 2 minutes, once.
+echo.
+echo   signflow://launch?v=1^&c=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+echo.
+echo A link of any other shape is ignored, so nothing opens at all.
 exit /b 0
 
 :failed
