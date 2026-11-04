@@ -2,8 +2,14 @@
 	"info": {
 		"_postman_id": "c9f2d4ab-reject-matrix-0001",
 		"name": "SignFlow Rejection Matrix",
-		"description": "Exercises every server-side rejection path of the coordination API.\n\nSETUP FIRST (one command, server must already be running):\n  powershell -ExecutionPolicy Bypass -File postman/setup-rejection-matrix.ps1\n\nIt creates a dedicated 2-signer workflow, downloads revision 0, builds the tampered fixtures and writes fixtures/matrix-env.json. Import that as a Postman ENVIRONMENT and select it. Then run this collection top to bottom: every request asserts its exact expected status code AND error code, so the whole suite should show green.\n\nWhat is covered: JWT enforcement, participant authorization, turn enforcement, stale parent revision, stale parent hash, byte-prefix tampering, chain-breaking append, unsigned resubmission, missing/short fingerprint validation, idempotency replay. NOT covered from raw HTTP: a cryptographically valid signature from a DIFFERENT certificate (needs the desktop app's PKCS#11 signing - see the 'Wrong certificate' request's description for the manual repro).",
+		"description": "Exercises every server-side rejection path of the coordination API.\n\nONE DOCUMENT, ONE SIGNER: the account that uploads a document is the account that signs it. There is no signing order and no turn to claim, so a second account is not a participant waiting its turn — it is a stranger, and the server answers it the same way it answers a document id that never existed.\n\nSETUP FIRST (one command, server must already be running):\n  powershell -ExecutionPolicy Bypass -File postman/setup-rejection-matrix.ps1\n\nIt creates a dedicated single-signer workflow with alice's certificate bound at creation (so revision 0 exists and can be signed against), downloads revision 0, builds the tampered fixtures and writes fixtures/matrix-env.json. Import that as a Postman ENVIRONMENT and select it.\n\nSET THE WORKING DIRECTORY: the file fields below are relative paths like fixtures/rev0.pdf, so point Postman at this folder — Settings > General > Working directory > the repository's postman/ folder. (They used to be absolute paths on one developer's machine, which nobody else could run.)\n\nThen run the collection top to bottom: every request asserts its exact expected status code AND error code, so the whole suite should show green. Requests that do not override auth inherit alice's bearer token from section 0; the ones that must not use it say so with 'noauth' and carry their own header.\n\nWhat is covered: JWT enforcement, the uniform 404 that hides a document from everyone it does not belong to (on read AND write routes), stale parent revision, stale parent hash, byte-prefix tampering, chain-breaking append, unsigned resubmission, fingerprint validation, enrolling a certificate for somebody else, idempotency replay. NOT covered from raw HTTP: a cryptographically valid signature from a DIFFERENT certificate (needs the desktop app's PKCS#11 signing - see the 'Wrong certificate' request's description for the manual repro).",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{ "key": "token", "value": "{{accessToken}}", "type": "string" }
+		]
 	},
 	"variable": [
 		{ "key": "baseUrl", "value": "http://localhost:8080" },
@@ -148,17 +154,21 @@
 					"response": []
 				},
 				{
-					"name": "Outsider reads workflow -> 403",
+					"name": "Outsider reads workflow -> 404",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"type": "text/javascript",
 								"exec": [
-									"pm.test(\"403 for non-participant\", () => pm.response.to.have.status(403));",
-									"pm.test(\"WORKFLOW_NOT_ACCESSIBLE\", () => {",
-									"    pm.expect(pm.response.json().code).to.eql(\"WORKFLOW_NOT_ACCESSIBLE\");",
-									"});"
+									"pm.test(\"404 for anyone it is not\", () => pm.response.to.have.status(404));",
+									"pm.test(\"WORKFLOW_NOT_FOUND — the uniform answer\", () => {",
+									"    pm.expect(pm.response.json().code).to.eql(\"WORKFLOW_NOT_FOUND\");",
+									"});",
+									"// Deliberately indistinguishable from a workflow id that never",
+									"// existed: a 403 would confirm that this id IS a real document,",
+									"// which is a disclosure in itself. requireAccessible answers the",
+									"// same 404 to a stranger and to a typo."
 								]
 							}
 						}
@@ -178,14 +188,20 @@
 					"response": []
 				},
 				{
-					"name": "Outsider downloads document -> 403",
+					"name": "Outsider downloads document -> 404",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"type": "text/javascript",
 								"exec": [
-									"pm.test(\"403 for non-participant download\", () => pm.response.to.have.status(403));"
+									"pm.test(\"404 for anyone it is not\", () => pm.response.to.have.status(404));",
+									"pm.test(\"WORKFLOW_NOT_FOUND\", () => {",
+									"    pm.expect(pm.response.json().code).to.eql(\"WORKFLOW_NOT_FOUND\");",
+									"});",
+									"// Same answer on the bytes route as on the metadata route: the",
+									"// 404 is applied by requireAccessible before any state is read,",
+									"// so no route leaks what the others conceal."
 								]
 							}
 						}
@@ -207,10 +223,10 @@
 			]
 		},
 		{
-			"name": "2. Turn enforcement",
+			"name": "2. Not the signer (a second account on a write route)",
 			"item": [
 				{
-					"name": "Bob downloads (not his turn) -> 409",
+					"name": "Login (bob)",
 					"event": [
 						{
 							"listen": "test",
@@ -243,14 +259,21 @@
 					"response": []
 				},
 				{
-					"name": "Bob downloads document -> 409",
+					"name": "Bob downloads document -> 404",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"type": "text/javascript",
 								"exec": [
-									"pm.test(\"409 not your turn\", () => pm.response.to.have.status(409));"
+									"pm.test(\"404, not 409\", () => pm.response.to.have.status(404));",
+									"pm.test(\"WORKFLOW_NOT_FOUND\", () => {",
+									"    pm.expect(pm.response.json().code).to.eql(\"WORKFLOW_NOT_FOUND\");",
+									"});",
+									"// This used to be 409 NOT_YOUR_TURN, when bob held slot 2 of a",
+									"// two-signer workflow and was waiting his turn. A document has",
+									"// exactly one signer now, so bob is not a participant at all and",
+									"// gets the same uniform 404 as any stranger."
 								]
 							}
 						}
@@ -270,14 +293,21 @@
 					"response": []
 				},
 				{
-					"name": "Bob submits (not his turn) -> 409",
+					"name": "Bob submits a signature -> 404",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"type": "text/javascript",
 								"exec": [
-									"pm.test(\"409 turn gate fires before content checks\", () => pm.response.to.have.status(409));"
+									"pm.test(\"404 before any content check\", () => pm.response.to.have.status(404));",
+									"pm.test(\"WORKFLOW_NOT_FOUND\", () => {",
+									"    pm.expect(pm.response.json().code).to.eql(\"WORKFLOW_NOT_FOUND\");",
+									"});",
+									"// The point of this case survives the single-signer change: the",
+									"// access gate still fires BEFORE the PDF is looked at, so a",
+									"// stranger cannot learn anything about the document by submitting",
+									"// bytes at it. Only the reason changed, from a turn to ownership."
 								]
 							}
 						}
@@ -299,7 +329,7 @@
 								{
 									"key": "file",
 									"type": "file",
-									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\rev0.pdf"
+									"src": "fixtures/rev0.pdf"
 								}
 							]
 						},
@@ -346,7 +376,7 @@
 								{
 									"key": "file",
 									"type": "file",
-									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\rev0.pdf"
+									"src": "fixtures/rev0.pdf"
 								}
 							]
 						},
@@ -388,7 +418,7 @@
 								{
 									"key": "file",
 									"type": "file",
-									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\rev0.pdf"
+									"src": "fixtures/rev0.pdf"
 								}
 							]
 						},
@@ -435,7 +465,7 @@
 								{
 									"key": "file",
 									"type": "file",
-									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\prefix-flipped.pdf"
+									"src": "fixtures/prefix-flipped.pdf"
 								}
 							]
 						},
@@ -476,7 +506,7 @@
 								{
 									"key": "file",
 									"type": "file",
-									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\modified.pdf"
+									"src": "fixtures/modified.pdf"
 								}
 							]
 						},
@@ -518,7 +548,7 @@
 								{
 									"key": "file",
 									"type": "file",
-									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\garbage.pdf"
+									"src": "fixtures/garbage.pdf"
 								}
 							]
 						},
@@ -563,7 +593,7 @@
 								{
 									"key": "file",
 									"type": "file",
-									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\rev0.pdf"
+									"src": "fixtures/rev0.pdf"
 								}
 							]
 						},
@@ -605,12 +635,12 @@
 								{
 									"key": "request",
 									"type": "text",
-									"value": "{\"documentName\":\"bad-fingerprint.pdf\",\"signers\":[{\"order\":1,\"userId\":\"alice\",\"certificateSha256\":\"isicod\"}]}"
+									"value": "{\"documentName\":\"bad-fingerprint.pdf\",\"certificateSha256\":\"isicod\"}"
 								},
 								{
 									"key": "file",
 									"type": "file",
-									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\original.pdf"
+									"src": "fixtures/original.pdf"
 								}
 							]
 						},
@@ -623,17 +653,22 @@
 					"response": []
 				},
 				{
-					"name": "Create with unknown user -> 400",
+					"name": "Create with no documentName -> 400",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"type": "text/javascript",
 								"exec": [
-									"pm.test(\"400 for unknown workflow user\", () => pm.response.to.have.status(400));",
-									"pm.test(\"message names the user\", () => {",
-									"    pm.expect(pm.response.json().message).to.include(\"mallory\");",
-									"});"
+									"pm.test(\"400 for a missing document name\", () => pm.response.to.have.status(400));",
+									"pm.test(\"message says what is required\", () => {",
+									"    pm.expect(pm.response.json().message).to.include(\"documentName\");",
+									"});",
+									"// Replaces the old 'unknown user' case, which can no longer be",
+									"// expressed: the signer IS the authenticated caller, so there is",
+									"// no user field to put a stranger in, and an authenticated caller",
+									"// is a known account by definition. documentName is now the only",
+									"// required field left in the create body."
 								]
 							}
 						}
@@ -647,12 +682,12 @@
 								{
 									"key": "request",
 									"type": "text",
-									"value": "{\"documentName\":\"unknown-user.pdf\",\"signers\":[{\"order\":1,\"userId\":\"mallory\",\"certificateSha256\":\"ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB\"}]}"
+									"value": "{\"certificateSha256\":\"ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB\"}"
 								},
 								{
 									"key": "file",
 									"type": "file",
-									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\original.pdf"
+									"src": "fixtures/original.pdf"
 								}
 							]
 						},
@@ -665,44 +700,42 @@
 					"response": []
 				},
 				{
-					"name": "Create with wrong user (forged identity) -> 400",
+					"name": "Enrol a certificate for someone else -> 403",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"type": "text/javascript",
 								"exec": [
-									"pm.test(\"400 - creator identity comes from JWT, not body\", () => pm.response.to.have.status(400));",
-									"pm.test(\"order gap rejected\", () => {",
-									"    // signers must be 1..N without gaps: starting at 2 fails",
-									"    pm.expect(pm.response.json().message).to.include(\"order\");",
-									"});"
+									"pm.test(\"403 - signer identity comes from the JWT, not the path\", () => pm.response.to.have.status(403));",
+									"pm.test(\"WORKFLOW_NOT_ACCESSIBLE\", () => {",
+									"    pm.expect(pm.response.json().code).to.eql(\"WORKFLOW_NOT_ACCESSIBLE\");",
+									"});",
+									"// Replaces the old 'forged identity' / order-gap case. Naming",
+									"// another person as a signer is no longer possible, but the rule",
+									"// it tested is: alice is signed in and asks to enrol a",
+									"// certificate for bob. The controller compares the path user",
+									"// against the JWT before any workflow is loaded, so this is 403",
+									"// whatever state the document is in -- nobody can attach a card",
+									"// to somebody else's slot."
 								]
 							}
 						}
 					],
 					"request": {
 						"method": "POST",
-						"header": [],
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" }
+						],
 						"body": {
-							"mode": "formdata",
-							"formdata": [
-								{
-									"key": "request",
-									"type": "text",
-									"value": "{\"documentName\":\"order-gap.pdf\",\"signers\":[{\"order\":2,\"userId\":\"alice\",\"certificateSha256\":\"ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB\"}]}"
-								},
-								{
-									"key": "file",
-									"type": "file",
-									"src": "C:\\Users\\Mnl\\Desktop\\desktop app\\postman\\fixtures\\original.pdf"
-								}
-							]
+							"mode": "raw",
+							"raw": "{\n  \"certificateSha256\": \"ABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB\"\n}",
+							"options": { "raw": { "language": "json" } }
 						},
 						"url": {
-							"raw": "{{baseUrl}}/api/workflows",
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/signers/bob/certificate",
 							"host": ["{{baseUrl}}"],
-							"path": ["api", "workflows"]
+							"path": ["api", "workflows", "{{workflowId}}", "signers", "bob", "certificate"]
 						}
 					},
 					"response": []

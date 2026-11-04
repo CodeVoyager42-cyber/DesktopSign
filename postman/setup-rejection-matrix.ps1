@@ -57,17 +57,24 @@ if (Test-Path $envFile) {
     }
 }
 
-Write-Host "==> 2. Create the matrix workflow (2 signers, 64-hex fingerprints)"
-# Any 64-hex value passes CREATION validation; signing later requires the
-# real bound certificate. For the rejection matrix no signing ever succeeds.
+Write-Host "==> 2. Create the matrix workflow (one signer: alice, certificate bound)"
+# One document, one signer: the signer is whoever uploads, so there is no
+# signers[] array and no order -- just the document name and, optionally, the
+# fingerprint of the certificate that will sign it.
+#
+# The fingerprint is supplied HERE on purpose. Binding it at creation prepares
+# revision 0 immediately and leaves the workflow WAITING_FOR_SIGNER, which is
+# what step 3 needs to download. Omitting it would leave a DRAFT workflow with
+# no revision 0, and the download would answer 409 CERTIFICATE_NOT_BOUND.
+#
+# Any 64-hex value passes CREATION validation; signing later requires the real
+# bound certificate. For the rejection matrix no signing ever succeeds. (The
+# three legacy mock-token fingerprints are refused outright, so do not use
+# one here.)
 $fp1 = "A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F90"
-$fp2 = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"
 $requestJson = @{
-    documentName = "rejection-matrix.pdf"
-    signers = @(
-        @{ order = 1; userId = "alice"; certificateSha256 = $fp1 },
-        @{ order = 2; userId = "bob";   certificateSha256 = $fp2 }
-    )
+    documentName      = "rejection-matrix.pdf"
+    certificateSha256 = $fp1
 } | ConvertTo-Json -Depth 5 -Compress
 [System.IO.File]::WriteAllText($tmpReq, $requestJson)
 
@@ -141,4 +148,8 @@ Write-Host ""
 Write-Host "DONE. In Postman:"
 Write-Host "  1. Import SignFlow-RejectionMatrix.postman_collection.json"
 Write-Host "  2. Import environment: fixtures/matrix-env.json  (and select it)"
-Write-Host "  3. Run the requests top to bottom - every one must PASS."
+Write-Host "  3. Set the working directory, or every file upload will fail:"
+Write-Host "     Settings > General > Working directory >"
+Write-Host "     $PSScriptRoot"
+Write-Host "     (the collection's file fields are relative, e.g. fixtures/rev0.pdf)"
+Write-Host "  4. Run the requests top to bottom - every one must PASS."

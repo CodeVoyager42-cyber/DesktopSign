@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "b7e6c1de-signflow-api-0001",
 		"name": "SignFlow Coordination API",
-		"description": "JWT-authenticated coordination API of the PDF multi-signature desktop app.\n\nWorkflow:\n1. Run 'Auth / Login (alice)' — the test script saves accessToken + refreshToken automatically.\n2. Every other request inherits the Bearer token from the collection.\n3. Access tokens expire after 15 minutes — re-run login, or use 'Auth / Refresh' (also auto-saves the rotated pair).\n\nRequires the coordination server: double-click run-server.cmd (port 8080).",
+		"description": "JWT-authenticated coordination API of the SignFlow PDF signing desktop app.\n\nONE DOCUMENT, ONE SIGNER: the account that uploads a document is the account that signs it. There are no invitations, no signing order and no turn to claim, so every request here acts on the caller's own document.\n\nWorkflow:\n1. Run 'Auth / Login (alice)' — the test script saves accessToken + refreshToken automatically.\n2. Every other request inherits the Bearer token from the collection.\n3. Access tokens expire after 15 minutes — re-run login, or use 'Auth / Refresh' (also auto-saves the rotated pair).\n\nThe signing path is 'Create workflow' then 'Submit signed PDF'. 'Register my certificate' sits between them and is needed ONLY if you created the workflow without certificateSha256 — see each request's own description.\n\nKeep {{signerUserId}} equal to the account you log in as: routes that name a user refuse anyone else.\n\nRequires the coordination server: double-click run-server.cmd (port 8080).",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"auth": {
@@ -27,6 +27,10 @@
 		{
 			"key": "refreshToken",
 			"value": ""
+		},
+		{
+			"key": "signerUserId",
+			"value": "alice"
 		},
 		{
 			"key": "workflowId",
@@ -250,7 +254,7 @@
 								{
 									"key": "request",
 									"type": "text",
-									"value": "{\"documentName\":\"contract.pdf\",\"signers\":[{\"order\":1,\"userId\":\"alice\",\"certificateSha256\":\"REPLACE_WITH_64_HEX_CHARS\"},{\"order\":2,\"userId\":\"bob\",\"certificateSha256\":\"REPLACE_WITH_64_HEX_CHARS\"}]}"
+									"value": "{\"documentName\":\"contract.pdf\",\"certificateSha256\":\"REPLACE_WITH_64_HEX_CHARS\"}"
 								},
 								{
 									"key": "file",
@@ -269,7 +273,58 @@
 								"workflows"
 							]
 						},
-						"description": "form-data: field 'request' = JSON (edit in place), field 'file' = pick any .pdf via the file selector.\n\ncertificateSha256 must be 64 hex chars (colons are stripped). For pure API testing any 64-hex value passes creation validation — but signing later requires a signature from the real bound certificate (use the app's Capture button to get the real fingerprint of the mock token)."
+						"description": "form-data: field 'request' = JSON (edit in place), field 'file' = pick any .pdf via the file selector.\n\nOne document, one signer: the signer is YOU, the authenticated caller. There is nobody to name, so the body carries the document's name and, optionally, the fingerprint of the certificate that will sign it.\n\ncertificateSha256 is OPTIONAL and decides which state the workflow starts in:\n- Given (64 hex chars, colons stripped): the slot is bound, revision 0 is prepared at once, and the workflow is WAITING_FOR_SIGNER — ready for 'Download current revision' and 'Submit signed PDF'.\n- Omitted: the workflow is DRAFT with audit CERTIFICATE_PENDING, and there is no revision 0 yet. 'Download current revision' answers 409 CERTIFICATE_NOT_BOUND until you run 'Register my certificate'.\n\nFor pure API testing any 64-hex value passes creation validation — but signing later requires a signature from the real bound certificate (use the app's Capture button to get the real fingerprint of the mock token). The three legacy mock-token fingerprints are refused with 422 DEVELOPMENT_IDENTITY_REJECTED unless the server accepts development identities."
+					},
+					"response": []
+				},
+				{
+					"name": "Register my certificate",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test(\"bound 200\", () => pm.response.to.have.status(200));",
+									"const json = pm.response.json();",
+									"pm.test(\"workflow left DRAFT\", () => pm.expect(json.status).to.eql(\"WAITING_FOR_SIGNER\"));",
+									"pm.test(\"revision 0 now exists\", () => pm.expect(json.currentRevision).to.eql(0));"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"certificateSha256\": \"REPLACE_WITH_64_HEX_CHARS\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/workflows/{{workflowId}}/signers/{{signerUserId}}/certificate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"workflows",
+								"{{workflowId}}",
+								"signers",
+								"{{signerUserId}}",
+								"certificate"
+							]
+						},
+						"description": "Only needed when the workflow was created WITHOUT certificateSha256, i.e. it is DRAFT and has no revision 0 yet. Binding prepares the document atomically, so the answer is already WAITING_FOR_SIGNER at revision 0.\n\nEnrollment happens on the machine the token is plugged into, which is why this is a route of its own rather than part of creation.\n\nRules worth knowing:\n- {{signerUserId}} MUST be the account you logged in as. Binding for anybody else is 403 WORKFLOW_NOT_ACCESSIBLE — nobody can enrol a certificate on someone else's behalf.\n- A slot takes a certificate ONCE: a second call is 409 CERTIFICATE_ALREADY_BOUND.\n- Only while DRAFT: once prepared it is 409 INVALID_WORKFLOW_STATE."
 					},
 					"response": []
 				},
