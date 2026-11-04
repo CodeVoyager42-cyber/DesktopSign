@@ -2,7 +2,11 @@ name: build
 
 on:
   push:
-    branches: [master]
+    # main is the trunk. This said [master] while the repository's default
+    # branch was main, so pushes to main ran no CI at all and only pull
+    # requests were ever built. master has been merged into main and is
+    # now redundant; if it is kept alive, add it back here.
+    branches: [main]
   pull_request:
 
 permissions:
