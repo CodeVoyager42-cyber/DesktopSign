@@ -131,9 +131,12 @@ class UploadLimitHttpTests {
     private HttpResponse<String> createWorkflow(String fileName, byte[] pdf)
             throws Exception {
         String boundary = "upload-limit-" + System.nanoTime();
+        // One document, one signer: the signer is the authenticated caller,
+        // so the body carries the name and a certificate that is registered
+        // later — which is exactly what CreateWorkflowRequest(documentName)
+        // serialises to in WorkflowApiClient#createWorkflow.
         String json = "{\"documentName\":\"" + fileName + "\","
-                + "\"signingPolicy\":\"SEQUENTIAL\","
-                + "\"signers\":[{\"order\":1,\"userId\":\"alice\"}]}";
+                + "\"certificateSha256\":null}";
         byte[] body = concat(
                 part(boundary, "request", "application/json",
                         json.getBytes(StandardCharsets.UTF_8)),

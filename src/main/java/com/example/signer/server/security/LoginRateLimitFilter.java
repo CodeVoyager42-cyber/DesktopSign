@@ -52,13 +52,6 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
             LAUNCH_PATH);
 
     /**
-     * Guest verification endpoints (security Phase 3): each request sends or
-     * checks an e-mailed code, so they share the same per-address limit.
-     */
-    static final java.util.regex.Pattern GUEST_PATHS = java.util.regex.Pattern.compile(
-            "^/api/invitations/[^/]+/(guest-code|guest-session)$");
-
-    /**
      * Account self-service (security Phase D). Own bucket, so a flood of
      * password-reset requests cannot lock an address out of signing in — and
      * the other way round. Each of these either sends an e-mail or tests a
@@ -126,8 +119,7 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
             return !CSRF_PATH.equals(uri);
         }
         return !"POST".equals(request.getMethod())
-                || !(LIMITED_PATHS.contains(uri) || ACCOUNT_PATHS.contains(uri)
-                        || GUEST_PATHS.matcher(uri).matches());
+                || !(LIMITED_PATHS.contains(uri) || ACCOUNT_PATHS.contains(uri));
     }
 
     @Override
