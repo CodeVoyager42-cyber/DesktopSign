@@ -1,0 +1,4 @@
+# Shell scripts must keep LF endings: bash treats CRLF in some places
+# (shebang, multiline strings) as real characters and fails with confusing
+# errors like `/usr/bin/env: 'bash\r': No such file or directory`.
+*.sh text eol=lf
