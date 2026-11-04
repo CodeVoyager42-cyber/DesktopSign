@@ -11,10 +11,13 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
  *
  * <p>{@code no-referrer}, on every response. The pages behind an e-mailed
  * link carry a one-time token <b>in the URL</b>
- * ({@code /invitations/{token}}), so the default browser behaviour — send the
- * current URL in the {@code Referer} header of anything the page fetches, and
- * of any link the reader follows — would hand that token to a third party.
- * The invitation page links to a download site, so this is not hypothetical.
+ * ({@code /verify-email?token=…}, {@code /reset-password?token=…}), so the
+ * default browser behaviour — send the current URL in the {@code Referer}
+ * header of anything the page fetches, and of any link the reader follows —
+ * would hand that token to a third party. The download page can be
+ * configured to link to an external installer host
+ * ({@code SIGNER_DOWNLOAD_URL}), so a cross-origin navigation out of this
+ * site is not hypothetical.
  *
  * <p>Applied everywhere rather than only to those pages: a header that is
  * only correct on the routes someone remembered to list is a header that will
@@ -33,14 +36,17 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
  * be one.</b> {@code script-src 'self'} permits files this server serves and
  * nothing else, so an injected {@code <script>} tag — the ordinary shape of
  * cross-site scripting — does not run even if some escaping is wrong
- * somewhere. The server-rendered invitation pages contain no script of their
- * own at all, and {@code SignPageRendererTests} holds them to that.
+ * somewhere. The exported website's own inline scripts are allowed by
+ * {@code sha256-} hash instead, one expression per script; see
+ * {@link InlineScriptHashes}.
  *
  * <p>{@code style-src} keeps {@code 'unsafe-inline'} beside {@code 'self'},
- * and that is the one real concession here. {@code SignPageRenderer} puts its
- * stylesheet in an inline {@code <style>} block and uses two inline
- * {@code style=} attributes, and a nonce does not cover style attributes —
- * only {@code 'unsafe-inline'} does. What it permits is injected CSS, so the
+ * and that is the one real concession here. It is the Next.js export that
+ * needs it: the framework's built-in 404 page carries a {@code <style>}
+ * block and inline {@code style=} attributes, Radix sets inline custom
+ * properties on elements it measures, and its components write
+ * {@code style} at runtime. A nonce does not cover style attributes — only
+ * {@code 'unsafe-inline'} does. What it permits is injected CSS, so the
  * worst case is a page made to look wrong rather than code running.
  *
  * <p>{@code form-action 'self'} because a form may post back here and must

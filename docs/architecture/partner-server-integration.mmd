@@ -1,3 +1,12 @@
+%% ---------------------------------------------------------------------------
+%% SUPERSEDED IN PART. The signing-invitation feature drawn below was removed:
+%% a document now has exactly one signer, the account that uploaded it
+%% (src/main/resources/db/migration/V14__remove_invitations_single_signer.sql).
+%% Every message here about invitations, guest sessions, signing order, turn
+%% claims or co-signers records the design at the time, not how SignFlow
+%% behaves now. Kept because each diagram is dated and marked, and the .md
+%% note beside it says the same.
+%% ---------------------------------------------------------------------------
 %% Partner backend <-> SignFlow server integration (checked against the code, Oct 2026)
 %% [EXISTS] = implemented today   [PARTIAL] = works with limits   [PROPOSED] = not built yet   [ASSUMED] = partner side, not in this repo
 sequenceDiagram

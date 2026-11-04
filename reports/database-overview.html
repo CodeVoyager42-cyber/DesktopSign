@@ -20,8 +20,25 @@
  .ACCEPTED,.ACTIVE{background:#d4edda;color:#155724}
  .REVOKED{background:#f8d7da;color:#721c24}
  footer{padding:14px 28px;color:#6b7683;font-size:12px}
+ .superseded{background:#fff3cd;border-bottom:1px solid #e0cc8a;color:#5c4700;padding:14px 28px;font-size:13px}
+ .superseded strong{display:block;margin-bottom:4px;font-size:14px}
+ .superseded code{background:#fdf6de;padding:1px 4px;border-radius:3px}
 </style></head><body>
 <header><h1>SignFlow &mdash; PostgreSQL &quot;signer&quot; database</h1><p>localhost:5432 &middot; user postgres &middot; live query output (no credentials stored in this file)</p></header>
+<div class="superseded">
+<strong>Historical snapshot &mdash; this is not the current schema.</strong>
+These rows were dumped from a database whose own <code>flyway_schema_history</code> below holds a
+single migration, <code>V1__initial_schema</code>, so the snapshot predates V2 through V14. Since then
+<code>V14__remove_invitations_single_signer.sql</code> has established that a document has exactly one
+signer: the account that uploaded it. The <code>invitations</code> table shown here no longer exists, nor do
+the <code>workflows.policy</code>, <code>workflows.claimed_turn_username</code>,
+<code>workflows.claimed_turn_at</code> and <code>workflow_signers.invited_at</code> columns; audit rows
+reading &ldquo;Workflow created with 2 signer(s)&rdquo; record a shape the application can no longer produce,
+and the <code>PENDING_INVITE</code> account status is now <code>PLACEHOLDER</code>.
+It is kept as the record of what the database held when it was taken, rather than rewritten &mdash; the row
+data is real, and editing it by hand would make it fiction. To see the live schema, regenerate it against a
+current database or use <code>scripts/db-console.cmd</code>.
+</div>
 <nav>
 <a href="#t-audit_events">audit_events</a>
 <a href="#t-document_versions">document_versions</a>
@@ -2134,5 +2151,5 @@
 <td>2026-10-04 17:57:33.119666+02</td>
 </tr>
 </table></div></section>
-<footer>Generated from the live database. Raw invitation tokens are never stored &mdash; only their SHA-256 hashes.</footer>
+<footer>Generated from a live database at V1__initial_schema &mdash; a historical snapshot, see the notice at the top. Token values were never stored in the database, only their SHA-256 hashes, so none appear here.</footer>
 </main></body></html>

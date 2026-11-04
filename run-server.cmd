@@ -11,7 +11,8 @@ rem    %USERPROFILE%\signflow-secrets\mail-secrets.env
 rem  A mail-secrets.env inside the project folder is ignored (warning).
 rem
 rem  Without mail configuration the server starts in console mode:
-rem  invitation links are printed in this window (dev mailbox).
+rem  account e-mail links (confirm address, reset password) are
+rem  printed in this window (the dev mailbox).
 rem
 rem  The server must stay open while using Remote workflow in the
 rem  desktop app. Stop with Ctrl+C or close the window.
@@ -118,7 +119,7 @@ exit /b 0
 
 if /i "%SIGNER_EMAIL_MODE%"=="smtp" goto smtpMode
 set SIGNER_EMAIL_MODE=console
-echo Mode: DATABASE + CONSOLE email - invitation links are printed in this window.
+echo Mode: DATABASE + CONSOLE email - account e-mail links are printed here.
 goto modeDone
 :smtpMode
 if not defined SPRING_MAIL_HOST goto smtpIncomplete
@@ -148,10 +149,10 @@ echo Server: %APP_BASE_URL%   Dev users: alice / bob / charlie
 echo %APP_BASE_URL% | findstr /i /c:"localhost" /c:"127.0.0.1" >nul
 if errorlevel 1 goto baseUrlDone
 echo.
-echo NOTE: APP_BASE_URL is a local address, so invitation emails will use a
+echo NOTE: APP_BASE_URL is a local address, so account e-mails will use a
 echo       LAN address of THIS PC detected at startup instead, e.g.
-echo       http://192.168.x.x:8080 - those links open for signers on the
-echo       same network only. For a signer anywhere else set
+echo       http://192.168.x.x:8080 - those links open for people on the
+echo       same network only. For anyone outside that network set
 echo       SIGNER_PUBLIC_BASE_URL to a public URL or a tunnel to this port
 echo       (see .env.example). The server prints the address it uses below.
 echo.

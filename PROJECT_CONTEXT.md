@@ -44,8 +44,9 @@ src/main/java/com/example/signer/
   SignerApplication.java          desktop entry (launches JavaFX first)
   server/WorkflowServerApplication.java    server entry (profiles: server)
   ui/        JavaFX: SignerFxApplication, AppNavigator, SingleInstanceGuard (UDS hand-off),
-             ActivationQueue, InvitationLinks (signflow:// parser), dialog/, workspace/
-             (MultiSignerWorkspaceFlow…), remote/ (RemoteWorkflowDialog, NewWorkflowWizard,
+             ActivationQueue, LaunchLinks (signflow://launch parser), ThemeManager,
+             dialog/, workspace/ (SigningWorkspaceFlow, PlacementViewer,
+             WorkflowContinuationDialog), remote/ (RemoteWorkflowDialog, NewDocumentScreen,
              SigningTasksView, RemoteSigningJourney), kit/, support/
   client/    WorkflowApiClient (JDK HttpClient, JWT+refresh, endpoint list), RemoteSigningService
              (stages + idempotent submit), RemoteSessionCache, RemoteApiException
@@ -143,8 +144,9 @@ Web sessions: Spring Session JDBC (V9), `__Host-SF_SESSION` cookie, CSRF in sess
 `PKCS11_LIBRARY`, `PKCS11_SLOT_INDEX`, `SIGNATURE_VERIFICATION_MAX_FILE_BYTES`,
 `SIGNER_SERVER_URL`, `SIGNER_UPLOAD_MAX_BYTES|REQUEST_BYTES`, `SIGNER_SERVER_JWT_SECRET`,
 `SIGNER_SERVER_STORAGE`, `SIGNER_DB_ENABLED|URL|USERNAME|PASSWORD`, `SIGNER_DOWNLOAD_DIR`,
-`SIGNER_DOWNLOAD_RATE_LIMIT|WINDOW`, `SIGNER_INVITATION_*`, `SIGNER_PUBLIC_BASE_URL`,
-`SIGNER_GUEST_VERIFICATION`, `SIGNER_DESKTOP_MIN_VERSION|TASK_MINUTES`,
+`SIGNER_DOWNLOAD_RATE_LIMIT|WINDOW`, `SIGNER_DOWNLOAD_URL`, `SIGNER_PUBLIC_BASE_URL`,
+`SIGNER_INSTALLER_FILENAME`, `GITHUB_API_TOKEN`, `GITHUB_RELEASE_REPOSITORY`,
+`SIGNER_DESKTOP_MIN_VERSION|TASK_MINUTES|ACCEPT_UNKNOWN_VERSION`,
 `SIGNER_WEB_SESSION_*`, `SIGNER_WEB_SIGNUP_*`, `SIGNER_WEB_UNVERIFIED_RETENTION`,
 `SIGNER_EMAIL_MODE|FROM`, `SPRING_MAIL_*`, `APP_BASE_URL`, `APP_NAME`,
 `SIGNER_TLS_OFFLOADED`, `SIGNER_FORWARD_HEADERS_STRATEGY`, `SIGNER_LOG_FILE`,
@@ -195,10 +197,11 @@ Web sessions: Spring Session JDBC (V9), `__Host-SF_SESSION` cookie, CSRF in sess
   drift check on runner JDK 21 may warn (re-validate before bumping the base).
 - Same jar boots desktop and server; `@SpringBootApplication(scanBasePackages="com.example.signer")`
   makes token/PDF beans exist in the server context (unused but scanned).
-- Javadoc mismatch: `WorkflowServerApplication` comment says "exposing only
-  `/api/workflows/*`" (stale — many more routes exist).
 - Packaged MSI is not code-signed (documented decision, docs/desktop-download.md §1).
-- `reports/database-overview.html` is a generated artifact committed in the repo.
+- `reports/database-overview.html` is a generated artifact committed in the repo,
+  and a historical one: it was dumped at `V1__initial_schema`, so it still shows
+  the `invitations` table and the policy/turn columns V14 dropped. It carries a
+  notice saying so. There is no generator script — it was produced ad hoc.
 - `web/package.json` lacks `"type": "module"` (node --test warns; tests still pass).
 
 ## 11. Open questions

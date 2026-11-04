@@ -3,7 +3,7 @@ rem ============================================================
 rem  SignFlow database console - PostgreSQL database "signer"
 rem  Usage:
 rem    double-click            opens an interactive psql prompt
-rem    db-console.cmd -c "select * from invitations;"
+rem    db-console.cmd -c "select * from workflows;"
 rem                            runs one query and exits
 rem  No password is needed (this machine trusts local connections).
 rem ============================================================
@@ -25,9 +25,11 @@ if "%~1"=="" (
     echo Handy commands and queries:
     echo   \dt                            list the tables
     echo   \di                            list the indexes
-    echo   SELECT * FROM invitations;    invitations and their status
     echo   SELECT username, email, status FROM users;
     echo   SELECT workflow_id, document_name, status FROM workflows;
+    echo   SELECT w.workflow_id, s.username, s.signed FROM workflows w
+    echo     JOIN workflow_signers s ON s.workflow_id = w.id;
+    echo                                  the one signer slot per document
     echo   SELECT event_type, actor, created_at FROM audit_events
     echo     ORDER BY id DESC LIMIT 10;
     echo   \q                             quit

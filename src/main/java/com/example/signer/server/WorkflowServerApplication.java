@@ -15,8 +15,11 @@ import org.springframework.context.ConfigurableApplicationContext;
  *
  * <p>Runs as its own process from the same artifact as the desktop:
  * {@code --spring.profiles.active=server}. The desktop context stays
- * {@code WebApplicationType.NONE}; this context is a servlet app exposing
- * only {@code /api/workflows/*}.
+ * {@code WebApplicationType.NONE}; this context is a servlet app. It serves
+ * two separate security domains — {@code /api/**} for the desktop, on bearer
+ * JWTs, and {@code /web/**} for the website, on a server-side session
+ * cookie, which do not read each other's credentials (Phase C) — plus the
+ * exported website itself and the public installer download.
  *
  * <p>Component scanning covers the whole application, so the server reuses
  * the PDF verification and portable-manifest services directly. The token
