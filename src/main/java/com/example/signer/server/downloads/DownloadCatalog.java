@@ -105,8 +105,17 @@ public class DownloadCatalog {
             (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1
     };
 
-    /** The local-file header of a non-empty ZIP archive. */
+    /**
+     * The local-file header of a non-empty ZIP archive.
+     *
+     * <p>An empty archive is a valid ZIP too, but it starts with the
+     * end-of-central-directory header instead and contains no portable build,
+     * so it is not a catalogue entry.
+     */
     private static final byte[] ZIP_SIGNATURE = {'P', 'K', 0x03, 0x04};
+
+    /** The end-of-central-directory header of a valid but empty ZIP archive. */
+    private static final byte[] EMPTY_ZIP_SIGNATURE = {'P', 'K', 0x05, 0x06};
 
     /**
      * Whether a name may be asked for at all — the same gate
@@ -240,17 +249,27 @@ public class DownloadCatalog {
         String name = file.getFileName().toString();
         byte[] signature;
         String format;
+        boolean zip = false;
         if (name.endsWith(".msi")) {
             signature = MSI_SIGNATURE;
             format = "MSI";
         } else if (name.endsWith("-windows.zip")) {
             signature = ZIP_SIGNATURE;
             format = "ZIP";
+            zip = true;
         } else {
             return true;
         }
         try (InputStream in = Files.newInputStream(file)) {
-            if (Arrays.equals(in.readNBytes(signature.length), signature)) {
+            byte[] header = in.readNBytes(signature.length);
+            // A valid empty ZIP has no local-file header and nothing to run; it
+            // is refused for a reason of its own rather than called malformed.
+            if (zip && Arrays.equals(header, EMPTY_ZIP_SIGNATURE)) {
+                log.warn("Skipping download candidate {}: it is an empty ZIP archive,"
+                        + " not a portable build", file);
+                return false;
+            }
+            if (Arrays.equals(header, signature)) {
                 return true;
             }
             log.warn("Skipping download candidate {}: it does not start with the {} signature",

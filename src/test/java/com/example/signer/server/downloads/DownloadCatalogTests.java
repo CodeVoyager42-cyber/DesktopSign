@@ -34,6 +34,8 @@ class DownloadCatalogTests {
 
     private static final byte[] ZIP_SIGNATURE = {'P', 'K', 0x03, 0x04};
 
+    private static final byte[] EMPTY_ZIP_SIGNATURE = {'P', 'K', 0x05, 0x06};
+
     @TempDir
     Path published;
 
@@ -132,6 +134,72 @@ class DownloadCatalogTests {
         assertThat(this.catalog.portableZip().orElseThrow().fileName())
                 .isEqualTo("SignFlow-0.1.0-windows.zip");
         assertThat(this.catalog.resolve("SignFlow-0.0.0-windows.zip")).isEmpty();
+    }
+
+    @Test
+    void aRejectedFileResolvesToEmptyInsteadOfThrowing() throws IOException {
+        Path placeholder = this.published.resolve("SignFlow-0.0.0-PLACEHOLDER.msi");
+        Files.writeString(placeholder, "This is NOT a real installer.");
+
+        // The name is on the allow-list; only the content gate rejects it, and
+        // resolve must answer empty — the controller's 404 — not throw.
+        assertThat(DownloadCatalog.isAllowed("SignFlow-0.0.0-PLACEHOLDER.msi")).isTrue();
+        assertThat(this.catalog.resolve("SignFlow-0.0.0-PLACEHOLDER.msi")).isEmpty();
+    }
+
+    @Test
+    void aTruncatedMsiHeaderIsRejected() throws IOException {
+        Path truncated = this.published.resolve("SignFlow-0.3.0.msi");
+        Files.write(truncated, Arrays.copyOf(MSI_SIGNATURE, 4));
+        makeNewer(truncated);
+
+        assertThat(this.catalog.installer().orElseThrow().fileName())
+                .isEqualTo("SignFlow-0.1.0.msi");
+        assertThat(this.catalog.resolve("SignFlow-0.3.0.msi")).isEmpty();
+    }
+
+    @Test
+    void aZipPayloadWithAnMsiNameIsRejected() throws IOException {
+        Path wrongMagic = this.published.resolve("SignFlow-0.3.0.msi");
+        writeWithSignature(wrongMagic, ZIP_SIGNATURE, "a zip wearing an msi name");
+        makeNewer(wrongMagic);
+
+        assertThat(this.catalog.installer().orElseThrow().fileName())
+                .isEqualTo("SignFlow-0.1.0.msi");
+        assertThat(this.catalog.resolve("SignFlow-0.3.0.msi")).isEmpty();
+    }
+
+    @Test
+    void anEmptyZipIsNotOfferedAsAPortableBuild() throws IOException {
+        Path empty = this.published.resolve("SignFlow-0.3.0-windows.zip");
+        // A valid empty archive: just the end-of-central-directory record.
+        byte[] bytes = new byte[22];
+        System.arraycopy(EMPTY_ZIP_SIGNATURE, 0, bytes, 0, EMPTY_ZIP_SIGNATURE.length);
+        Files.write(empty, bytes);
+        makeNewer(empty);
+
+        assertThat(this.catalog.portableZip().orElseThrow().fileName())
+                .isEqualTo("SignFlow-0.1.0-windows.zip");
+        assertThat(this.catalog.resolve("SignFlow-0.3.0-windows.zip")).isEmpty();
+    }
+
+    @Test
+    void aFileStartingWithTheRealMsiHeaderIsStillOffered() throws IOException {
+        Path genuine = this.published.resolve("SignFlow-0.3.0.msi");
+        Files.write(genuine, MSI_SIGNATURE);
+        makeNewer(genuine);
+
+        // The gate checks only the signature: a real header must not be
+        // refused because the rest of the package is elsewhere.
+        assertThat(this.catalog.installer().orElseThrow().fileName())
+                .isEqualTo("SignFlow-0.3.0.msi");
+        assertThat(this.catalog.resolve("SignFlow-0.3.0.msi")).isPresent();
+    }
+
+    /** Makes a file newer than the release published by the fixture. */
+    private static void makeNewer(Path file) throws IOException {
+        Files.setLastModifiedTime(file,
+                FileTime.fromMillis(System.currentTimeMillis() + 120_000));
     }
 
     @Test
