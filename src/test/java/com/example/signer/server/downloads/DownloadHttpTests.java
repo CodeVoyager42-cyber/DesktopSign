@@ -13,8 +13,10 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -73,7 +75,22 @@ class DownloadHttpTests {
 
     private static final String ZIP = "SignFlow-0.4.2-windows.zip";
 
-    private static final byte[] INSTALLER_BYTES = "pretend installer bytes".getBytes();
+    private static final byte[] MSI_SIGNATURE = {
+            (byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0,
+            (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1
+    };
+
+    private static final byte[] ZIP_SIGNATURE = {'P', 'K', 0x03, 0x04};
+
+    private static final byte[] INSTALLER_BYTES =
+            withSignature(MSI_SIGNATURE, "pretend installer bytes");
+
+    private static byte[] withSignature(byte[] signature, String body) {
+        byte[] text = body.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = Arrays.copyOf(signature, signature.length + text.length);
+        System.arraycopy(text, 0, bytes, signature.length, text.length);
+        return bytes;
+    }
 
     private static Path published;
 
@@ -86,7 +103,7 @@ class DownloadHttpTests {
                 Files.write(published.resolve(INSTALLER), INSTALLER_BYTES);
                 Files.writeString(published.resolve(INSTALLER + ".sha256"),
                         "b".repeat(64) + "  " + INSTALLER + "\n");
-                Files.writeString(published.resolve(ZIP), "pretend zip");
+                Files.write(published.resolve(ZIP), withSignature(ZIP_SIGNATURE, "pretend zip"));
                 // A file that is not on the allow-list, in the same folder.
                 Files.writeString(published.resolve("notes.txt"), "internal");
                 // And a secret one level up, which is what traversal is for.
@@ -164,7 +181,7 @@ class DownloadHttpTests {
         // handling: for a 200 MB installer on a bad connection this is the
         // difference between resuming and starting again.
         assertThat(response.statusCode()).isEqualTo(206);
-        assertThat(new String(response.body())).isEqualTo("pretend");
+        assertThat(response.body()).isEqualTo(Arrays.copyOf(INSTALLER_BYTES, 7));
     }
 
     @Test

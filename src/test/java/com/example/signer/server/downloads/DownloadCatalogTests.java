@@ -5,8 +5,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.util.Arrays;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,6 +27,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class DownloadCatalogTests {
 
+    private static final byte[] MSI_SIGNATURE = {
+            (byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0,
+            (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1
+    };
+
+    private static final byte[] ZIP_SIGNATURE = {'P', 'K', 0x03, 0x04};
+
+    private static final byte[] EMPTY_ZIP_SIGNATURE = {'P', 'K', 0x05, 0x06};
+
     @TempDir
     Path published;
 
@@ -31,11 +43,22 @@ class DownloadCatalogTests {
 
     @BeforeEach
     void publishARelease() throws IOException {
-        Files.writeString(this.published.resolve("SignFlow-0.1.0.msi"), "pretend installer");
+        writeWithSignature(this.published.resolve("SignFlow-0.1.0.msi"),
+                MSI_SIGNATURE, "pretend installer");
         Files.writeString(this.published.resolve("SignFlow-0.1.0.msi.sha256"),
                 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  SignFlow-0.1.0.msi\n");
-        Files.writeString(this.published.resolve("SignFlow-0.1.0-windows.zip"), "pretend zip");
+        writeWithSignature(this.published.resolve("SignFlow-0.1.0-windows.zip"),
+                ZIP_SIGNATURE, "pretend zip");
         this.catalog = catalog(this.published.toString(), "");
+    }
+
+    /** The bytes a real package of this format would start with. */
+    private static void writeWithSignature(Path file, byte[] signature, String body)
+            throws IOException {
+        byte[] text = body.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = Arrays.copyOf(signature, signature.length + text.length);
+        System.arraycopy(text, 0, bytes, signature.length, text.length);
+        Files.write(file, bytes);
     }
 
     private static DownloadCatalog catalog(String dir, String url) {
@@ -48,7 +71,8 @@ class DownloadCatalogTests {
 
         assertThat(installer.fileName()).isEqualTo("SignFlow-0.1.0.msi");
         assertThat(installer.version()).isEqualTo("0.1.0");
-        assertThat(installer.sizeBytes()).isEqualTo("pretend installer".length());
+        assertThat(installer.sizeBytes())
+                .isEqualTo(MSI_SIGNATURE.length + "pretend installer".length());
         // Read from the .sha256 beside it, which is what package.sh writes —
         // nothing is hashed on demand, because a reader waiting on a 200 MB
         // read is a worse answer than "no checksum published".
@@ -71,12 +95,111 @@ class DownloadCatalogTests {
     @Test
     void theNewestInstallerWins() throws IOException {
         Path newer = this.published.resolve("SignFlow-0.2.0.msi");
-        Files.writeString(newer, "newer installer");
+        writeWithSignature(newer, MSI_SIGNATURE, "newer installer");
         Files.setLastModifiedTime(newer,
-                java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() + 60_000));
+                FileTime.fromMillis(System.currentTimeMillis() + 60_000));
 
         assertThat(this.catalog.installer().orElseThrow().fileName())
                 .isEqualTo("SignFlow-0.2.0.msi");
+    }
+
+    @Test
+    void aTextFileWithAnMsiNameIsNotOffered() throws IOException {
+        // The placeholder that made the download page offer a 159-byte text
+        // file. It is newer than the real release, so only the signature
+        // check can keep it off the page.
+        Path placeholder = this.published.resolve("SignFlow-0.0.0-PLACEHOLDER.msi");
+        Files.writeString(placeholder, "This is NOT a real installer.");
+        Files.setLastModifiedTime(placeholder,
+                FileTime.fromMillis(System.currentTimeMillis() + 120_000));
+
+        assertThat(this.catalog.installer().orElseThrow().fileName())
+                .isEqualTo("SignFlow-0.1.0.msi");
+        // Nor can it be fetched by guessing its name.
+        assertThat(this.catalog.resolve("SignFlow-0.0.0-PLACEHOLDER.msi")).isEmpty();
+
+        Files.delete(this.published.resolve("SignFlow-0.1.0.msi"));
+        assertThat(this.catalog.installer())
+                .as("a folder holding only the placeholder offers nothing")
+                .isEmpty();
+    }
+
+    @Test
+    void aTextFileWithAZipNameIsNotOfferedEither() throws IOException {
+        Path placeholder = this.published.resolve("SignFlow-0.0.0-windows.zip");
+        Files.writeString(placeholder, "not a zip");
+        Files.setLastModifiedTime(placeholder,
+                FileTime.fromMillis(System.currentTimeMillis() + 120_000));
+
+        assertThat(this.catalog.portableZip().orElseThrow().fileName())
+                .isEqualTo("SignFlow-0.1.0-windows.zip");
+        assertThat(this.catalog.resolve("SignFlow-0.0.0-windows.zip")).isEmpty();
+    }
+
+    @Test
+    void aRejectedFileResolvesToEmptyInsteadOfThrowing() throws IOException {
+        Path placeholder = this.published.resolve("SignFlow-0.0.0-PLACEHOLDER.msi");
+        Files.writeString(placeholder, "This is NOT a real installer.");
+
+        // The name is on the allow-list; only the content gate rejects it, and
+        // resolve must answer empty — the controller's 404 — not throw.
+        assertThat(DownloadCatalog.isAllowed("SignFlow-0.0.0-PLACEHOLDER.msi")).isTrue();
+        assertThat(this.catalog.resolve("SignFlow-0.0.0-PLACEHOLDER.msi")).isEmpty();
+    }
+
+    @Test
+    void aTruncatedMsiHeaderIsRejected() throws IOException {
+        Path truncated = this.published.resolve("SignFlow-0.3.0.msi");
+        Files.write(truncated, Arrays.copyOf(MSI_SIGNATURE, 4));
+        makeNewer(truncated);
+
+        assertThat(this.catalog.installer().orElseThrow().fileName())
+                .isEqualTo("SignFlow-0.1.0.msi");
+        assertThat(this.catalog.resolve("SignFlow-0.3.0.msi")).isEmpty();
+    }
+
+    @Test
+    void aZipPayloadWithAnMsiNameIsRejected() throws IOException {
+        Path wrongMagic = this.published.resolve("SignFlow-0.3.0.msi");
+        writeWithSignature(wrongMagic, ZIP_SIGNATURE, "a zip wearing an msi name");
+        makeNewer(wrongMagic);
+
+        assertThat(this.catalog.installer().orElseThrow().fileName())
+                .isEqualTo("SignFlow-0.1.0.msi");
+        assertThat(this.catalog.resolve("SignFlow-0.3.0.msi")).isEmpty();
+    }
+
+    @Test
+    void anEmptyZipIsNotOfferedAsAPortableBuild() throws IOException {
+        Path empty = this.published.resolve("SignFlow-0.3.0-windows.zip");
+        // A valid empty archive: just the end-of-central-directory record.
+        byte[] bytes = new byte[22];
+        System.arraycopy(EMPTY_ZIP_SIGNATURE, 0, bytes, 0, EMPTY_ZIP_SIGNATURE.length);
+        Files.write(empty, bytes);
+        makeNewer(empty);
+
+        assertThat(this.catalog.portableZip().orElseThrow().fileName())
+                .isEqualTo("SignFlow-0.1.0-windows.zip");
+        assertThat(this.catalog.resolve("SignFlow-0.3.0-windows.zip")).isEmpty();
+    }
+
+    @Test
+    void aFileStartingWithTheRealMsiHeaderIsStillOffered() throws IOException {
+        Path genuine = this.published.resolve("SignFlow-0.3.0.msi");
+        Files.write(genuine, MSI_SIGNATURE);
+        makeNewer(genuine);
+
+        // The gate checks only the signature: a real header must not be
+        // refused because the rest of the package is elsewhere.
+        assertThat(this.catalog.installer().orElseThrow().fileName())
+                .isEqualTo("SignFlow-0.3.0.msi");
+        assertThat(this.catalog.resolve("SignFlow-0.3.0.msi")).isPresent();
+    }
+
+    /** Makes a file newer than the release published by the fixture. */
+    private static void makeNewer(Path file) throws IOException {
+        Files.setLastModifiedTime(file,
+                FileTime.fromMillis(System.currentTimeMillis() + 120_000));
     }
 
     @Test
