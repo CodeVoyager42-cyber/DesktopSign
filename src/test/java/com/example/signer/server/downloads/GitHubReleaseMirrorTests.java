@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.HexFormat;
@@ -32,6 +33,18 @@ class GitHubReleaseMirrorTests {
 
     private static final String FILE = "SignFlow-0.2.1.msi";
 
+    /** What a real installer starts with; the catalog checks for it. */
+    private static byte[] installerBytes(String body) {
+        byte[] signature = {
+                (byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0,
+                (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1
+        };
+        byte[] text = body.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = Arrays.copyOf(signature, signature.length + text.length);
+        System.arraycopy(text, 0, bytes, signature.length, text.length);
+        return bytes;
+    }
+
     private HttpServer server;
 
     private final AtomicInteger assetRequests = new AtomicInteger();
@@ -49,7 +62,7 @@ class GitHubReleaseMirrorTests {
 
     @Test
     void theLatestReleaseIsMirroredIntoTheFolderOnFirstUse() throws Exception {
-        byte[] bytes = "the-installer-a-signer-will-receive".getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = installerBytes("the-installer-a-signer-will-receive");
         String digest = sha256(bytes);
         stubGithub(bytes, digest);
         GitHubReleaseMirror mirror = mirror();
@@ -69,7 +82,7 @@ class GitHubReleaseMirrorTests {
 
     @Test
     void aSecondRequestIsServedFromTheFolderWithoutAnotherFetch() throws Exception {
-        byte[] bytes = "downloaded-exactly-once".getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = installerBytes("downloaded-exactly-once");
         stubGithub(bytes, sha256(bytes));
         GitHubReleaseMirror mirror = mirror();
 
@@ -107,7 +120,7 @@ class GitHubReleaseMirrorTests {
 
     @Test
     void theChecksumSidecarMirrorsItsBinaryFirst() throws Exception {
-        byte[] bytes = "asked-for-the-checksum-alone".getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = installerBytes("asked-for-the-checksum-alone");
         String digest = sha256(bytes);
         stubGithub(bytes, digest);
         GitHubReleaseMirror mirror = mirror();
@@ -124,7 +137,7 @@ class GitHubReleaseMirrorTests {
 
     @Test
     void aSidecarAlreadyInTheFolderIsNotOverwritten() throws Exception {
-        byte[] bytes = "the-operator-was-here-first".getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = installerBytes("the-operator-was-here-first");
         stubGithub(bytes, sha256(bytes));
         Files.writeString(dir.resolve(FILE + ".sha256"), "operator's own record\n");
         GitHubReleaseMirror mirror = mirror();

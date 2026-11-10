@@ -6,11 +6,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -33,6 +35,20 @@ class WebLatestReleaseControllerTests {
 
     @TempDir
     Path dir;
+
+    private static final byte[] MSI_SIGNATURE = {
+            (byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0,
+            (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1
+    };
+
+    private static final byte[] ZIP_SIGNATURE = {'P', 'K', 0x03, 0x04};
+
+    private static byte[] withSignature(byte[] signature, String body) {
+        byte[] text = body.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = Arrays.copyOf(signature, signature.length + text.length);
+        System.arraycopy(text, 0, bytes, signature.length, text.length);
+        return bytes;
+    }
 
     @Test
     void githubWithAFolderOffersEveryReleasedArtefactOnThisServer() {
@@ -57,7 +73,8 @@ class WebLatestReleaseControllerTests {
     @Test
     void githubIsTheTruthAboutMetadataEvenWhenAnOlderFileIsInTheFolder() throws IOException {
         // An operator's older copy: it must not dress up as the latest.
-        Files.writeString(this.dir.resolve("SignFlow-0.2.0.msi"), "old installer");
+        Files.write(this.dir.resolve("SignFlow-0.2.0.msi"),
+                withSignature(MSI_SIGNATURE, "old installer"));
         Files.writeString(this.dir.resolve("SignFlow-0.2.0.msi.sha256"),
                 "c".repeat(64) + "  SignFlow-0.2.0.msi\n");
 
@@ -102,10 +119,12 @@ class WebLatestReleaseControllerTests {
 
     @Test
     void withoutGithubTheFolderIsTheWholeTruth() throws IOException {
-        Files.writeString(this.dir.resolve("SignFlow-0.2.0.msi"), "installer bytes");
+        Files.write(this.dir.resolve("SignFlow-0.2.0.msi"),
+                withSignature(MSI_SIGNATURE, "installer bytes"));
         Files.writeString(this.dir.resolve("SignFlow-0.2.0.msi.sha256"),
                 "c".repeat(64) + "  SignFlow-0.2.0.msi\n");
-        Files.writeString(this.dir.resolve("SignFlow-0.2.0-windows.zip"), "zip bytes");
+        Files.write(this.dir.resolve("SignFlow-0.2.0-windows.zip"),
+                withSignature(ZIP_SIGNATURE, "zip bytes"));
 
         // The unconfigured deployment: GitHub is never asked, the folder
         // answers exactly as /web/api/download-info always has.

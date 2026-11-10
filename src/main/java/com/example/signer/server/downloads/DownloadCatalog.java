@@ -7,11 +7,13 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -59,6 +61,18 @@ import java.util.stream.Stream;
  * <p>Every refusal is the same {@link Optional#empty()}: the caller answers
  * 404 and says nothing about which rule was broken, whether the file exists,
  * or where the directory is.
+ *
+ * <p><b>A name is not an installer.</b> Before a file is offered as an
+ * installer or portable build, its first bytes must carry that format's
+ * signature: the OLE/CFB header for an {@code .msi}, the local-file header
+ * for a {@code .zip}. A text file renamed to {@code SignFlow-0.0.0.msi} — a
+ * placeholder left in the release folder — would otherwise become the
+ * download page's newest offer, and every visitor would get a package
+ * Windows Installer refuses to open. Checksums are not enough here: the
+ * sidecar is published beside the file, so a placeholder can have one too.
+ * Rejected candidates are logged at WARN with their path and the reason, so
+ * a bad file in the folder is visible in the server log rather than only in
+ * a support report.
  */
 @Component
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
@@ -84,6 +98,15 @@ public class DownloadCatalog {
     /** Pulls the version out of an artefact's name. */
     private static final Pattern VERSION_IN_NAME =
             Pattern.compile("SignFlow-(.+?)(?:-windows)?\\.(?:msi|zip)");
+
+    /** The compound-file header every Windows Installer package starts with. */
+    private static final byte[] MSI_SIGNATURE = {
+            (byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0,
+            (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1
+    };
+
+    /** The local-file header of a non-empty ZIP archive. */
+    private static final byte[] ZIP_SIGNATURE = {'P', 'K', 0x03, 0x04};
 
     /**
      * Whether a name may be asked for at all — the same gate
@@ -186,6 +209,7 @@ public class DownloadCatalog {
                     .filter(Files::isRegularFile)
                     .filter(p -> ALLOWED.matcher(p.getFileName().toString()).matches())
                     .filter(p -> suffix.matcher(p.getFileName().toString()).find())
+                    .filter(DownloadCatalog::hasItsSignature)
                     .sorted(Comparator.comparing((Path p) -> lastModified(p)).reversed())
                     .toList();
             return candidates.isEmpty() ? Optional.empty() : Optional.of(describe(candidates.get(0)));
@@ -202,6 +226,40 @@ public class DownloadCatalog {
             return Files.getLastModifiedTime(path).toMillis();
         } catch (IOException e) {
             return 0L;
+        }
+    }
+
+    /**
+     * Whether the file starts with the signature its name promises.
+     *
+     * <p>Reads only the header, never the whole (possibly 200 MB) file, and
+     * logs why a candidate was skipped. A {@code .sha256} sidecar has no
+     * binary signature; its content is validated when it is parsed.
+     */
+    private static boolean hasItsSignature(Path file) {
+        String name = file.getFileName().toString();
+        byte[] signature;
+        String format;
+        if (name.endsWith(".msi")) {
+            signature = MSI_SIGNATURE;
+            format = "MSI";
+        } else if (name.endsWith("-windows.zip")) {
+            signature = ZIP_SIGNATURE;
+            format = "ZIP";
+        } else {
+            return true;
+        }
+        try (InputStream in = Files.newInputStream(file)) {
+            if (Arrays.equals(in.readNBytes(signature.length), signature)) {
+                return true;
+            }
+            log.warn("Skipping download candidate {}: it does not start with the {} signature",
+                    file, format);
+            return false;
+        } catch (IOException e) {
+            log.warn("Skipping download candidate {}: its first bytes could not be read ({})",
+                    file, e.getClass().getSimpleName());
+            return false;
         }
     }
 
@@ -267,6 +325,12 @@ public class DownloadCatalog {
             Path real = candidate.toRealPath();
             Path realDirectory = this.directory.toRealPath();
             if (!realDirectory.equals(real.getParent())) {
+                return Optional.empty();
+            }
+            // The name passed every check, but it still has to be the format
+            // it claims to be — a placeholder must not be downloadable by
+            // guessing its name any more than it may be offered on the page.
+            if (!hasItsSignature(real)) {
                 return Optional.empty();
             }
             return Optional.of(real);
