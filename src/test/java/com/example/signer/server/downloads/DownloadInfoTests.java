@@ -6,8 +6,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -22,6 +24,20 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class DownloadInfoTests {
 
+    private static final byte[] MSI_SIGNATURE = {
+            (byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0,
+            (byte) 0xA1, (byte) 0xB1, 0x1A, (byte) 0xE1
+    };
+
+    private static final byte[] ZIP_SIGNATURE = {'P', 'K', 0x03, 0x04};
+
+    private static byte[] withSignature(byte[] signature, String body) {
+        byte[] text = body.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = Arrays.copyOf(signature, signature.length + text.length);
+        System.arraycopy(text, 0, bytes, signature.length, text.length);
+        return bytes;
+    }
+
     @TempDir
     Path published;
 
@@ -29,12 +45,16 @@ class DownloadInfoTests {
         return new WebAppInfoController(new DownloadCatalog(dir, url, "SignFlow"));
     }
 
+    private static final byte[] INSTALLER = withSignature(MSI_SIGNATURE, "installer bytes");
+
+    private static final byte[] ZIP = withSignature(ZIP_SIGNATURE, "zip bytes");
+
     @Test
     void aPublishedReleaseIsServedFromThisServer() throws IOException {
-        Files.writeString(this.published.resolve("SignFlow-0.3.1.msi"), "installer bytes");
+        Files.write(this.published.resolve("SignFlow-0.3.1.msi"), INSTALLER);
         Files.writeString(this.published.resolve("SignFlow-0.3.1.msi.sha256"),
                 "a".repeat(64) + "  SignFlow-0.3.1.msi\n");
-        Files.writeString(this.published.resolve("SignFlow-0.3.1-windows.zip"), "zip bytes");
+        Files.write(this.published.resolve("SignFlow-0.3.1-windows.zip"), ZIP);
 
         var info = controller(this.published.toString(), "").downloadInfo().getBody();
 
@@ -43,7 +63,7 @@ class DownloadInfoTests {
         assertThat(info.url()).isEqualTo("/downloads/SignFlow-0.3.1.msi");
         assertThat(info.fileName()).isEqualTo("SignFlow-0.3.1.msi");
         assertThat(info.version()).isEqualTo("0.3.1");
-        assertThat(info.sizeBytes()).isEqualTo("installer bytes".length());
+        assertThat(info.sizeBytes()).isEqualTo(INSTALLER.length);
         assertThat(info.sha256()).isEqualTo("a".repeat(64));
         assertThat(info.portableUrl()).isEqualTo("/downloads/SignFlow-0.3.1-windows.zip");
         assertThat(info.appName()).isEqualTo("SignFlow");
@@ -51,7 +71,7 @@ class DownloadInfoTests {
 
     @Test
     void aLocalReleaseWinsOverAConfiguredLink() throws IOException {
-        Files.writeString(this.published.resolve("SignFlow-0.3.1.msi"), "installer bytes");
+        Files.write(this.published.resolve("SignFlow-0.3.1.msi"), INSTALLER);
 
         var info = controller(this.published.toString(),
                 "https://downloads.example.test/old.msi").downloadInfo().getBody();
@@ -93,7 +113,7 @@ class DownloadInfoTests {
 
     @Test
     void theOlderAppInfoStillAnswersTheSameWay() throws IOException {
-        Files.writeString(this.published.resolve("SignFlow-0.3.1.msi"), "installer bytes");
+        Files.write(this.published.resolve("SignFlow-0.3.1.msi"), INSTALLER);
 
         // The hand-off screen's fallback reads this one, and both routes are
         // backed by the same catalogue so they cannot disagree.
@@ -114,7 +134,7 @@ class DownloadInfoTests {
 
     @Test
     void downloadInfoIsNotCached() throws IOException {
-        Files.writeString(this.published.resolve("SignFlow-0.3.1.msi"), "installer bytes");
+        Files.write(this.published.resolve("SignFlow-0.3.1.msi"), INSTALLER);
 
         var response = controller(this.published.toString(), "").downloadInfo();
 
