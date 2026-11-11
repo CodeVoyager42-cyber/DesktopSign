@@ -38,3 +38,11 @@ signflow-report.md
 # A staging copy of the architecture diagrams. The kept ones are
 # committed under docs/architecture/.
 phase3-diagrams/
+
+# A second working copy of this repository. It is its own clone with its own
+# history and its own uncommitted work, so it is emphatically not part of this
+# project: committing it would create an embedded repository.
+DesktopSign/
+
+# Snapshots taken locally before discarding a scratch copy. Never published.
+.backup/
