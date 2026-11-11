@@ -73,25 +73,39 @@ public class WebAppInfoController {
     @GetMapping("/app-info")
     public ResponseEntity<AppInfoView> appInfo() {
         return ResponseEntity.ok(new AppInfoView(
-                this.catalog.appName(), installerUrl().orElse(null)));
+                this.catalog.appName(), primaryUrl().orElse(null)));
     }
 
     @GetMapping("/download-info")
     public ResponseEntity<DownloadInfoView> downloadInfo() {
         Optional<DownloadCatalog.Artefact> installer = this.catalog.installer();
         Optional<DownloadCatalog.Artefact> portable = this.catalog.portableZip();
-        Optional<String> url = installerUrl();
+        // The installer is the primary offer, and the portable build stands in
+        // for it where no MSI could be produced (jpackage needs WiX for one).
+        // A folder holding only the zip is a published release, so the facts
+        // the page shows describe whichever file is actually served.
+        Optional<DownloadCatalog.Artefact> primary = installer.isPresent() ? installer : portable;
+        Optional<String> url = primaryUrl();
 
         DownloadInfoView view = new DownloadInfoView(
                 this.catalog.appName(),
-                installer.map(DownloadCatalog.Artefact::version).orElse(null),
-                installer.map(DownloadCatalog.Artefact::fileName).orElse(null),
-                installer.map(DownloadCatalog.Artefact::sizeBytes).orElse(0L),
-                installer.map(DownloadCatalog.Artefact::sha256).orElse(null),
+                primary.map(DownloadCatalog.Artefact::version).orElse(null),
+                primary.map(DownloadCatalog.Artefact::fileName).orElse(null),
+                primary.map(DownloadCatalog.Artefact::sizeBytes).orElse(0L),
+                primary.map(DownloadCatalog.Artefact::sha256).orElse(null),
                 url.orElse(null),
-                portable.map(a -> "/downloads/" + a.fileName()).orElse(null),
-                portable.map(DownloadCatalog.Artefact::fileName).orElse(null),
-                portable.map(DownloadCatalog.Artefact::sizeBytes).orElse(0L),
+                // Offered as the alternative only when it is the alternative: a
+                // page whose one button already leads to the zip must not offer
+                // the same file a second time beside it.
+                installer.isPresent()
+                        ? portable.map(a -> "/downloads/" + a.fileName()).orElse(null)
+                        : null,
+                installer.isPresent()
+                        ? portable.map(DownloadCatalog.Artefact::fileName).orElse(null)
+                        : null,
+                installer.isPresent()
+                        ? portable.map(DownloadCatalog.Artefact::sizeBytes).orElse(0L)
+                        : 0L,
                 url.isPresent());
 
         // The answer changes when a release is published, which is a file
@@ -102,15 +116,17 @@ public class WebAppInfoController {
     }
 
     /**
-     * Where the installer is: this server when a release is published here,
+     * Where the application is: this server when a release is published here —
+     * the installer, or the portable build when that is all the release has —
      * the configured external link when there is one, and nowhere otherwise.
      *
      * <p>The local file wins on purpose. A deployment that has published a
-     * release has said where the installer is more recently, and more
+     * release has said where the application is more recently, and more
      * precisely, than a URL set once in the environment.
      */
-    private Optional<String> installerUrl() {
+    private Optional<String> primaryUrl() {
         Optional<String> local = this.catalog.installer()
+                .or(this.catalog::portableZip)
                 .map(artefact -> "/downloads/" + artefact.fileName());
         return local.isPresent() ? local : this.catalog.externalUrl();
     }
