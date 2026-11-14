@@ -83,6 +83,30 @@ class DownloadInfoTests {
     }
 
     @Test
+    void aPortableOnlyReleaseIsStillADownload() throws IOException {
+        // What a deployment without WiX can produce: jpackage makes the zip
+        // with no toolchain at all, and the MSI not at all. The zip is a real
+        // release, so the page must offer it rather than say nothing is
+        // published while the file sits in the folder.
+        Files.write(this.published.resolve("SignFlow-0.3.1-windows.zip"), ZIP);
+        Files.writeString(this.published.resolve("SignFlow-0.3.1-windows.zip.sha256"),
+                "b".repeat(64) + "  SignFlow-0.3.1-windows.zip\n");
+
+        var info = controller(this.published.toString(), "").downloadInfo().getBody();
+
+        assertThat(info).isNotNull();
+        assertThat(info.available()).isTrue();
+        assertThat(info.url()).isEqualTo("/downloads/SignFlow-0.3.1-windows.zip");
+        assertThat(info.fileName()).isEqualTo("SignFlow-0.3.1-windows.zip");
+        assertThat(info.version()).isEqualTo("0.3.1");
+        assertThat(info.sizeBytes()).isEqualTo(ZIP.length);
+        assertThat(info.sha256()).isEqualTo("b".repeat(64));
+        // The one button already leads to the zip; it is not also the
+        // alternative beside itself.
+        assertThat(info.portableUrl()).isNull();
+    }
+
+    @Test
     void anExternalLinkIsUsedWhenNothingIsPublishedHere() {
         var info = controller("", "https://downloads.example.test/SignFlow.msi")
                 .downloadInfo().getBody();

@@ -1,8 +1,11 @@
 name: build
 
 on:
+  # Every branch, not only master. A push to a feature branch used to match
+  # no workflow at all, so a change was invisible to CI until somebody opened
+  # a pull request for it. Pull requests are still covered in their own right,
+  # which is what makes a fork's contribution run here.
   push:
-    branches: [master]
   pull_request:
 
 permissions:
