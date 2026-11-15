@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CreditCard, FileUp, PenLine, ShieldCheck, Users } from "lucide-react";
+import { AppWindow, CreditCard, FileUp, PenLine, ShieldCheck } from "lucide-react";
 import { SiteFooter, SiteHeader } from "@/components/chrome";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,17 +20,17 @@ const STEPS = [
   {
     Icon: FileUp,
     title: "Upload your PDF",
-    detail: "Choose the document you want signed.",
+    detail: "Choose the document you want to sign.",
   },
   {
-    Icon: Users,
-    title: "Add the signers",
-    detail: "Their email addresses, in order or in any order.",
+    Icon: AppWindow,
+    title: "Open the app",
+    detail: "One click hands the document to the SignFlow app on this computer.",
   },
   {
     Icon: PenLine,
-    title: "Everyone signs",
-    detail: "Each person signs on their own computer, with their own card.",
+    title: "Sign with your card",
+    detail: "No invitations, no waiting — your signature goes on right away.",
   },
 ];
 
@@ -63,7 +63,7 @@ export default function Home() {
               Sign documents securely with your smart card
             </h1>
             <p className="mx-auto mt-5 max-w-xl text-pretty text-lg text-muted-foreground">
-              Send a PDF, see who still has to sign, and sign with the
+              Upload a PDF, open the SignFlow app, and sign it with the
               certificate on your own card.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">

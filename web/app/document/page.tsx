@@ -293,8 +293,8 @@ export default function Document() {
           >
             {slots.length === 0 ? (
               <p className="text-base text-muted-foreground">
-                Nobody was invited by email: every signer already had an
-                account.
+                Nobody was invited by email — the signer opens the app and
+                signs with their own account.
               </p>
             ) : (
               <ol className="space-y-3">

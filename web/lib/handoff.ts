@@ -25,6 +25,9 @@ export type Phase =
   | "asking"
   /** A code is in hand and the application has been asked to open. */
   | "opening"
+  /** The grace window passed and the page never lost focus: the application
+   *  did not open, so the reader probably does not have it installed. */
+  | "missing"
   /** The code's two minutes ran out. */
   | "expired"
   /** The server would not issue one, and said why. */
@@ -32,6 +35,36 @@ export type Phase =
 
 /** The code's lifetime, as the server sets it (Phase B: `CODE_TTL`). */
 export const CODE_SECONDS = 120;
+
+/**
+ * How long the page waits for evidence that the application opened, after
+ * navigating to the deep link.
+ *
+ * A custom-scheme launch leaves traces the page can hear: the opening
+ * application (or the browser's "open this?" dialog being accepted) takes
+ * focus away from the tab, which arrives as a window `blur` or the document
+ * becoming hidden. Silence past this window is the page's only honest signal
+ * that nothing is installed — browsers expose no direct "is this protocol
+ * registered?" question.
+ */
+export const FOCUS_GRACE_MS = 2500;
+
+/**
+ * Whether the deep-link attempt came back with nothing.
+ *
+ * True only when the grace window has fully passed *and* the page never lost
+ * focus. Both inputs are measured facts, not guesses, so the decision stays
+ * testable: a reader who merely dismissed the dialog quietly is reported as
+ * "not detected" too — the screen's answer to that is always an install
+ * link beside a Try again, never a dead end.
+ */
+export function appNotDetected(
+  sawFocusLeave: boolean,
+  elapsedMs: number,
+  graceMs: number = FOCUS_GRACE_MS,
+): boolean {
+  return !sawFocusLeave && elapsedMs >= graceMs;
+}
 
 /**
  * Seconds left of a code issued at `issuedAt` for `lifetime` seconds.

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CreditCard, Download, ExternalLink, Loader2, TimerOff } from "lucide-react";
+import { CreditCard, Download, ExternalLink, Loader2, MonitorX, TimerOff } from "lucide-react";
 import { Links, PageHeader, SectionCard, TextLink } from "@/components/blocks";
 import { AppShell } from "@/components/chrome";
 import {
@@ -15,6 +15,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { api, type AppInfo, type Workflow } from "@/lib/api";
 import {
+  FOCUS_GRACE_MS,
+  appNotDetected,
   clock,
   refusalWords,
   secondsLeft,
@@ -57,6 +59,46 @@ export default function Open() {
     mounted.current = false;
   }, []);
 
+  // ── Did the application actually open? ──────────────────────────────
+  // A browser cannot ask "is signflow:// registered?", but a launch that
+  // works makes itself heard: the opening application (or the accepted
+  // "open this?" dialog) takes focus away from this tab — a window blur,
+  // or the document becoming hidden. So: listen for that, and if the
+  // grace window passes in silence, say the truth — the app did not open,
+  // probably because it is not installed — and put the install link
+  // first, with Try again beside it, never a dead end.
+  const probe = useRef<{ sawLeave: boolean }>({ sawLeave: false });
+  const stopProbe = useRef<() => void>(() => {});
+  useEffect(() => () => stopProbe.current(), []);
+
+  const startProbe = useCallback(() => {
+    stopProbe.current();
+    probe.current.sawLeave = false;
+    const mark = () => {
+      probe.current.sawLeave = true;
+    };
+    const onVisibility = () => {
+      if (document.hidden) mark();
+    };
+    window.addEventListener("blur", mark);
+    document.addEventListener("visibilitychange", onVisibility);
+    const timer = window.setTimeout(() => {
+      window.removeEventListener("blur", mark);
+      document.removeEventListener("visibilitychange", onVisibility);
+      // The grace window is exactly how long the listener ran, so the
+      // elapsed time is the constant itself — the same number the pure
+      // function is tested with.
+      if (appNotDetected(probe.current.sawLeave, FOCUS_GRACE_MS)) {
+        setPhase("missing");
+      }
+    }, FOCUS_GRACE_MS);
+    stopProbe.current = () => {
+      window.removeEventListener("blur", mark);
+      document.removeEventListener("visibilitychange", onVisibility);
+      clearTimeout(timer);
+    };
+  }, []);
+
   useEffect(() => {
     setId(new URLSearchParams(window.location.search).get("id"));
   }, []);
@@ -79,8 +121,11 @@ export default function Open() {
       } catch {
         say("This browser would not open the app by itself. Use the button below.");
       }
+      // Whether or not the navigation threw, the page now listens for the
+      // application taking the focus; silence says "not installed".
+      startProbe();
     });
-  }, [say]);
+  }, [say, startProbe]);
 
   useEffect(() => {
     if (!me || !id) return;
@@ -145,6 +190,7 @@ export default function Open() {
           className={cn(
             "mx-auto flex size-14 items-center justify-center rounded-full",
             phase === "refused" && "bg-warning/10",
+            phase === "missing" && "bg-warning/10",
             phase === "expired" && "bg-muted",
             working && "bg-accent",
           )}
@@ -153,6 +199,8 @@ export default function Open() {
             <Loader2 aria-hidden="true" className="size-7 animate-spin text-primary" />
           ) : phase === "expired" ? (
             <TimerOff aria-hidden="true" className="size-7 text-muted-foreground" />
+          ) : phase === "missing" ? (
+            <MonitorX aria-hidden="true" className="size-7 text-warning-strong" />
           ) : (
             <CreditCard aria-hidden="true" className="size-7 text-warning-strong" />
           )}
@@ -161,6 +209,7 @@ export default function Open() {
         <div className="space-y-2">
           <h1 className="text-2xl">
             {working ? `Opening the ${appName} app…` : null}
+            {phase === "missing" ? "The app did not open" : null}
             {phase === "expired" ? "The signing link timed out" : null}
             {phase === "refused" ? "This cannot be opened for signing" : null}
           </h1>
@@ -191,6 +240,48 @@ export default function Open() {
             <Button type="button" size="lg" className="w-full" onClick={() => open(id!)}>
               Didn&apos;t open? Try again
             </Button>
+          </>
+        ) : null}
+
+        {phase === "missing" ? (
+          <>
+            <Alert className="text-left shadow-sm">
+              <MonitorX aria-hidden="true" />
+              <AlertTitle>Install the app first</AlertTitle>
+              <AlertDescription className="text-base">
+                Nothing opened, so the {appName} app is probably not installed
+                on this computer yet. Install it below, then come back and
+                press <span className="font-medium">Sign now</span> again.
+                If a browser popup did ask to open the app, approve it and
+                press Try again.
+              </AlertDescription>
+            </Alert>
+            <Button asChild size="lg" className="w-full">
+              <Link href="/download">
+                <Download aria-hidden="true" />
+                Install the {appName} app
+              </Link>
+            </Button>
+            <Button
+              type="button"
+              size="lg"
+              variant="outline"
+              className="w-full"
+              onClick={() => open(id!)}
+            >
+              Try again
+            </Button>
+            {app?.downloadUrl ? (
+              <p className="text-sm">
+                <Button asChild variant="link" className="h-auto px-0 text-sm">
+                  {/* An absolute, configured URL: a real anchor, not a route. */}
+                  <a href={app.downloadUrl}>
+                    Or download the installer directly
+                    <ExternalLink aria-hidden="true" />
+                  </a>
+                </Button>
+              </p>
+            ) : null}
           </>
         ) : null}
 
@@ -227,30 +318,32 @@ export default function Open() {
 
         <NoteAlert note={note} />
 
-        <div className="border-t border-border pt-4">
-          <p className="text-base text-muted-foreground">Nothing happened?</p>
-          {/* The download page, always — it explains the install, the
-              SmartScreen warning and the card reader, which a bare link to a
-              file does not. It is public, so it works even for somebody who
-              arrived here from an invitation and has no account. */}
-          <Button asChild variant="outline" className="mt-3">
-            <Link href="/download">
-              <Download aria-hidden="true" />
-              Get the {appName} app
-            </Link>
-          </Button>
-          {app?.downloadUrl ? (
-            <p className="mt-3 text-sm">
-              <Button asChild variant="link" className="h-auto px-0 text-sm">
-                {/* An absolute, configured URL: a real anchor, not a route. */}
-                <a href={app.downloadUrl}>
-                  Or download the installer directly
-                  <ExternalLink aria-hidden="true" />
-                </a>
-              </Button>
-            </p>
-          ) : null}
-        </div>
+        {phase !== "missing" ? (
+          <div className="border-t border-border pt-4">
+            <p className="text-base text-muted-foreground">Nothing happened?</p>
+            {/* The download page, always — it explains the install, the
+                SmartScreen warning and the card reader, which a bare link to a
+                file does not. It is public, so it works even for somebody who
+                arrived here from an invitation and has no account. */}
+            <Button asChild variant="outline" className="mt-3">
+              <Link href="/download">
+                <Download aria-hidden="true" />
+                Get the {appName} app
+              </Link>
+            </Button>
+            {app?.downloadUrl ? (
+              <p className="mt-3 text-sm">
+                <Button asChild variant="link" className="h-auto px-0 text-sm">
+                  {/* An absolute, configured URL: a real anchor, not a route. */}
+                  <a href={app.downloadUrl}>
+                    Or download the installer directly
+                    <ExternalLink aria-hidden="true" />
+                  </a>
+                </Button>
+              </p>
+            ) : null}
+          </div>
+        ) : null}
       </SectionCard>
 
       <div className="mt-6">

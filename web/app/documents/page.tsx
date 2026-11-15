@@ -202,8 +202,8 @@ export default function Documents() {
         action={
           <Button asChild size="lg">
             <Link href="/send">
-              <Send aria-hidden="true" />
-              Send a document
+              <PenLine aria-hidden="true" />
+              Sign a document
             </Link>
           </Button>
         }

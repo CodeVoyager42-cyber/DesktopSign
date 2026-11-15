@@ -33,6 +33,20 @@ export const POLICIES = [
 ] as const;
 
 /**
+ * A file size as a reader reads one: `1.4 MB`, `820 KB`.
+ *
+ * The preview screen shows it so a reader who picked the wrong file from a
+ * folder of similarly named PDFs notices before sending. One decimal is
+ * enough to tell 1.4 MB from 1.8 MB; below a megabyte, whole kilobytes.
+ */
+export function readableSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+/**
  * The document's name, defaulted from the chosen file.
  *
  * The extension is kept: this name is what the finished PDF is downloaded as

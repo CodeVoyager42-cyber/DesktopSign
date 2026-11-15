@@ -7,6 +7,7 @@ import {
   documentNameFor,
   isEmail,
   problemWith,
+  readableSize,
   signersFrom,
   slotNeedsAttention,
   slotStory,
@@ -137,4 +138,12 @@ test("a slot that was never invited offers neither", () => {
   const direct = slot({ invitationId: null, email: null, status: "UNKNOWN" });
   assert.equal(canResend(direct), false);
   assert.equal(canWithdraw(direct), false);
+});
+
+test("a file size reads the way a reader glances at it", () => {
+  assert.equal(readableSize(0), "1 KB");
+  assert.equal(readableSize(820 * 1024), "820 KB");
+  assert.equal(readableSize(1024 * 1024), "1.0 MB");
+  assert.equal(readableSize(1.4 * 1024 * 1024), "1.4 MB");
+  assert.equal(readableSize(12 * 1024 * 1024), "12.0 MB");
 });

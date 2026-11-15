@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   CODE_SECONDS,
+  FOCUS_GRACE_MS,
+  appNotDetected,
   clock,
   refusalWords,
   secondsLeft,
@@ -74,4 +76,26 @@ test("a refusal with no message still says something true", () => {
     refusalWords(null),
     "This document cannot be opened for signing right now.",
   );
+});
+
+test("silence for the whole grace window means the app was not detected", () => {
+  assert.equal(FOCUS_GRACE_MS, 2500);
+  // The page never heard the application take focus, and the window is over.
+  assert.equal(appNotDetected(false, 2500), true);
+  assert.equal(appNotDetected(false, 10_000), true);
+  // Inside the window there is not yet evidence either way.
+  assert.equal(appNotDetected(false, 2499), false);
+  assert.equal(appNotDetected(false, 0), false);
+});
+
+test("a page that lost focus means the application opened", () => {
+  // The point of the probe: the app (or the accepted dialog) took the
+  // focus, however long it took.
+  assert.equal(appNotDetected(true, 10_000), false);
+  assert.equal(appNotDetected(true, 0), false);
+});
+
+test("a custom grace window is honoured, for slow machines and tests", () => {
+  assert.equal(appNotDetected(false, 700, 700), true);
+  assert.equal(appNotDetected(false, 699, 700), false);
 });
