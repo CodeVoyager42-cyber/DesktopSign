@@ -178,7 +178,8 @@ public class WebAuthController {
 
     private MeResponse toProfile(String userId) {
         UserAccountService.AccountProfile profile = accounts.profile(userId);
-        return new MeResponse(profile.username(), profile.email(), profile.emailVerified());
+        return new MeResponse(profile.username(), profile.displayName(), profile.email(),
+                profile.emailVerified());
     }
 
     /**
@@ -236,8 +237,21 @@ public class WebAuthController {
     public record LoginRequest(String username, String password) {
     }
 
-    /** Answer of {@code /web/api/auth/me} and of a successful sign-in. */
-    public record MeResponse(String username, String email, boolean emailVerified) {
+    /**
+     * Answer of {@code /web/api/auth/me} and of a successful sign-in.
+     *
+     * <p>Two names, and they are not interchangeable: {@code username}
+     * identifies the account — the website matches it against a workflow's
+     * current signer and sends it as a signer's {@code userId} — while
+     * {@code displayName} is only ever shown. A screen that compares display
+     * names is a bug; one that prints the username is merely unfriendly.
+     *
+     * <p>{@code displayName} is never null and never blank (see
+     * {@link UserAccountService.AccountProfile}), so the page needs no
+     * fallback of its own.
+     */
+    public record MeResponse(String username, String displayName, String email,
+            boolean emailVerified) {
     }
 
     /** The {@code {"code","message"}} shape the rest of the API already uses. */

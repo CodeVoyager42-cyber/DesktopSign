@@ -595,20 +595,25 @@ public class DbUserAccounts implements UserAccountService {
     }
 
     /**
-     * Username, e-mail and whether that address is verified — nothing else.
-     * Deliberately not the role, the status, the lockout counters or the last
-     * login: the website has no use for them yet, and the smallest answer is
-     * the one that cannot leak.
+     * Username, display name, e-mail and whether that address is verified —
+     * nothing else. Deliberately not the role, the status, the lockout
+     * counters or the last login: the website has no use for them yet, and
+     * the smallest answer is the one that cannot leak.
+     *
+     * <p>{@code display_name} is a nullable column — it predates sign-up
+     * asking for one, and an invitation-born account may never have been
+     * given one — so a row without it answers with the username. The record
+     * applies that rule itself, which is why nothing here checks for blank.
      */
     @Override
     public AccountProfile profile(String username) {
         if (username == null) {
-            return new AccountProfile(null, null, false);
+            return new AccountProfile(null, null, null, false);
         }
         String id = username.trim();
         return users.findByUsername(id)
-                .map(user -> new AccountProfile(user.getUsername(), user.getEmail(),
-                        user.getEmailVerifiedAt() != null))
-                .orElseGet(() -> new AccountProfile(id, null, false));
+                .map(user -> new AccountProfile(user.getUsername(), user.getDisplayName(),
+                        user.getEmail(), user.getEmailVerifiedAt() != null))
+                .orElseGet(() -> new AccountProfile(id, id, null, false));
     }
 }

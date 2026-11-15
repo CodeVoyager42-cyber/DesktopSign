@@ -183,16 +183,35 @@ public interface UserAccountService {
      * a token or any workflow data in it.
      *
      * <p>File-mode accounts have no e-mail, so the default reports none and
-     * reports the address as unverified.
+     * reports the address as unverified. They have no stored display name
+     * either, so the username is the honest answer for it.
      */
     default AccountProfile profile(String username) {
-        return new AccountProfile(username, null, false);
+        return new AccountProfile(username, username, null, false);
     }
 
     /**
      * What a signed-in visitor may learn about their own account. Nothing
      * here is a credential and nothing here identifies another account.
+     *
+     * <p>{@code username} is the account's <b>identity</b>: it is what a
+     * signer slot holds, what an audit row names, and what the website
+     * compares against {@code currentSignerUserId}. {@code displayName} is
+     * the opposite — a label with no meaning to the server, safe to change,
+     * and never to be matched on.
+     *
+     * <p>{@code displayName} is <b>never null and never blank</b>: an account
+     * that has none stored reports its username instead, so every caller has
+     * something to show without a fallback of its own.
      */
-    record AccountProfile(String username, String email, boolean emailVerified) {
+    record AccountProfile(String username, String displayName, String email,
+            boolean emailVerified) {
+
+        /** Applies the "never blank" rule, so no caller has to. */
+        public AccountProfile {
+            if (displayName == null || displayName.isBlank()) {
+                displayName = username;
+            }
+        }
     }
 }

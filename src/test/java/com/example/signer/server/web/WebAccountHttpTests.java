@@ -312,6 +312,52 @@ class WebAccountHttpTests {
         assertThat(response.body()).contains("8");
     }
 
+    /**
+     * The name a reader gave at sign-up is the name the website can show,
+     * and it is NOT the identity: the username stays what a signer slot
+     * holds, so both travel and neither stands in for the other.
+     */
+    @Test
+    void meReportsTheDisplayNameFromSignUpAlongsideTheUsername() throws Exception {
+        String address = newAddress();
+        post("/web/api/auth/register",
+                json("email", address, "password", STRONG, "displayName", "Ada Lovelace"),
+                csrf(null));
+        String username = users.findByEmail(address).orElseThrow().getUsername();
+
+        JsonNode me = mapper.readTree(
+                get("/web/api/auth/me", signIn(address, STRONG)).body());
+
+        assertThat(me.get("displayName").asText()).isEqualTo("Ada Lovelace");
+        assertThat(me.get("username").asText()).isEqualTo(username);
+        assertThat(me.get("displayName").asText())
+                .as("a display name is a label, not the account's identity")
+                .isNotEqualTo(me.get("username").asText());
+    }
+
+    /**
+     * {@code display_name} is nullable — it predates sign-up asking for one,
+     * and an invitation-born account may never have been given one — so the
+     * answer falls back to the username rather than reaching the page as
+     * null and rendering as empty.
+     */
+    @Test
+    void meFallsBackToTheUsernameWhenNoDisplayNameIsStored() throws Exception {
+        String address = newAddress();
+        post("/web/api/auth/register",
+                json("email", address, "password", STRONG, "displayName", "Ada"),
+                csrf(null));
+        UserEntity account = users.findByEmail(address).orElseThrow();
+        account.setDisplayName(null);
+        users.save(account);
+
+        JsonNode me = mapper.readTree(
+                get("/web/api/auth/me", signIn(address, STRONG)).body());
+
+        assertThat(me.get("displayName").asText()).isEqualTo(account.getUsername());
+        assertThat(me.get("displayName").isNull()).isFalse();
+    }
+
     /* --------------------------- verification -------------------------- */
 
     @Test

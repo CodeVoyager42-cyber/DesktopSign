@@ -227,9 +227,9 @@ export default function Send() {
         />
 
         <div className="flex items-center gap-3 rounded-xl border border-border bg-muted p-4">
-          <Initials of={me.username} />
+          <Initials of={me.displayName} />
           <div className="min-w-0">
-            <p className="font-medium">{me.username}</p>
+            <p className="font-medium">{me.displayName}</p>
             <p className="text-sm text-muted-foreground">
               You are the signer. No invitation is sent — the next step opens
               the app for your signature.

@@ -35,8 +35,18 @@ export interface Result<T> {
   body: T | null;
 }
 
+/**
+ * The signed-in account, as `/web/api/auth/me` reports it.
+ *
+ * `username` is the identity: it is what a signer slot holds, so it is what
+ * may be compared against `Workflow.currentSignerUserId` and what goes out
+ * as a `SignerSpec.userId`. `displayName` is only ever shown — comparing it
+ * would be a bug. The server guarantees it is non-empty, falling back to the
+ * username for an account that has none, so no screen needs its own `||`.
+ */
 export interface Profile {
   username: string;
+  displayName: string;
   email: string | null;
   emailVerified: boolean;
 }

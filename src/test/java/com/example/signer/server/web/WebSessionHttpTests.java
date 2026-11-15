@@ -336,8 +336,12 @@ class WebSessionHttpTests {
         assertThat(me.statusCode()).isEqualTo(200);
         JsonNode json = mapper.readTree(me.body());
         assertThat(json.get("username").asText()).isEqualTo(user);
+        assertThat(json.get("displayName").asText())
+                .as("this account was created with its username as its display name")
+                .isEqualTo(user);
         assertThat(json.fieldNames()).toIterable()
-                .containsExactlyInAnyOrder("username", "email", "emailVerified");
+                .containsExactlyInAnyOrder("username", "displayName", "email",
+                        "emailVerified");
     }
 
     /* ------------------------------- CSRF ------------------------------ */

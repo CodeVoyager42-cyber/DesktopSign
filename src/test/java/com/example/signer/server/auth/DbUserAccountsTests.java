@@ -60,6 +60,74 @@ class DbUserAccountsTests {
         return user;
     }
 
+    /* ------------------------------ profile ---------------------------- */
+
+    @Test
+    void profileCarriesTheStoredDisplayNameAndTheUsernameSeparately() {
+        UserEntity user = account("alice", HASH, AccountStatus.ACTIVE);
+        user.setDisplayName("Ada Lovelace");
+
+        UserAccountService.AccountProfile profile = accounts.profile("alice");
+
+        assertThat(profile.username()).isEqualTo("alice");
+        assertThat(profile.displayName()).isEqualTo("Ada Lovelace");
+        assertThat(profile.email()).isEqualTo("alice@example.test");
+    }
+
+    /**
+     * The column is nullable and blanks have reached it, so the username is
+     * the answer in both cases — a caller is promised something printable,
+     * never an empty line where a name should be.
+     */
+    @Test
+    void profileFallsBackToTheUsernameWhenNoDisplayNameIsStored() {
+        UserEntity user = account("alice", HASH, AccountStatus.ACTIVE);
+
+        user.setDisplayName(null);
+        assertThat(accounts.profile("alice").displayName()).isEqualTo("alice");
+
+        user.setDisplayName("   ");
+        assertThat(accounts.profile("alice").displayName()).isEqualTo("alice");
+    }
+
+    /** An unknown account is still answered, and still printable. */
+    @Test
+    void profileOfAnUnknownAccountNamesItself() {
+        UserAccountService.AccountProfile profile = accounts.profile("nobody");
+
+        assertThat(profile.username()).isEqualTo("nobody");
+        assertThat(profile.displayName()).isEqualTo("nobody");
+        assertThat(profile.email()).isNull();
+        assertThat(profile.emailVerified()).isFalse();
+    }
+
+    /**
+     * File mode stores no display name at all, so it inherits the interface
+     * default tested here, which reports the username — the same promise the
+     * database path keeps, so the website needs no fallback in either mode.
+     */
+    @Test
+    void theDefaultProfileReportsTheUsernameAsTheDisplayName() {
+        UserAccountService fileMode = new UserAccountService() {
+            @Override
+            public boolean matches(String username, String password) {
+                return false;
+            }
+
+            @Override
+            public boolean knowsUser(String username) {
+                return false;
+            }
+        };
+
+        UserAccountService.AccountProfile profile = fileMode.profile("alice");
+
+        assertThat(profile.username()).isEqualTo("alice");
+        assertThat(profile.displayName()).isEqualTo("alice");
+        assertThat(profile.email()).isNull();
+        assertThat(profile.emailVerified()).isFalse();
+    }
+
     @Test
     void activeAccountWithRightPasswordSignsIn() {
         account("alice", HASH, AccountStatus.ACTIVE);
