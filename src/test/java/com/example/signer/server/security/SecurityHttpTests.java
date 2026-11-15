@@ -258,18 +258,36 @@ class SecurityHttpTests {
         }
     }
 
+    /**
+     * A guest-typed token is refused outright, not merely scoped.
+     *
+     * <p>This test used to assert that a guest token could reach its own
+     * signing task but nothing else — 403 on an account route, with
+     * {@code WORKFLOW_NOT_ACCESSIBLE}. Guest sessions are gone with the
+     * invitation workflow, so the question changed: the server still holds
+     * the key such a token was signed with, so a token of that shape still
+     * verifies, and the only thing refusing it is the type check. It must now
+     * be <b>401</b> everywhere — an invalid token, not a limited one.
+     *
+     * <p>Hand-signed rather than issued, because {@code issueGuestJwt} is
+     * deleted. That is the point of the test: it proves a token the server
+     * would once have honoured is now rejected, which "we removed the issuer"
+     * cannot prove by itself.
+     */
     @Test
-    void aGuestTokenCannotActAsAnAccount() throws Exception {
-        String guest = "Bearer " + jwtService.issueGuestJwt("slot-2", "WF-GUEST", 2, 7L,
-                Instant.now().plusSeconds(600), Duration.ofMinutes(30));
+    void aGuestTypedTokenIsRefusedOutright() throws Exception {
+        String guest = "Bearer " + TestJwts.sign(SECRET, JWSAlgorithm.HS256,
+                new JWTClaimsSet.Builder()
+                        .subject("slot-2").issuer("signer-coordination-server")
+                        .audience("signer-desktop-clients").claim("typ", "guest")
+                        .claim("wf", "WF-GUEST").claim("slot", 2).claim("inv", 7)
+                        .issueTime(Date.from(Instant.now()))
+                        .expirationTime(Date.from(Instant.now().plusSeconds(300))).build());
+
         for (String path : new String[] {"/api/auth/me", "/api/workflows/my-tasks",
-                "/api/workflows/WF-OTHER/task"}) {
-            HttpResponse<String> r = get(path, guest);
-            assertThat(r.statusCode()).as(path).isEqualTo(403);
+                "/api/workflows/WF-GUEST/task"}) {
+            assertUnauthorized(get(path, guest));
         }
-        assertThat(mapper.readTree(get("/api/workflows/WF-OTHER/task", guest).body())
-                .path("code").asText()).isEqualTo("WORKFLOW_NOT_ACCESSIBLE");
-        assertThat(post("/api/invitations/abc/accept", "{}", guest).statusCode()).isEqualTo(403);
     }
 
     @Test

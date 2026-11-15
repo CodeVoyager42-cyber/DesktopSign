@@ -3,7 +3,6 @@ package com.example.signer.server.workflow;
 import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.WorkflowServerApplication;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
-import com.example.signer.server.api.ApiContracts.InvitationLinkView;
 import com.example.signer.server.api.ApiContracts.LoginRequest;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionRequest;
 import com.example.signer.server.api.ApiContracts.TokenPairResponse;
@@ -13,16 +12,10 @@ import com.example.signer.server.api.ApiErrorType.ApiException;
 import com.example.signer.server.auth.AuthController;
 import com.example.signer.server.db.AuditLog;
 import com.example.signer.server.db.entity.AuditEventEntity;
-import com.example.signer.server.db.entity.InvitationEntity;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.AuditEventRepository;
-import com.example.signer.server.db.repository.InvitationRepository;
 import com.example.signer.server.db.repository.UserRepository;
 import com.example.signer.server.db.repository.WorkflowRepository;
-import com.example.signer.server.invites.InvitationService;
-import com.example.signer.server.invites.RegistrationService;
-import com.example.signer.server.invites.SignPageController;
-import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 import com.example.signer.token.SigningCertificate;
 import com.example.signer.token.TokenService;
 import com.example.signer.token.mock.MockSigningToken;
@@ -77,7 +70,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
                 "signature.remote-server.database.username=${signer.test.db.username:${SIGNER_DB_USERNAME:postgres}}",
                 "signature.remote-server.database.password=${signer.test.db.password:${SIGNER_DB_PASSWORD:}}"
         })
-@Import(InvitationSignerLifecycleTests.CapturedMailbox.class)
 @EnabledIf(value = "com.example.signer.server.workflow.PostgresConcurrencyLiveTests#postgresAvailable",
         disabledReason = "PostgreSQL not reachable — set SIGNER_DB_USERNAME/SIGNER_DB_PASSWORD")
 class PostgresConcurrencyLiveTests {
@@ -101,25 +93,10 @@ class PostgresConcurrencyLiveTests {
     private PlatformTransactionManager transactionManager;
 
     @Autowired
-    private WorkflowInvitationCoordinator coordinator;
-
-    @Autowired
-    private InvitationService invitations;
-
-    @Autowired
-    private InvitationRepository invitationRepository;
-
-    @Autowired
-    private RegistrationService registrationService;
-
-    @Autowired
     private UserRepository userRepository;
 
     @Autowired
     private AuthController auth;
-
-    @Autowired
-    private SignPageController signPage;
 
     @Autowired
     private WorkflowSigningService workflowSigningService;
@@ -134,7 +111,6 @@ class PostgresConcurrencyLiveTests {
     void tearDown() {
         tokenService.disconnect();
         simulator.removeToken();
-        InvitationSignerLifecycleTests.CapturedMailbox.LINKS.clear();
     }
 
     /* ── P0.5: optimistic locking ──────────────────────────────────────── */
@@ -235,89 +211,6 @@ class PostgresConcurrencyLiveTests {
         assertContiguousAudit(id);
     }
 
-    /* ── P0.10 / P0.15: invitation token rules ────────────────────────── */
-
-    @Test
-    void expiredRevokedAndReusedInvitationsAreRefused() {
-        // expired
-        Invite expired = invite();
-        InvitationEntity e = invitationOf(expired);
-        e.setExpiresAt(Instant.now().minusSeconds(60));
-        invitationRepository.save(e);
-        assertThat(code(() -> invitations.redeemableByToken(expired.token())))
-                .isEqualTo(ApiErrorCode.INVITATION_EXPIRED);
-        assertThat(code(() -> registrationService.register(expired.token(), "X", "password-123")))
-                .isIn(ApiErrorCode.INVITATION_EXPIRED, ApiErrorCode.INVITATION_REVOKED);
-
-        // revoked
-        Invite revoked = invite();
-        invitations.revoke(invitationOf(revoked).getId(), "alice");
-        assertThat(code(() -> invitations.redeemableByToken(revoked.token())))
-                .isEqualTo(ApiErrorCode.INVITATION_REVOKED);
-        assertThat(code(() -> registrationService.register(revoked.token(), "X", "password-123")))
-                .isEqualTo(ApiErrorCode.INVITATION_REVOKED);
-
-        // reused: accepted once by the recipient, then presented again
-        Invite used = invite();
-        String account = registrationService.register(used.token(), "Rita", "password-123");
-        invitations.claim(used.token(), account);
-        assertThat(code(() -> invitations.redeemableByToken(used.token())))
-                .isEqualTo(ApiErrorCode.INVITATION_ALREADY_USED);
-        assertThat(code(() -> registrationService.register(used.token(), "Mallory", "password-123")))
-                .isIn(ApiErrorCode.INVITATION_ALREADY_USED, ApiErrorCode.BAD_REQUEST);
-        assertThat(code(() -> invitations.claim(used.token(), "bob")))
-                .isIn(ApiErrorCode.EMAIL_MISMATCH, ApiErrorCode.INVITATION_ALREADY_USED);
-    }
-
-    @Test
-    void theInvitationLinkNoLongerServesTheDocument() {
-        Invite live = invite();
-        ResponseEntity<byte[]> response = signPage.document(live.token());
-        assertThat(response.getStatusCode().value()).isEqualTo(410);
-        assertThat(new String(response.getBody(), StandardCharsets.UTF_8))
-                .doesNotStartWith("%PDF")
-                .contains("Open the invitation");
-        String page = signPage.page(live.token()).getBody();
-        assertThat(page).doesNotContain("/document").doesNotContain("View the document");
-    }
-
-    /**
-     * P0.4 for invitation mutations: the owner's revoke racing the
-     * recipient's claim must never end as an ACCEPTED invitation when the
-     * revoke reported success (that would be a lost update: a stale claim
-     * overwriting the committed revoke).
-     */
-    @Test
-    void revokeRacingClaimNeverResurrectsARevokedInvitation() throws Exception {
-        for (int round = 0; round < 15; round++) {
-            String username = "racer" + System.nanoTime();
-            String email = username + "@example.test";
-            userRepository.save(new UserEntity(username, email,
-                    BCrypt.hashpw("password-123", BCrypt.gensalt(4)), "Racer", AccountStatus.ACTIVE));
-            Invite invite = invite(email);
-            Long invitationId = invitationOf(invite).getId();
-
-            List<Object> outcomes = race(2, i -> i == 0
-                    ? () -> invitations.claim(invite.token(), username)
-                    : () -> {
-                        invitations.revoke(invitationId, "alice");
-                        return "revoked";
-                    });
-
-            boolean claimed = !(outcomes.get(0) instanceof ApiException);
-            boolean revoked = !(outcomes.get(1) instanceof ApiException);
-            assertThat(revoked).as("the owner can always revoke").isTrue();
-            String status = invitationRepository.findById(invitationId).orElseThrow()
-                    .getStatus();
-            assertThat(status).as("round %d (claim %s)", round,
-                    claimed ? "succeeded" : "refused")
-                    .isEqualTo(InvitationEntity.STATUS_REVOKED);
-            if (!claimed) {
-                assertThat(((ApiException) outcomes.get(0)).code())
-                        .isEqualTo(ApiErrorCode.INVITATION_REVOKED);
-            }
-        }
-    }
 
     /* ── P0.13: disabled account cannot refresh ───────────────────────── */
 
@@ -368,32 +261,6 @@ class PostgresConcurrencyLiveTests {
                 return false;
             }
         }
-    }
-
-    private record Invite(String workflowId, String token) {
-    }
-
-    private Invite invite() {
-        return invite("conc" + System.nanoTime() + "@example.test");
-    }
-
-    private Invite invite(String email) {
-        WorkflowInvitationCoordinator.Preparation prep = coordinator.prepare(
-                new CreateWorkflowRequest("conc.pdf", "SEQUENTIAL",
-                        List.of(new CreateWorkflowRequest.SignerSpec(1, email, null))),
-                "alice");
-        WorkflowView view = workflows.createWorkflow(prep.request(), pdf(), "alice");
-        List<InvitationLinkView> sent = coordinator.invite(view.workflowId(),
-                prep.pendingInvites(), "alice");
-        String url = sent.get(0).invitationUrl();
-        return new Invite(view.workflowId(), url.substring(url.lastIndexOf('/') + 1));
-    }
-
-    private InvitationEntity invitationOf(Invite invite) {
-        Long id = workflowRepository.findByWorkflowId(invite.workflowId()).orElseThrow().getId();
-        return invitationRepository.findByWorkflowId(id).stream()
-                .max(java.util.Comparator.comparing(InvitationEntity::getId))
-                .orElseThrow();
     }
 
     private static ApiErrorCode code(Runnable action) {

@@ -2,10 +2,28 @@ package com.example.signer.server.workflow;
 
 /** Event types of the server-side workflow audit trail. */
 public enum AuditEventType {
+    /**
+     * @deprecated <b>Historical only — never delete.</b> The invitation
+     *     workflow that wrote these five is removed, so nothing appends them
+     *     any more. Rows bearing them record invitations that really were
+     *     created, sent, accepted, revoked or expired, and a signature
+     *     obtained through one is only explicable with them: delete the
+     *     values and a stored trail stops deserialising, which is the audit
+     *     trail failing in exactly the dispute it exists to settle.
+     */
+    @Deprecated
     INVITATION_CREATED,
+    /** @deprecated Historical only; see {@link #INVITATION_CREATED}. */
+    @Deprecated
     INVITATION_SENT,
+    /** @deprecated Historical only; see {@link #INVITATION_CREATED}. */
+    @Deprecated
     INVITATION_ACCEPTED,
+    /** @deprecated Historical only; see {@link #INVITATION_CREATED}. */
+    @Deprecated
     INVITATION_REVOKED,
+    /** @deprecated Historical only; see {@link #INVITATION_CREATED}. */
+    @Deprecated
     INVITATION_EXPIRED,
     /** The invitation exists but the email transport reported failure (§37). */
     EMAIL_DELIVERY_FAILED,

@@ -3,7 +3,6 @@ package com.example.signer.server.workflow;
 import com.example.signer.server.RemoteServerProperties;
 import com.example.signer.server.api.ApiContracts;
 import com.example.signer.server.auth.UserAccountService;
-import com.example.signer.server.invites.InvitationService;
 import org.springframework.beans.factory.ObjectProvider;
 import com.example.signer.server.api.ApiStates.InvitationStatus;
 import com.example.signer.server.api.ApiStates.ParticipantState;
@@ -95,12 +94,6 @@ public class RemoteWorkflowService {
     /** Human directory (database mode): display names for sender labels. */
     private final WorkflowDirectory directory;
 
-    /**
-     * Invitation lookup (database mode): overlays REVOKED / DECLINED /
-     * EXPIRED slot states onto the signing-tasks view. Null in file mode.
-     */
-    private final InvitationService invitations;
-
     private final AtomicLong workflowSeq = new AtomicLong(System.currentTimeMillis());
 
     public RemoteWorkflowService(WorkflowStore store,
@@ -109,8 +102,7 @@ public class RemoteWorkflowService {
                                  WorkflowSigningService workflowSigningService,
                                  SignaturePlacementExtractor placementExtractor,
                                  ObjectProvider<UserAccountService> accounts,
-                                 ObjectProvider<WorkflowDirectory> directory,
-                                 ObjectProvider<InvitationService> invitations) {
+                                 ObjectProvider<WorkflowDirectory> directory) {
         this.store = store;
         this.properties = properties;
         this.pdfVerification = pdfVerification;
@@ -118,7 +110,6 @@ public class RemoteWorkflowService {
         this.placementExtractor = placementExtractor;
         this.accounts = accounts.getIfAvailable();
         this.directory = directory.getIfAvailable();
-        this.invitations = invitations.getIfAvailable();
     }
 
     /* ------------------------------------------------------------------
@@ -676,27 +667,13 @@ public class RemoteWorkflowService {
         } else {
             label = ParticipantState.IN_PROGRESS;
         }
-        InvitationService.SlotInvitationState
-                slotInvitation = invitations == null ? null
-                : invitations.latestSlotState(wf.workflowId(), mine.userId());
-        if (!slotSigned) {
-            if (slotInvitation != null
-                    && InvitationStatus.parse(slotInvitation.status()) == InvitationStatus.REVOKED) {
-                label = ParticipantState.REVOKED;
-                waitingForMe = false;
-                waitingForClaim = false;
-            } else if (slotInvitation != null
-                    && InvitationStatus.parse(slotInvitation.status()) == InvitationStatus.DECLINED) {
-                label = ParticipantState.DECLINED;
-                waitingForMe = false;
-                waitingForClaim = false;
-            } else if (slotInvitation != null
-                    && InvitationStatus.parse(slotInvitation.status()) == InvitationStatus.EXPIRED) {
-                label = ParticipantState.EXPIRED;
-                waitingForMe = false;
-                waitingForClaim = false;
-            }
-        }
+        // The slot's invitation used to be consulted here, so a revoked,
+        // declined or expired invitation showed as REVOKED / DECLINED /
+        // EXPIRED instead of "waiting for you". With invitations gone a slot
+        // has no state outside the workflow itself: it is signed, or it is
+        // waiting. Those three ParticipantState values are kept in the
+        // contract because stored history and both clients still name them,
+        // but nothing produces them any more.
 
         // Dates: created = the workflow's first audit event (WORKFLOW_CREATED
         // or SIGNER_REGISTERED, whichever ran first); completed = the last
@@ -735,10 +712,10 @@ public class RemoteWorkflowService {
             participants.add(new ApiContracts.TaskParticipantView(
                     s.order(), name, s.userId().equals(mine.userId()), state));
         }
-        String expiresAt = !slotSigned && slotInvitation != null
-                && (InvitationStatus.parse(slotInvitation.status()) == InvitationStatus.PENDING
-                        || InvitationStatus.parse(slotInvitation.status()) == InvitationStatus.ACCEPTED)
-                ? slotInvitation.expiresAt() : null;
+        // Was the slot's invitation expiry, the only deadline a signing task
+        // ever carried. A task has no expiry of its own, so with invitations
+        // gone there is nothing truthful to put here.
+        String expiresAt = null;
         String updatedAt = audit.isEmpty() ? null
                 : audit.get(audit.size() - 1).occurredAt().toString();
         return new TaskItemView(
@@ -1210,6 +1187,19 @@ public class RemoteWorkflowService {
             if (s.userId() == null || s.userId().isBlank()) {
                 throw new ApiException(ApiErrorCode.BAD_REQUEST,
                         "Each signer needs a userId");
+            }
+            // A slot could once name an e-mail address, which the invitation
+            // coordinator resolved into an account before this ran. That path
+            // is removed, so an address arriving here is a caller using an
+            // API that no longer exists. Refusing it is the point: accepted
+            // as a username it would create a workflow waiting forever on a
+            // signer who cannot be found, and the sender would be told the
+            // request succeeded.
+            if (s.userId().indexOf('@') >= 0) {
+                throw new ApiException(ApiErrorCode.BAD_REQUEST,
+                        "Signer " + s.order() + " must be the username of an existing"
+                                + " account, not an e-mail address. Inviting a signer by"
+                                + " e-mail is no longer supported.");
             }
             if (s.certificateSha256() != null && !s.certificateSha256().isBlank()) {
                 String fingerprint = s.certificateSha256().replace(":", "").trim();

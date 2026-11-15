@@ -6,16 +6,11 @@ import com.example.signer.server.api.ApiErrorType.ApiException;
 import com.example.signer.server.auth.DbUserAccounts;
 import com.example.signer.server.db.entity.AccountRole;
 import com.example.signer.server.db.entity.AccountStatus;
-import com.example.signer.server.db.entity.InvitationEntity;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.entity.WorkflowSignerEntity;
-import com.example.signer.server.db.repository.InvitationRepository;
 import com.example.signer.server.db.repository.UserRepository;
 import com.example.signer.server.db.repository.WorkflowRepository;
 import com.example.signer.server.db.repository.WorkflowSignerRepository;
-import com.example.signer.server.invites.InvitationService;
-import com.example.signer.server.invites.RegistrationService;
-import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 
 import com.example.signer.server.db.JpaWorkflowStore;
 
@@ -74,22 +69,10 @@ class PostgresWorkflowStoreLiveTests {
     private WorkflowSignerRepository signerRepository;
 
     @Autowired
-    private InvitationRepository invitationRepository;
-
-    @Autowired
     private UserRepository userRepository;
 
     @Autowired
     private com.example.signer.server.db.repository.AuditEventRepository auditRepository;
-
-    @Autowired
-    private com.example.signer.server.invites.WorkflowInvitationCoordinator coordinator;
-
-    @Autowired
-    private InvitationService invitationService;
-
-    @Autowired
-    private RegistrationService registrationService;
 
     @Autowired
     private com.example.signer.server.workflow.RemoteWorkflowService remoteWorkflowService;
@@ -200,130 +183,6 @@ class PostgresWorkflowStoreLiveTests {
         assertThat(store.exists("WF-DOES-NOT-EXIST")).isFalse();
     }
 
-    /**
-     * Email invitations at workflow creation (brief §13/§16/§53) plus the
-     * registration lifecycle: placeholder account → invitation with hashed
-     * token → registration activates the account → acceptance recorded.
-     */
-    @Test
-    @Order(3)
-    void emailSignerGetsInvitationAndRegistersThroughToken() {
-        String uniqueEmail = "dave" + System.nanoTime() + "@Example.COM";
-
-        // ── prepare: email-shaped slot → placeholder account + rewrite ───
-        WorkflowInvitationCoordinator.Preparation prep = coordinator.prepare(
-                new CreateWorkflowRequest("invite-test.pdf",
-                        List.of(new CreateWorkflowRequest.SignerSpec(1, "alice",
-                                        "a".repeat(64)),
-                                new CreateWorkflowRequest.SignerSpec(2, uniqueEmail, null))),
-                "alice");
-        // Username derived from the email local part; email normalized.
-        assertThat(prep.request().signers().get(1).userId()).startsWith("dave");
-        assertThat(prep.pendingInvites()).hasSize(1);
-        assertThat(prep.pendingInvites().get(0).email()).isEqualTo(uniqueEmail.toLowerCase());
-        assertThat(userRepository.findByUsername(prep.pendingInvites().get(0).username()))
-                .hasValueSatisfying(u -> {
-                    assertThat(u.getStatus()).isEqualTo(AccountStatus.PENDING_INVITE);
-                    assertThat(u.getPasswordHash()).isNull();
-                    // V5 defaults for a new invitation identity.
-                    assertThat(u.getRole()).isEqualTo(AccountRole.USER);
-                    assertThat(u.getEmailVerifiedAt()).isNull();
-                    assertThat(u.getPasswordChangedAt()).isNull();
-                    assertThat(u.getFailedLoginCount()).isZero();
-                    assertThat(u.getLockedUntil()).isNull();
-                    assertThat(u.getEmail()).isEqualTo(uniqueEmail.toLowerCase());
-                });
-
-        // Unknown plain usernames are rejected.
-        assertThatThrownBy(() -> coordinator.prepare(new CreateWorkflowRequest(
-                        "x.pdf", List.of(new CreateWorkflowRequest.SignerSpec(1, "ghost", null))),
-                "alice"))
-                .isInstanceOf(ApiException.class)
-                .hasMessageContaining("Unknown workflow user");
-
-        // ── create the workflow and invite ────────────────────────────────
-        var view = remoteWorkflowService.createWorkflow(prep.request(),
-                "%PDF-1.4 invitation test".getBytes(), "alice");
-        assertThat(view.status()).isEqualTo("DRAFT");
-        List<com.example.signer.server.api.ApiContracts.InvitationLinkView>
-                emailed = coordinator.invite(view.workflowId(),
-                        prep.pendingInvites(), "alice");
-
-        var invitationRow = invitationRepository
-                .findByWorkflowId(workflowRepository.findByWorkflowId(view.workflowId())
-                        .orElseThrow().getId())
-                .get(0);
-        assertThat(invitationRow.getStatus()).isEqualTo("PENDING");
-        assertThat(invitationRow.getEmail()).isEqualTo(uniqueEmail.toLowerCase());
-        // Only the HASH is persisted — 64 hex chars, never the raw token.
-        assertThat(invitationRow.getTokenHash()).matches("[0-9a-f]{64}");
-        // A delivered invitation is marked SENT (the failure side is covered
-        // by InvitationEmailFailureTests).
-        assertThat(invitationRow.getEmailStatus()).isEqualTo("SENT");
-
-        // The sender is handed the exact link that was emailed — built on the
-        // server's resolved base URL, and carrying the very token whose hash
-        // was persisted. Without this the sender cannot tell a signer which
-        // link to open, and a loopback base would go unnoticed.
-        assertThat(emailed).hasSize(1);
-        assertThat(emailed.get(0).signerOrder()).isEqualTo(2);
-        assertThat(emailed.get(0).email()).isEqualTo(uniqueEmail.toLowerCase());
-        String emailedUrl = emailed.get(0).invitationUrl();
-        assertThat(emailedUrl).startsWith(
-                invitationService.linkResolver().baseUrl() + "/invitations/");
-        assertThat(sha256Hex(emailedUrl.substring(emailedUrl.lastIndexOf('/') + 1)))
-                .isEqualTo(invitationRow.getTokenHash());
-
-        // ── registration: fresh invitation → activate → acceptance ───────
-        String rawToken = invitationService.invite(view.workflowId(), 2,
-                uniqueEmail, "alice");
-        String username = registrationService.register(rawToken, "Dave D.",
-                "password-123");
-        assertThat(username).startsWith("dave");
-        assertThat(dbAccounts.matches(username, "password-123")).isTrue();
-        assertThat(userRepository.findByUsername(username))
-                .hasValueSatisfying(u -> {
-                    assertThat(u.getStatus()).isEqualTo(AccountStatus.ACTIVE);
-                    // Redeeming the emailed invitation proves the address.
-                    assertThat(u.getEmailVerifiedAt()).isNotNull();
-                    assertThat(u.getPasswordChangedAt()).isNotNull();
-                    assertThat(u.getRole()).isEqualTo(AccountRole.USER);
-                    // New hashes use cost 12.
-                    assertThat(u.getPasswordHash()).startsWith("$2a$12$");
-                });
-
-        // Token is single-use.
-        assertThatThrownBy(() -> registrationService.register(rawToken, "Again",
-                "password-123"))
-                .isInstanceOf(ApiException.class)
-                .hasMessageContaining("already");
-
-        // The superseded first invitation stays REVOKED; the accepted one
-        // records who accepted.
-        List<InvitationEntity> allInvitations = invitationRepository
-                .findByWorkflowId(workflowRepository.findByWorkflowId(view.workflowId())
-                        .orElseThrow().getId());
-        assertThat(allInvitations).anySatisfy(i -> {
-            assertThat(i.getStatus()).isEqualTo("ACCEPTED");
-            assertThat(i.getAcceptedBy()).isEqualTo(username);
-        });
-        assertThat(allInvitations).anySatisfy(i ->
-                assertThat(i.getStatus()).isEqualTo("REVOKED"));
-
-        // Unknown tokens are rejected without leaking information.
-        assertThatThrownBy(() -> registrationService.register("bogus-token",
-                "X", "password-123"))
-                .isInstanceOf(ApiException.class)
-                .hasMessageContaining("not found");
-
-        // Password policy enforced.
-        String secondToken = invitationService.invite(view.workflowId(), 2,
-                uniqueEmail, "alice");
-        assertThatThrownBy(() -> registrationService.register(secondToken,
-                "X", "short"))
-                .isInstanceOf(ApiException.class)
-                .hasMessageContaining("8");
-    }
 
     /** Same digest the service stores: SHA-256 of the raw token, hex. */
     private static String sha256Hex(String token) {

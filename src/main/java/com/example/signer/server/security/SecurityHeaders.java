@@ -33,15 +33,19 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
  * be one.</b> {@code script-src 'self'} permits files this server serves and
  * nothing else, so an injected {@code <script>} tag — the ordinary shape of
  * cross-site scripting — does not run even if some escaping is wrong
- * somewhere. The server-rendered invitation pages contain no script of their
- * own at all, and {@code SignPageRendererTests} holds them to that.
+ * somewhere.
  *
  * <p>{@code style-src} keeps {@code 'unsafe-inline'} beside {@code 'self'},
- * and that is the one real concession here. {@code SignPageRenderer} puts its
- * stylesheet in an inline {@code <style>} block and uses two inline
- * {@code style=} attributes, and a nonce does not cover style attributes —
- * only {@code 'unsafe-inline'} does. What it permits is injected CSS, so the
- * worst case is a page made to look wrong rather than code running.
+ * and that is the one real concession here. It was needed for the
+ * server-rendered invitation pages, which put their stylesheet in an inline
+ * {@code <style>} block and used inline {@code style=} attributes that a
+ * nonce cannot cover. Those pages are gone with the invitation workflow, so
+ * <b>this concession may no longer be needed</b> — the Next.js export does
+ * not rely on it. Tightening it to {@code style-src 'self'} is a separate
+ * change with its own verification across every remaining page, and is
+ * deliberately not slipped in behind a removal. What it permits meanwhile is
+ * injected CSS: the worst case is a page made to look wrong, not code
+ * running.
  *
  * <p>{@code form-action 'self'} because a form may post back here and must
  * not be redirected anywhere else; {@code base-uri 'none'} because no page

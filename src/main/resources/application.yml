@@ -215,24 +215,28 @@ signature:
         api-base-url: ${GITHUB_API_BASE_URL:https://api.github.com}
         cache-ttl: ${GITHUB_RELEASE_CACHE_TTL:PT1H}
 
-    # ── Invitations (Phase 4) ────────────────────────────────────────────
-    invitation:
-      # How long an invitation link stays valid.
-      expiration: ${SIGNER_INVITATION_EXPIRATION:PT48H}
-      # Base URL for the links that are EMAILED to signers. Leave empty and
-      # the server picks one: `app.base-url` when it is not a loopback
-      # address, otherwise an auto-detected LAN address of this machine
-      # (virtual adapters are skipped). Set this explicitly — a tunnel, a
-      # public hostname, a forwarded port — whenever signers sit outside
-      # your network. A loopback value here is honoured but produces links
-      # that only open on this machine, which the server logs as a warning.
-      public-base-url: ${SIGNER_PUBLIC_BASE_URL:}
-      # Security Phase 3. A guest session needs the one-time code e-mailed to
-      # the invited address; turning this off lets the link alone open it.
-      guest-verification: ${SIGNER_GUEST_VERIFICATION:true}
-      # Return the invitee's raw link to the SENDER (create / invite /
-      # resend). Off outside development: the link is the invitee's.
-      expose-links-to-sender: ${SIGNER_INVITATION_EXPOSE_LINKS:false}
+    # ── Emailed links ────────────────────────────────────────────────────
+    # The invitation workflow that owned this block is removed, and with it
+    # SIGNER_INVITATION_EXPIRATION, SIGNER_GUEST_VERIFICATION and
+    # SIGNER_INVITATION_EXPOSE_LINKS: there is no invitation to expire, no
+    # guest session to protect with an emailed code, and no invitee link to
+    # withhold from a sender.
+    #
+    # What survives is the base URL, because the ACCOUNT emails still send
+    # links — confirming an address, setting a new password — and they have
+    # the same problem the invitation links had: a link is useless if the
+    # person who receives it cannot open it. It moved out of the
+    # `invitation` namespace and kept its environment variable, so a
+    # deployment setting SIGNER_PUBLIC_BASE_URL needs no change.
+    #
+    # Leave it empty and the server picks one: `app.base-url` when it is not
+    # a loopback address, otherwise an auto-detected LAN address of this
+    # machine (virtual adapters are skipped). Set it explicitly — a tunnel,
+    # a public hostname, a forwarded port — whenever the people receiving
+    # these links sit outside your network. A loopback value is honoured but
+    # produces links that only open on this machine, which the server logs
+    # as a warning. See server/web/PublicBaseUrlResolver.
+    public-base-url: ${SIGNER_PUBLIC_BASE_URL:}
 
     # ── Desktop client compatibility ─────────────────────────────────────
     desktop:
@@ -319,10 +323,6 @@ signature:
     keystore: ${SIGNER_MOCK_TOKEN_KEYSTORE:${user.home}/.signflow/dev-mock-token.p12}
   remote-server:
     allow-plaintext-passwords: true
-    # Development only: return the raw invitation links to the sender (the
-    # console mailbox may be the only delivery). Off by default elsewhere.
-    invitation:
-      expose-links-to-sender: true
     # Accept certificates/signatures from the development mock token.
     accept-development-identities: true
     web:

@@ -87,8 +87,6 @@ class WebWorkflowReadHttpTests {
     @Autowired
     private RemoteWorkflowService workflows;
 
-    @Autowired
-    private com.example.signer.server.invites.InvitationService invitations;
 
     @Autowired
     private JwtService jwtService;
@@ -138,30 +136,22 @@ class WebWorkflowReadHttpTests {
                         new CreateWorkflowRequest.SignerSpec(1, signer, null),
                         new CreateWorkflowRequest.SignerSpec(2, coSigner, null))),
                 pdf(), owner).workflowId();
-        // Slot 1 is invited at its own account's address, the only address an
-        // invitation can be addressed to.
-        this.invitations.invite(workflow, 1, signer + "@example.test", owner);
-
         String asCoSigner = get("/web/api/workflows/" + workflow + "/audit",
                 cookies(login(coSigner)), null).body();
 
-        // The trail is readable by every participant, while a slot's address
-        // is owner-only (the invitation routes check the creator). It used to
-        // be written into the INVITATION_CREATED detail, which handed one
-        // signer another's address through a different door.
+        // The rule this guards: the trail is readable by every participant,
+        // and no account's address may appear in it. It used to be provable
+        // the hard way — an invitation wrote the invitee's address into its
+        // INVITATION_CREATED detail, which handed one signer another's
+        // address through a different door, and the fix was to redact it.
+        // Nothing writes an address at all now that invitations are gone, so
+        // the assertion is easier to satisfy and is kept for the same reason
+        // it was written: it fails the moment something starts writing one
+        // again.
         assertThat(asCoSigner)
                 .as("no address of any account may appear in the trail")
                 .doesNotContain("@example.test");
-        // What happened and in what order still reaches every participant.
-        assertThat(asCoSigner).contains("INVITATION_CREATED");
-        // The invitation prose is the creator's: rows written before the fix
-        // still hold an address, and rewriting an append-only trail to hide
-        // what it recorded would be worse than the exposure.
-        assertThat(asCoSigner).doesNotContain("Invitation created for signer");
-        // But only that prose. The rule is a short list of event types, not
-        // "all detail to the owner" — the blunt version hid a signer's own
-        // DESKTOP_SESSION_OPENED device and version from them, which is the
-        // whole of the Phase B F3 mitigation.
+        // What happened, and in what order, still reaches every participant.
         assertThat(asCoSigner)
                 .as("detail of an event that never named an address still arrives")
                 .contains("Workflow created with 2 signer(s)");
@@ -169,10 +159,7 @@ class WebWorkflowReadHttpTests {
         String asOwner = get("/web/api/workflows/" + workflow + "/audit",
                 cookies(login(owner)), null).body();
         assertThat(asOwner)
-                .as("the creator still reads the detail")
-                .contains("Invitation created for signer 1");
-        assertThat(asOwner)
-                .as("and it no longer names an address, for anyone")
+                .as("and no address reaches the creator either")
                 .doesNotContain("@example.test");
     }
 

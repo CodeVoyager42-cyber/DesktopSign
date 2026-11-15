@@ -1,4 +1,4 @@
-package com.example.signer.server.invites;
+package com.example.signer.server.web;
 
 import jakarta.annotation.PostConstruct;
 
@@ -21,14 +21,20 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Decides the base URL that emailed invitation links are built from.
+ * Decides the base URL that emailed links are built from.
  *
- * <p>An emailed link is only useful if the SIGNER can open it, so a
- * {@code localhost} base is useless the moment the signer sits at another
- * machine. Resolution order, first match wins:
+ * <p>This was {@code invites.InvitationLinkResolver}. The invitation workflow
+ * it was written for is gone, but the account e-mails are not — confirming an
+ * address and resetting a password both send a link — and the problem it
+ * solves is the same for those: a link is only useful if the person who
+ * receives it can open it, so a {@code localhost} base is useless the moment
+ * they are at another machine. It moved here, under a name that says what it
+ * decides rather than what first needed it.
+ *
+ * <p>Resolution order, first match wins:
  *
  * <ol>
- *   <li>{@code signature.remote-server.invitation.public-base-url}
+ *   <li>{@code signature.remote-server.public-base-url}
  *       ({@code SIGNER_PUBLIC_BASE_URL}) — an explicit public host or
  *       tunnel; always honoured verbatim.</li>
  *   <li>{@code app.base-url} ({@code APP_BASE_URL}) when it is not a
@@ -43,17 +49,18 @@ import java.util.Locale;
  * </ol>
  *
  * <p>Nothing here reaches the network: detection is local interface
- * enumeration. The decision is logged once at startup and exposed through
- * {@code GET /api/server-info/invitation-link} so the sender can see the
- * address recipients will actually be sent.
+ * enumeration. The decision is logged once at startup. It used to be exposed
+ * through {@code GET /api/server-info/invitation-link} as well, so a sender
+ * could see the address recipients would be given; that endpoint went with
+ * the invitation workflow, and the startup log is now the only reader.
  */
 @Component
 @ConditionalOnProperty(name = "signature.remote-server.database.enabled",
         havingValue = "true")
-public class InvitationLinkResolver {
+public class PublicBaseUrlResolver {
 
     private static final Logger log =
-            LoggerFactory.getLogger(InvitationLinkResolver.class);
+            LoggerFactory.getLogger(PublicBaseUrlResolver.class);
 
     /**
      * Substrings that identify an adapter which is not a real path to this
@@ -74,10 +81,10 @@ public class InvitationLinkResolver {
     private String source;
     private boolean localOnly;
 
-    public InvitationLinkResolver(
+    public PublicBaseUrlResolver(
             @Value("${app.base-url:http://localhost:3000}")
             String configuredBaseUrl,
-            @Value("${signature.remote-server.invitation.public-base-url:}")
+            @Value("${signature.remote-server.public-base-url:}")
             String publicBaseUrl,
             @Value("${server.port:8080}") int serverPort) {
         this.configuredBaseUrl = trimSlashes(configuredBaseUrl);
@@ -169,7 +176,7 @@ public class InvitationLinkResolver {
             log.debug("Could not enumerate network interfaces", e);
             return null;
         }
-        candidates.sort(Comparator.comparingInt(InvitationLinkResolver::rank));
+        candidates.sort(Comparator.comparingInt(PublicBaseUrlResolver::rank));
         return candidates.isEmpty() ? null
                 : candidates.get(0).getHostAddress();
     }

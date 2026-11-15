@@ -6,7 +6,6 @@ import com.example.signer.server.api.ApiContracts.WorkflowView;
 import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 
 import org.junit.jupiter.api.Test;
@@ -73,9 +72,6 @@ class NeverVerifiedAccountSweepLiveTests {
     private RemoteWorkflowService workflows;
 
     @Autowired
-    private WorkflowInvitationCoordinator coordinator;
-
-    @Autowired
     private DataSource dataSource;
 
     public static boolean freshDatabase() {
@@ -136,9 +132,8 @@ class NeverVerifiedAccountSweepLiveTests {
     private String workflowSignedBy(String owner, String signer) {
         List<CreateWorkflowRequest.SignerSpec> specs = new ArrayList<>();
         specs.add(new CreateWorkflowRequest.SignerSpec(1, signer, null));
-        WorkflowInvitationCoordinator.Preparation prep = coordinator.prepare(
-                new CreateWorkflowRequest("d11.pdf", "SEQUENTIAL", specs), owner);
-        WorkflowView view = workflows.createWorkflow(prep.request(), pdf(), owner);
+        WorkflowView view = workflows.createWorkflow(
+                new CreateWorkflowRequest("d11.pdf", "SEQUENTIAL", specs), pdf(), owner);
         return view.workflowId();
     }
 

@@ -4,10 +4,6 @@ import com.example.signer.server.RemoteServerProperties;
 import com.example.signer.server.WorkflowServerApplication;
 import com.example.signer.server.api.ApiContracts.LoginRequest;
 import com.example.signer.server.api.ApiContracts.TokenPairResponse;
-import com.example.signer.server.api.ApiErrorType;
-import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
-import com.example.signer.server.api.ApiErrorType.ApiException;
-import com.example.signer.server.invites.InvitationRestController;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -16,7 +12,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * P0.13: the account status is re-checked on every refresh, so an account
@@ -64,34 +59,5 @@ class RefreshAccountStatusTests {
         // refresh token stays dead (a fresh login is required).
         assertThat(auth.refresh(new AuthController.RefreshRequest(current))
                 .getStatusCode().value()).isEqualTo(401);
-    }
-
-    /**
-     * Spring Security answers 401 before these controllers run (see
-     * SecurityHttpTests). As a second line, a request that reaches them
-     * without an authenticated identity is still refused with 401.
-     */
-    @Test
-    void invitationMutationsAnswer401WithoutAnAuthenticatedIdentity() {
-        InvitationRestController controller =
-                new InvitationRestController(null, null, null, null, jwtService);
-        MockHttpServletRequest anonymous = new MockHttpServletRequest();
-
-        assertThatThrownBy(() -> controller.claim("token", anonymous))
-                .isInstanceOf(ApiException.class)
-                .satisfies(e -> {
-                    ApiException api = (ApiException) e;
-                    assertThat(api.code()).isEqualTo(ApiErrorCode.AUTHENTICATION_REQUIRED);
-                    assertThat(new ApiErrorType.Handler().handle(api)
-                            .getStatusCode().value()).isEqualTo(401);
-                });
-        assertThatThrownBy(() -> controller.decline("token", anonymous))
-                .isInstanceOf(ApiException.class);
-        assertThatThrownBy(() -> controller.accept("token", anonymous))
-                .isInstanceOf(ApiException.class);
-        assertThatThrownBy(() -> controller.revoke(1L, anonymous))
-                .isInstanceOf(ApiException.class);
-        assertThatThrownBy(() -> controller.resend(1L, anonymous))
-                .isInstanceOf(ApiException.class);
     }
 }

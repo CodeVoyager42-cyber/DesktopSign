@@ -6,10 +6,7 @@ import com.example.signer.server.api.ApiContracts.InvitationLinkView;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
 import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
 import com.example.signer.server.api.ApiErrorType.ApiException;
-import com.example.signer.server.db.entity.InvitationEntity;
-import com.example.signer.server.db.repository.InvitationRepository;
 import com.example.signer.server.db.repository.WorkflowRepository;
-import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 import com.example.signer.server.security.RateLimitTestSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -55,7 +52,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
                 "signature.remote-server.login.rate-limit=1000"
         })
 @ActiveProfiles("server")
-@Import(InvitationSignerLifecycleTests.CapturedMailbox.class)
 @EnabledIf(value = "com.example.signer.server.workflow.PostgresConcurrencyLiveTests#postgresAvailable",
         disabledReason = "PostgreSQL not reachable — set SIGNER_DB_USERNAME/SIGNER_DB_PASSWORD")
 class AuthorizationMatrixHttpTests {
@@ -67,12 +63,6 @@ class AuthorizationMatrixHttpTests {
 
     @Autowired
     private RemoteWorkflowService workflows;
-
-    @Autowired
-    private WorkflowInvitationCoordinator coordinator;
-
-    @Autowired
-    private InvitationRepository invitationRepository;
 
     @Autowired
     private WorkflowRepository workflowRepository;
@@ -150,19 +140,9 @@ class AuthorizationMatrixHttpTests {
         for (int i = 0; i < slots.length; i += 2) {
             specs.add(new CreateWorkflowRequest.SignerSpec(i / 2 + 1, slots[i], slots[i + 1]));
         }
-        WorkflowInvitationCoordinator.Preparation prep = coordinator.prepare(
-                new CreateWorkflowRequest("authz.pdf", "SEQUENTIAL", specs), "alice");
-        WorkflowView view = workflows.createWorkflow(prep.request(), pdf(), "alice");
-        if (!prep.pendingInvites().isEmpty()) {
-            coordinator.invite(view.workflowId(), prep.pendingInvites(), "alice");
-        }
+        WorkflowView view = workflows.createWorkflow(
+                new CreateWorkflowRequest("authz.pdf", "SEQUENTIAL", specs), pdf(), "alice");
         return view.workflowId();
-    }
-
-    private Long latestInvitationId(String workflowId) {
-        Long id = workflowRepository.findByWorkflowId(workflowId).orElseThrow().getId();
-        return invitationRepository.findByWorkflowId(id).stream()
-                .map(InvitationEntity::getId).max(Long::compare).orElseThrow();
     }
 
     /* ------------------------------- tests ------------------------------ */
@@ -227,61 +207,6 @@ class AuthorizationMatrixHttpTests {
     }
 
     @Test
-    void onlyTheOwnerManagesInvitationsAndCancels() throws Exception {
-        String wf = workflow("bob", fp(), "dora" + System.nanoTime() + "@example.test", null);
-        Long invitationId = latestInvitationId(wf);
-        String bob = login("bob");          // a signer: knows the workflow exists → 403
-        String charlie = login("charlie");  // a stranger → the 404 of an unknown id
-
-        Reply invite = call("POST", "/api/workflows/" + wf + "/invitations", bob,
-                "{\"signerOrder\":2,\"email\":\"x@example.test\"}");
-        assertThat(invite.status()).isEqualTo(403);
-        assertThat(call("GET", "/api/workflows/" + wf + "/invitations", bob, null).status())
-                .isEqualTo(403);
-        assertThat(call("POST", "/api/workflows/" + wf + "/cancel", bob, null).status())
-                .isEqualTo(403);
-        assertThat(call("POST", "/api/invitations/" + invitationId + "/resend", bob, null)
-                .status()).isEqualTo(403);
-        assertThat(call("POST", "/api/invitations/" + invitationId + "/revoke", bob, null)
-                .status()).isEqualTo(403);
-
-        long unknownId = 9_000_000_000L + RANDOM.nextInt(1_000_000);
-        for (String action : new String[] {"resend", "revoke"}) {
-            Reply real = call("POST", "/api/invitations/" + invitationId + "/" + action,
-                    charlie, null);
-            Reply none = call("POST", "/api/invitations/" + unknownId + "/" + action,
-                    charlie, null);
-            assertThat(real.status()).as(action).isEqualTo(404);
-            assertThat(real.body()).as(action).isEqualTo(none.body());
-        }
-        assertThat(call("POST", "/api/workflows/" + wf + "/invitations", charlie,
-                "{\"signerOrder\":2,\"email\":\"x@example.test\"}").status()).isEqualTo(404);
-
-        // Nothing changed: the owner still sees an active workflow.
-        String alice = login("alice");
-        JsonNode view = mapper.readTree(call("GET", "/api/workflows/" + wf, alice, null).body());
-        assertThat(view.path("status").asText()).isNotEqualTo("CANCELLED");
-        assertThat(call("POST", "/api/workflows/" + wf + "/cancel", alice, null).status())
-                .isEqualTo(200);
-    }
-
-    @Test
-    void noInvitationCanBeSentForAFinishedWorkflow() throws Exception {
-        String email = "erin" + System.nanoTime() + "@example.test";
-        String wf = workflow("bob", fp(), email, null);
-        Long invitationId = latestInvitationId(wf);
-        String alice = login("alice");
-        assertThat(call("POST", "/api/workflows/" + wf + "/cancel", alice, null).status())
-                .isEqualTo(200);
-        Reply invite = call("POST", "/api/workflows/" + wf + "/invitations", alice,
-                "{\"signerOrder\":2,\"email\":\"" + email + "\"}");
-        assertThat(invite.status()).isEqualTo(409);
-        assertThat(invite.code()).isEqualTo("INVALID_WORKFLOW_STATE");
-        Reply resend = call("POST", "/api/invitations/" + invitationId + "/resend", alice, null);
-        assertThat(resend.status()).isEqualTo(409);
-    }
-
-    @Test
     void aSlotKeepsItsFirstCertificateAndACertificateHoldsOneSlot() throws Exception {
         String wf = workflow("bob", null, "charlie", null);
         String bob = login("bob");
@@ -311,50 +236,5 @@ class AuthorizationMatrixHttpTests {
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).code())
                 .isEqualTo(ApiErrorCode.BAD_REQUEST);
-    }
-
-    @Test
-    void theSenderCannotOpenTheInviteesSessionWithTheLinkAlone() throws Exception {
-        // The 'dev' profile still hands the sender the link (console mailbox),
-        // which is exactly the situation the e-mailed code must defend.
-        String email = "victim" + System.nanoTime() + "@example.test";
-        WorkflowInvitationCoordinator.Preparation prep = coordinator.prepare(
-                new CreateWorkflowRequest("takeover.pdf", "SEQUENTIAL", List.of(
-                        new CreateWorkflowRequest.SignerSpec(1, email, null))), "alice");
-        WorkflowView view = workflows.createWorkflow(prep.request(), pdf(), "alice");
-        List<InvitationLinkView> links = coordinator.invite(view.workflowId(),
-                prep.pendingInvites(), "alice");
-        String url = links.get(0).invitationUrl();
-        String token = url.substring(url.lastIndexOf('/') + 1);
-
-        Reply noCode = call("POST", "/api/invitations/" + token + "/guest-session", null, null);
-        assertThat(noCode.status()).isEqualTo(403);
-        assertThat(noCode.code()).isEqualTo("GUEST_VERIFICATION_REQUIRED");
-        assertThat(noCode.body()).doesNotContain("accessToken\":\"ey");
-
-        // Asking for a code sends it to the INVITEE; the answer has no code.
-        InvitationSignerLifecycleTests.CapturedMailbox.CODES.clear();
-        Reply sent = call("POST", "/api/invitations/" + token + "/guest-code", null, null);
-        assertThat(sent.status()).isEqualTo(202);
-        String code = InvitationSignerLifecycleTests.CapturedMailbox.CODES.get(email);
-        assertThat(code).matches("\\d{6}");
-        assertThat(sent.body()).doesNotContain(code).contains("***@");
-
-        String guess = code.equals("000000") ? "111111" : "000000";
-        Reply wrong = call("POST", "/api/invitations/" + token + "/guest-session", null,
-                "{\"code\":\"" + guess + "\"}");
-        assertThat(wrong.status()).isEqualTo(403);
-        assertThat(wrong.code()).isEqualTo("GUEST_CODE_INVALID");
-
-        // Without a session, no certificate can be bound to the slot.
-        String slot = workflows.getTask(view.workflowId(), "alice").signers().get(0).userId();
-        assertThat(call("POST", "/api/workflows/" + view.workflowId() + "/signers/" + slot
-                + "/certificate", null, "{\"certificateSha256\":\"" + fp() + "\"}").status())
-                .isEqualTo(401);
-
-        // The invitee, with the code from their mailbox, gets in.
-        Reply ok = call("POST", "/api/invitations/" + token + "/guest-session", null,
-                "{\"code\":\"" + code + "\"}");
-        assertThat(ok.status()).as(ok.body()).isEqualTo(200);
     }
 }

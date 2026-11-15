@@ -213,7 +213,7 @@ class LaunchPathRemovedTests {
                 .audience(List.of("signer-desktop-clients"))
                 .id(UUID.randomUUID().toString())
                 .issuedAt(now)
-                .expiresAt(now.plus(Duration.ofMinutes(30)))
+                .expiresAt(now.plus(Duration.ofMinutes(10)))
                 .claim("typ", "task")
                 .claim("wf", workflowId)
                 .claim("slot", slot)

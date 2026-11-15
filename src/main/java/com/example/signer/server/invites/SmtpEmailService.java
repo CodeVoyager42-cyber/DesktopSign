@@ -47,48 +47,6 @@ public class SmtpEmailService implements EmailService {
         this.appName = appName;
     }
 
-    @Override
-    public void sendSigningInvitation(String recipientEmail, String recipientName,
-                                      String workflowName, String inviterName,
-                                      String invitationUrl, Instant expiresAt) {
-        String html = InvitationEmailTemplate.html(recipientName, workflowName,
-                inviterName, invitationUrl, expiresAt, appName);
-        String plain = InvitationEmailTemplate.text(recipientName, workflowName,
-                inviterName, invitationUrl, expiresAt, appName);
-
-        try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true,
-                    StandardCharsets.UTF_8.name());
-            helper.setFrom(from);
-            helper.setTo(recipientEmail);
-            helper.setSubject(InvitationEmailTemplate.subject(workflowName));
-            helper.setText(plain, html);
-            mailSender.send(message);
-            log.info("Invitation email sent to {} for '{}'", recipientEmail, workflowName);
-        } catch (MessagingException e) {
-            throw new IllegalStateException("The invitation email could not be sent", e);
-        }
-    }
-
-    @Override
-    public void sendGuestVerificationCode(String recipientEmail, String workflowName,
-                                          String code, Instant expiresAt) {
-        try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, false,
-                    StandardCharsets.UTF_8.name());
-            helper.setFrom(from);
-            helper.setTo(recipientEmail);
-            helper.setSubject(GuestCodeEmailTemplate.subject(workflowName));
-            helper.setText(GuestCodeEmailTemplate.text(workflowName, code, expiresAt, appName));
-            mailSender.send(message);
-            // Never the code itself.
-            log.info("Guest verification code sent to {} for '{}'", recipientEmail, workflowName);
-        } catch (MessagingException e) {
-            throw new IllegalStateException("The verification email could not be sent", e);
-        }
-    }
 
     @Override
     public void sendEmailVerification(String recipientEmail, String link, Instant expiresAt) {

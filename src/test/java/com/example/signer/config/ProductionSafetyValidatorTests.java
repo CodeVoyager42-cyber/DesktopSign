@@ -116,7 +116,7 @@ class ProductionSafetyValidatorTests {
         MockEnvironment env = env("server");
         env.setProperty("server.ssl.key-store", "classpath:server.p12");
         env.setProperty("signature.remote-server.database.enabled", "true");
-        env.setProperty("signature.remote-server.invitation.public-base-url",
+        env.setProperty("signature.remote-server.public-base-url",
                 "https://signflow.example.com");
         env.setProperty("signature.remote-server.email.mode", "smtp");
         assertThatCode(() -> ProductionSafetyValidator.validate(env)).doesNotThrowAnyException();
@@ -317,19 +317,6 @@ class ProductionSafetyValidatorTests {
         assertThat(ProductionSafetyValidator.isHttpsOrLoopback("ftp://localhost")).isFalse();
     }
 
-    @Test
-    void guestVerificationCannotBeSwitchedOffInProduction() {
-        MockEnvironment env = env("server");
-        env.setProperty("server.ssl.key-store", "classpath:server.p12");
-        env.setProperty("signature.remote-server.database.enabled", "true");
-        env.setProperty("signature.remote-server.invitation.public-base-url",
-                "https://signflow.example.com");
-        env.setProperty("signature.remote-server.email.mode", "smtp");
-        env.setProperty("signature.remote-server.invitation.guest-verification", "false");
-        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
-                .hasMessageContaining("SIGNER_GUEST_VERIFICATION=false");
-    }
-
     /**
      * SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION used to fail production start-up.
      * The setting guarded one thing — a desktop reporting no version opening a
@@ -346,7 +333,7 @@ class ProductionSafetyValidatorTests {
         MockEnvironment env = env("server");
         env.setProperty("server.ssl.key-store", "classpath:server.p12");
         env.setProperty("signature.remote-server.database.enabled", "true");
-        env.setProperty("signature.remote-server.invitation.public-base-url",
+        env.setProperty("signature.remote-server.public-base-url",
                 "https://signflow.example.com");
         env.setProperty("signature.remote-server.email.mode", "smtp");
         env.setProperty("signature.remote-server.desktop.accept-unknown-version", "true");
@@ -361,7 +348,7 @@ class ProductionSafetyValidatorTests {
         MockEnvironment env = env("server");
         env.setProperty("server.ssl.key-store", "classpath:server.p12");
         env.setProperty("signature.remote-server.database.enabled", "true");
-        env.setProperty("signature.remote-server.invitation.public-base-url",
+        env.setProperty("signature.remote-server.public-base-url",
                 "https://signflow.example.com");
         env.setProperty("signature.remote-server.email.mode", "smtp");
         return env;

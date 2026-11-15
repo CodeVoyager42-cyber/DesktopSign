@@ -84,8 +84,31 @@ class WebWorkflowWriteHttpTests {
         @Bean
         @Primary
         EmailService silentMailbox() {
-            return (recipientEmail, recipientName, workflowName, inviterName,
-                    invitationUrl, expiresAt) -> { };
+            // An anonymous class rather than a lambda: EmailService has four
+            // abstract methods now that the account mail is mandatory, so
+            // there is no single method for a lambda to be. Every one is a
+            // no-op here — this fixture exists so these tests do not send
+            // mail, not to assert anything about it.
+            return new EmailService() {
+                @Override
+                public void sendEmailVerification(String recipientEmail, String link,
+                                                  Instant expiresAt) {
+                }
+
+                @Override
+                public void sendPasswordReset(String recipientEmail, String link,
+                                              Instant expiresAt) {
+                }
+
+                @Override
+                public void sendPasswordChanged(String recipientEmail, Instant changedAt,
+                                                boolean afterReset) {
+                }
+
+                @Override
+                public void sendAccountLocked(String recipientEmail, Instant lockedUntil) {
+                }
+            };
         }
     }
 

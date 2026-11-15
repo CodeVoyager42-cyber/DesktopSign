@@ -1,11 +1,8 @@
 package com.example.signer.server.web;
 
 import com.example.signer.server.api.ApiContracts.AuditView;
-import com.example.signer.server.api.ApiContracts.CreateInvitationRequest;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowResponse;
-import com.example.signer.server.api.ApiContracts.InvitationStatusView;
-import com.example.signer.server.api.ApiContracts.InvitationView;
 import com.example.signer.server.api.ApiContracts.RevisionView;
 import com.example.signer.server.api.ApiContracts.SigningTasksView;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
@@ -22,7 +19,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
@@ -152,26 +148,6 @@ public class WebWorkflowController {
                 request, this.operations.requirePdf(file), caller.getName()));
     }
 
-    /** Invites one signer slot of a workflow this account owns. */
-    @PostMapping("/{workflowId}/invitations")
-    public ResponseEntity<InvitationView> invite(
-            @PathVariable String workflowId,
-            @RequestBody CreateInvitationRequest request,
-            Authentication caller) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(this.operations.invite(workflowId, request, caller.getName()));
-    }
-
-    /**
-     * Where each invitation stands, slot by slot — what the owner's tracking
-     * view reads. Statuses and timestamps only: an invitation token appears
-     * in the answer of the call that sends it and never again.
-     */
-    @GetMapping("/{workflowId}/invitations")
-    public List<InvitationStatusView> invitations(@PathVariable String workflowId,
-                                                  Authentication caller) {
-        return this.operations.invitationStatus(workflowId, caller.getName());
-    }
 
     /**
      * Cancels a workflow — the creator or the current signer, and only before

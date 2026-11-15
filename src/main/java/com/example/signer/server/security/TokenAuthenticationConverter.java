@@ -12,24 +12,21 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 /**
  * Turns a token that already passed signature, algorithm, issuer, audience
  * and expiry checks into a Spring Security identity, by its {@code typ}
- * claim: {@code access} → account ({@code ROLE_USER}), {@code guest} →
- * guest signing session ({@code ROLE_GUEST}). Any other type is refused
- * with a 401, like an invalid token.
+ * claim: {@code access} → account ({@code ROLE_USER}). That is the only
+ * type there is. Any other is refused with a 401, like an invalid token.
  */
 final class TokenAuthenticationConverter implements Converter<Jwt, AbstractAuthenticationToken> {
 
     @Override
     public AbstractAuthenticationToken convert(Jwt jwt) {
         try {
-            String type = jwt.getClaimAsString(JwtService.TYPE_CLAIM);
-            if (JwtService.TYPE_GUEST.equals(type)) {
-                return new GuestSessionAuthentication(jwt, JwtService.toGuest(jwt));
-            }
-            // Anything that is not `access` from here on — including the
-            // `task` type the removed desktop launch path used to mint —
-            // fails toAccess and leaves as a 401. Nothing has to name the
-            // retired type for that to hold, which is the point: one
-            // accepted type and one refusal, rather than a growing list.
+            // One accepted type, and one refusal. `guest` went with the
+            // invitation workflow and `task` with the desktop launch-code
+            // path; a token of either type now fails toAccess and leaves as a
+            // 401. Nothing has to name a retired type for that to hold, which
+            // is the point — the list of things to reject cannot drift out of
+            // step with the list of things accepted, because there is only
+            // one of the latter.
             JwtService.JwtAuthentication user = JwtService.toAccess(jwt);
             return new JwtAuthenticationToken(jwt,
                     AuthorityUtils.createAuthorityList(SecurityConfig.ROLE_USER), user.subject());

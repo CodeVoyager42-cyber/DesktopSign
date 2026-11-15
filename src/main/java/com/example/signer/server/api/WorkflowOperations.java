@@ -1,28 +1,16 @@
 package com.example.signer.server.api;
 
-import com.example.signer.server.api.ApiContracts.CreateInvitationRequest;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowResponse;
-import com.example.signer.server.api.ApiContracts.InvitationLinkView;
-import com.example.signer.server.api.ApiContracts.InvitationStatusView;
-import com.example.signer.server.api.ApiContracts.InvitationView;
-import com.example.signer.server.api.ApiContracts.TaskView;
-import com.example.signer.server.api.ApiContracts.WorkflowView;
 import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
 import com.example.signer.server.api.ApiErrorType.ApiException;
-import com.example.signer.server.db.entity.InvitationEntity;
-import com.example.signer.server.invites.InvitationService;
-import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * The three workflow operations that are more than one service call, in the
@@ -46,24 +34,15 @@ import java.util.Map;
  * <p>This holds no authorization rules of its own. Every path starts with
  * {@link RemoteWorkflowService#getWorkflow}, whose uniform 404 is the Phase 3
  * guard, and the ownership rules for invitations stay in
- * {@link InvitationService}.
+ * the service.
  */
 @Component
 public class WorkflowOperations {
 
     private final RemoteWorkflowService workflows;
 
-    /** Present only in database mode: e-mail invitations at creation time. */
-    private final ObjectProvider<WorkflowInvitationCoordinator> coordinator;
-
-    private final ObjectProvider<InvitationService> invitations;
-
-    public WorkflowOperations(RemoteWorkflowService workflows,
-                              ObjectProvider<WorkflowInvitationCoordinator> coordinator,
-                              ObjectProvider<InvitationService> invitations) {
+    public WorkflowOperations(RemoteWorkflowService workflows) {
         this.workflows = workflows;
-        this.coordinator = coordinator;
-        this.invitations = invitations;
     }
 
     /**
@@ -84,83 +63,27 @@ public class WorkflowOperations {
     }
 
     /**
-     * Starts a workflow, and in database mode turns its e-mail-addressed
-     * slots into invited accounts that are then e-mailed their invitation.
+     * Starts a workflow. Every signer slot names an account that already
+     * exists.
      *
-     * <p>The returned links are the only time they exist outside the e-mail:
-     * only the token hash is persisted, so no later read can reproduce them.
+     * <p>A slot used to be allowed to name an e-mail address instead, which
+     * {@code WorkflowInvitationCoordinator} turned into a passwordless
+     * invited identity and then e-mailed. That whole path is gone, so the
+     * only remaining way into a signer slot is a username — and a slot that
+     * still carries an address is <b>refused</b> by
+     * {@link RemoteWorkflowService}, never quietly accepted as a username
+     * that happens to contain an {@code @}. Accepting one would create a
+     * workflow whose signer can never be found, which is the kind of silent
+     * failure this removal exists to end.
+     *
+     * <p>The response's invitation-link list is always empty now. It stays in
+     * the contract because both clients still read the field; it is emptied
+     * here rather than removed under them.
      */
     public CreateWorkflowResponse create(CreateWorkflowRequest request, byte[] pdf,
                                          String caller) {
-        WorkflowInvitationCoordinator invites = this.coordinator.getIfAvailable();
-        if (invites == null) {
-            // File mode: no accounts, no addresses, nothing to invite.
-            return new CreateWorkflowResponse(
-                    this.workflows.createWorkflow(request, pdf, caller), List.of());
-        }
-        WorkflowInvitationCoordinator.Preparation prepared =
-                invites.prepare(request, caller);
-        WorkflowView workflow =
-                this.workflows.createWorkflow(prepared.request(), pdf, caller);
-        List<InvitationLinkView> links = prepared.pendingInvites().isEmpty()
-                ? List.of()
-                : invites.invite(workflow.workflowId(), prepared.pendingInvites(), caller);
-        return new CreateWorkflowResponse(workflow, links);
-    }
-
-    /**
-     * Invites one signer slot of an existing workflow.
-     *
-     * <p>The access check runs first and the slot number is validated against
-     * what that workflow actually has, so this never reports the shape of a
-     * workflow the caller cannot see.
-     */
-    public InvitationView invite(String workflowId, CreateInvitationRequest request,
-                                 String caller) {
-        WorkflowView workflow = this.workflows.getWorkflow(workflowId, caller);
-        // signerOrder is 1-based everywhere: database slot order, invitation
-        // rows, the pickers in both clients.
-        if (request.signerOrder() < 1 || request.signerOrder() > workflow.totalSignatures()) {
-            throw new ApiException(ApiErrorCode.BAD_REQUEST,
-                    "Signer order " + request.signerOrder() + " is out of range (1.."
-                            + workflow.totalSignatures() + ")");
-        }
-        InvitationService service = this.invitations.getIfAvailable();
-        if (service == null) {
-            throw new ApiException(ApiErrorCode.BAD_REQUEST,
-                    "Invitations are not enabled on this server.");
-        }
-        String rawToken = service.invite(workflowId, request.signerOrder(),
-                request.email(), caller);
-        return new InvitationView(null, workflowId, workflow.documentName(),
-                request.signerOrder(), request.email(), caller,
-                InvitationEntity.STATUS_PENDING, null,
-                service.senderVisibleUrl(rawToken));
-    }
-
-    /**
-     * Invitation status per signer slot, for whoever is tracking the
-     * workflow. No raw token: status and timestamps only. The workflow access
-     * guard runs first, then {@link InvitationService} re-checks that the
-     * caller created it — the same rule resend and revoke apply.
-     */
-    public List<InvitationStatusView> invitationStatus(String workflowId, String caller) {
-        this.workflows.getWorkflow(workflowId, caller);
-        InvitationService service = this.invitations.getIfAvailable();
-        if (service == null) {
-            return List.of();
-        }
-        Map<Integer, Boolean> slotSigned = new HashMap<>();
-        try {
-            for (TaskView.StepView step : this.workflows.getTask(workflowId, caller)
-                    .signers()) {
-                slotSigned.put(step.order(), step.signed());
-            }
-        } catch (ApiException ignored) {
-            // Tracking stays invitation-only when the task view is not
-            // available to this caller (an owner who signs nothing).
-        }
-        return service.listForWorkflow(workflowId, caller, slotSigned);
+        return new CreateWorkflowResponse(
+                this.workflows.createWorkflow(request, pdf, caller), List.of());
     }
 
     /**

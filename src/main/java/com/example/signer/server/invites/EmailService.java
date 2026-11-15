@@ -8,40 +8,20 @@ import java.time.Instant;
  * {@link SmtpEmailService} through {@code signature.remote-server.email.mode}
  * and {@code spring.mail.*} (credentials from the environment only).
  *
- * <p>The invitation URL is a desktop deep link carrying the raw one-time
- * invitation token; the server stores only its hash.
+ * <p>Every message here concerns an ACCOUNT: confirming an address, setting a
+ * new password, and the two notices that something happened to the account.
+ * The signing-invitation and guest-code messages were removed with the
+ * invitation workflow.
+ *
+ * <p><b>Every method is abstract, deliberately.</b> They used to be
+ * {@code default} bodies that threw, so an implementation could support the
+ * invitation mail and opt out of the account mail, or the reverse. With only
+ * account mail left there is nothing to opt out of: an {@code EmailService}
+ * that cannot send these four is not one. Abstract methods make that a
+ * compile error, where a throwing default made it a runtime failure on the
+ * day somebody tried to reset a password.
  */
 public interface EmailService {
-
-    /**
-     * Sends (or prints) a professional signing-invitation email (brief §19).
-     *
-     * @param recipientEmail normalized invited email
-     * @param recipientName  display name, may be derived from the email
-     * @param workflowName   document the recipient is asked to sign
-     * @param inviterName    who requested the signature
-     * @param invitationUrl  one-time invitation deep link (raw token inside)
-     * @param expiresAt      when the invitation expires
-     */
-    void sendSigningInvitation(String recipientEmail, String recipientName,
-                               String workflowName, String inviterName,
-                               String invitationUrl, Instant expiresAt);
-
-    /**
-     * Sends the one-time code that opens a guest signing session (security
-     * Phase 3). The code is a secret: implementations never log it.
-     *
-     * @param recipientEmail the invited address (the code's only destination)
-     * @param workflowName   document the code is for
-     * @param code           6-digit one-time code
-     * @param expiresAt      when the code stops working
-     */
-    default void sendGuestVerificationCode(String recipientEmail, String workflowName,
-                                           String code, Instant expiresAt) {
-        // Fail loudly rather than pretend a code was delivered.
-        throw new IllegalStateException(getClass().getSimpleName()
-                + " cannot send guest verification codes");
-    }
 
     /**
      * Sends the one-time link that confirms an e-mail address (security
@@ -52,11 +32,7 @@ public interface EmailService {
      * @param link           one-time verification URL (raw token inside)
      * @param expiresAt      when the link stops working
      */
-    default void sendEmailVerification(String recipientEmail, String link,
-                                       Instant expiresAt) {
-        throw new IllegalStateException(getClass().getSimpleName()
-                + " cannot send e-mail verification links");
-    }
+    void sendEmailVerification(String recipientEmail, String link, Instant expiresAt);
 
     /**
      * Sends the one-time link that sets a new password (security Phase D).
@@ -66,10 +42,7 @@ public interface EmailService {
      * @param link           one-time password-reset URL (raw token inside)
      * @param expiresAt      when the link stops working
      */
-    default void sendPasswordReset(String recipientEmail, String link, Instant expiresAt) {
-        throw new IllegalStateException(getClass().getSimpleName()
-                + " cannot send password-reset links");
-    }
+    void sendPasswordReset(String recipientEmail, String link, Instant expiresAt);
 
     /**
      * Tells the account holder that their password has just changed (security
@@ -86,11 +59,7 @@ public interface EmailService {
      * @param afterReset     true when a reset link was used, false when the
      *                       holder changed it knowing the old password
      */
-    default void sendPasswordChanged(String recipientEmail, Instant changedAt,
-                                     boolean afterReset) {
-        throw new IllegalStateException(getClass().getSimpleName()
-                + " cannot send password-change notices");
-    }
+    void sendPasswordChanged(String recipientEmail, Instant changedAt, boolean afterReset);
 
     /**
      * Tells the account holder that their account has been locked by failed
@@ -109,8 +78,5 @@ public interface EmailService {
      * @param recipientEmail the account's own address, the only destination
      * @param lockedUntil    when the lock lifts by itself
      */
-    default void sendAccountLocked(String recipientEmail, Instant lockedUntil) {
-        throw new IllegalStateException(getClass().getSimpleName()
-                + " cannot send account-lock notices");
-    }
+    void sendAccountLocked(String recipientEmail, Instant lockedUntil);
 }

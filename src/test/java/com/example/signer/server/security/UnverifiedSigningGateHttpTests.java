@@ -6,7 +6,6 @@ import com.example.signer.server.WorkflowServerApplication;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionResponse;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
-import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 import com.example.signer.signing.SignaturePlacement;
 import com.example.signer.token.SigningCertificate;
@@ -81,9 +80,6 @@ class UnverifiedSigningGateHttpTests {
 
     @Autowired
     private RemoteWorkflowService workflows;
-
-    @Autowired
-    private WorkflowInvitationCoordinator coordinator;
 
     @Autowired
     private DataSource dataSource;
@@ -161,9 +157,8 @@ class UnverifiedSigningGateHttpTests {
     private String workflowForBob(String fingerprint) {
         List<CreateWorkflowRequest.SignerSpec> specs = new ArrayList<>();
         specs.add(new CreateWorkflowRequest.SignerSpec(1, "bob", fingerprint));
-        WorkflowInvitationCoordinator.Preparation prep = coordinator.prepare(
-                new CreateWorkflowRequest("d4-gate.pdf", "SEQUENTIAL", specs), "alice");
-        WorkflowView view = workflows.createWorkflow(prep.request(), pdf(), "alice");
+        WorkflowView view = workflows.createWorkflow(
+                new CreateWorkflowRequest("d4-gate.pdf", "SEQUENTIAL", specs), pdf(), "alice");
         return view.workflowId();
     }
 

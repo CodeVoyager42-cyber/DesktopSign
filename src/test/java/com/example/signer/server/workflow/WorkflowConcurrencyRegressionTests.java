@@ -331,8 +331,7 @@ class WorkflowConcurrencyRegressionTests {
                 workflowSigningService,
                 context.getBean(SignaturePlacementExtractor.class),
                 context.getBeanProvider(com.example.signer.server.auth.UserAccountService.class),
-                context.getBeanProvider(WorkflowDirectory.class),
-                context.getBeanProvider(com.example.signer.server.invites.InvitationService.class));
+                context.getBeanProvider(WorkflowDirectory.class));
 
         failing.failSaveAfterRevisionWrite = true;
         assertThatThrownBy(() -> failingService.submitSignature(id, "alice", signed,

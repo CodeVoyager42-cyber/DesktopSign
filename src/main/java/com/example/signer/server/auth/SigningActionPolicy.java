@@ -28,9 +28,11 @@ import java.util.regex.Pattern;
  * because that rule has to hold for every caller path including the website,
  * which this policy's filter does not see.
  *
- * <p><b>Guests are not subject to this.</b> A guest signing session proves
- * control of its address by receiving an e-mailed code, and has no account to
- * verify; {@link GuestAccessPolicy} is what bounds it.
+ * <p>There used to be an exemption here for guest signing sessions, which
+ * proved control of an address with an e-mailed code and had no account to
+ * verify. Guest sessions are gone with the invitation workflow, so every
+ * caller this policy sees now holds an account and the exemption is gone
+ * with them.
  *
  * <p>Matching is on the raw request URI, exact and anchored: this policy only
  * ever <i>adds</i> a requirement, so a spelling it fails to match is still

@@ -1,7 +1,7 @@
 package com.example.signer.ui;
 
 import com.example.signer.SignerApplication;
-import com.example.signer.server.invites.InvitationService;
+import com.example.signer.server.web.WebAccountService;
 import com.example.signer.token.TokenService;
 
 import org.junit.jupiter.api.Test;
@@ -38,8 +38,8 @@ class DesktopContextBootTests {
             assertThat(context.getBean(TokenService.class)).isNotNull();
 
             // Database-only beans stay absent in the desktop context.
-            assertThat(context.getBeanProvider(InvitationService.class).getIfAvailable())
-                    .as("InvitationService must not exist in the desktop context")
+            assertThat(context.getBeanProvider(WebAccountService.class).getIfAvailable())
+                    .as("a database-only bean must not exist in the desktop context")
                     .isNull();
 
             // The controller that used to hard-depend on InvitationService

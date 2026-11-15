@@ -237,20 +237,26 @@ public class ProductionSafetyValidator {
         boolean database = Boolean.parseBoolean(
                 env.getProperty("signature.remote-server.database.enabled", "false"));
         if (database) {
-            String publicBase = env.getProperty("signature.remote-server.invitation.public-base-url", "");
+            String publicBase = env.getProperty("signature.remote-server.public-base-url", "");
             String appBase = env.getProperty("app.base-url", "");
             String linkBase = !publicBase.isBlank() ? publicBase : appBase;
+            // This rule outlived the invitations it was written for, and
+            // matters more without them, not less: the links left are the
+            // account ones — confirm an address, set a new password — and a
+            // password-reset link sent over http is a credential in the
+            // clear. The property moved out of the `invitation` namespace
+            // with the resolver; the variable name is unchanged.
             if (!linkBase.toLowerCase(Locale.ROOT).startsWith("https://")) {
-                problems.add("Invitation links must be https: set SIGNER_PUBLIC_BASE_URL to"
-                        + " the public https:// address of this server (got '"
-                        + linkBase + "').");
+                problems.add("Emailed account links must be https: set SIGNER_PUBLIC_BASE_URL"
+                        + " to the public https:// address of this server (got '"
+                        + linkBase + "'). A password-reset link over http is a credential"
+                        + " in the clear.");
             }
-            if (!Boolean.parseBoolean(env.getProperty(
-                    "signature.remote-server.invitation.guest-verification", "true"))) {
-                problems.add("SIGNER_GUEST_VERIFICATION=false lets an invitation link alone"
-                        + " open a guest signing session (the sender, or anyone the e-mail"
-                        + " reaches, could sign in the invitee's place).");
-            }
+            // A rule for SIGNER_GUEST_VERIFICATION stood here: it refused a
+            // deployment that let an invitation link alone open a guest
+            // signing session without the emailed code. Guest sessions and
+            // invitations are both gone, so there is nothing left for the
+            // setting to weaken.
             // A rule for SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION stood here. It
             // guarded one thing — a desktop that reported no version opening a
             // launch link — and with the launch-code path removed there is no

@@ -1,4 +1,4 @@
-package com.example.signer.server.invites;
+package com.example.signer.server.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -17,10 +17,10 @@ import org.junit.jupiter.api.Test;
 class InvitationLinkResolverTests {
 
     /** Builds a resolver and runs the startup resolution once. */
-    private static InvitationLinkResolver resolveWith(
+    private static PublicBaseUrlResolver resolveWith(
             String appBaseUrl, String publicBaseUrl, int serverPort) {
-        InvitationLinkResolver resolver =
-                new InvitationLinkResolver(appBaseUrl, publicBaseUrl, serverPort);
+        PublicBaseUrlResolver resolver =
+                new PublicBaseUrlResolver(appBaseUrl, publicBaseUrl, serverPort);
         resolver.resolve();
         return resolver;
     }
@@ -29,7 +29,7 @@ class InvitationLinkResolverTests {
 
     @Test
     void explicitPublicBaseUrlWinsAndIsReportedVerbatim() {
-        InvitationLinkResolver links = resolveWith(
+        PublicBaseUrlResolver links = resolveWith(
                 "http://localhost:8080",
                 "https://signflow.example.com/", 8080);
 
@@ -42,7 +42,7 @@ class InvitationLinkResolverTests {
     void aLoopbackPublicBaseUrlIsHonouredButFlaggedAsLocalOnly() {
         // The operator asked for it, so we build the links — but a link no
         // remote signer can open must never be presented as working.
-        InvitationLinkResolver links = resolveWith(
+        PublicBaseUrlResolver links = resolveWith(
                 "http://localhost:8080", "http://127.0.0.1:8080", 8080);
 
         assertThat(links.baseUrl()).isEqualTo("http://127.0.0.1:8080");
@@ -52,7 +52,7 @@ class InvitationLinkResolverTests {
 
     @Test
     void nonLoopbackAppBaseUrlIsUsedUnchanged() {
-        InvitationLinkResolver links = resolveWith(
+        PublicBaseUrlResolver links = resolveWith(
                 "http://192.168.4.31:8080", "", 8080);
 
         assertThat(links.baseUrl()).isEqualTo("http://192.168.4.31:8080");
@@ -64,11 +64,11 @@ class InvitationLinkResolverTests {
 
     @Test
     void loopbackAppBaseUrlIsReplacedByThisMachinesLanAddress() {
-        String lanHost = InvitationLinkResolver.detectLanHost();
+        String lanHost = PublicBaseUrlResolver.detectLanHost();
         Assumptions.assumeTrue(lanHost != null,
                 "no non-virtual LAN adapter on this machine");
 
-        InvitationLinkResolver links = resolveWith(
+        PublicBaseUrlResolver links = resolveWith(
                 "http://localhost:8080", "", 8080);
 
         assertThat(links.baseUrl()).isEqualTo("http://" + lanHost + ":8080");
@@ -79,11 +79,11 @@ class InvitationLinkResolverTests {
 
     @Test
     void replacingTheHostKeepsTheSchemePortAndPathPrefix() {
-        String lanHost = InvitationLinkResolver.detectLanHost();
+        String lanHost = PublicBaseUrlResolver.detectLanHost();
         Assumptions.assumeTrue(lanHost != null,
                 "no non-virtual LAN adapter on this machine");
 
-        InvitationLinkResolver links = resolveWith(
+        PublicBaseUrlResolver links = resolveWith(
                 "https://127.0.0.1:8443/signflow", "", 8080);
 
         assertThat(links.baseUrl())
@@ -92,11 +92,11 @@ class InvitationLinkResolverTests {
 
     @Test
     void theServerPortIsAddedWhenTheConfiguredUrlOmitsOne() {
-        String lanHost = InvitationLinkResolver.detectLanHost();
+        String lanHost = PublicBaseUrlResolver.detectLanHost();
         Assumptions.assumeTrue(lanHost != null,
                 "no non-virtual LAN adapter on this machine");
 
-        InvitationLinkResolver links = resolveWith("http://localhost", "", 8080);
+        PublicBaseUrlResolver links = resolveWith("http://localhost", "", 8080);
 
         assertThat(links.baseUrl()).isEqualTo("http://" + lanHost + ":8080");
     }
@@ -105,7 +105,7 @@ class InvitationLinkResolverTests {
 
     @Test
     void withoutAnyLanAddressTheLoopbackUrlIsKeptAndFlaggedLocalOnly() {
-        InvitationLinkResolver links = new InvitationLinkResolver(
+        PublicBaseUrlResolver links = new PublicBaseUrlResolver(
                 "http://localhost:8080", "", 8080) {
             @Override
             String detectLanHostAddress() {
@@ -122,7 +122,7 @@ class InvitationLinkResolverTests {
 
     @Test
     void detectedLanAddressIsARealIpv4AddressNotLoopbackOrVirtual() {
-        String lanHost = InvitationLinkResolver.detectLanHost();
+        String lanHost = PublicBaseUrlResolver.detectLanHost();
         Assumptions.assumeTrue(lanHost != null,
                 "no non-virtual LAN adapter on this machine");
 
@@ -134,28 +134,28 @@ class InvitationLinkResolverTests {
 
     @Test
     void loopbackBaseUrlsAreRecognisedInEverySpelling() {
-        assertThat(InvitationLinkResolver.isLoopbackBaseUrl(null)).isTrue();
-        assertThat(InvitationLinkResolver.isLoopbackBaseUrl("")).isTrue();
-        assertThat(InvitationLinkResolver.isLoopbackBaseUrl("   ")).isTrue();
-        assertThat(InvitationLinkResolver.isLoopbackBaseUrl("not a url")).isTrue();
-        assertThat(InvitationLinkResolver.isLoopbackBaseUrl(
+        assertThat(PublicBaseUrlResolver.isLoopbackBaseUrl(null)).isTrue();
+        assertThat(PublicBaseUrlResolver.isLoopbackBaseUrl("")).isTrue();
+        assertThat(PublicBaseUrlResolver.isLoopbackBaseUrl("   ")).isTrue();
+        assertThat(PublicBaseUrlResolver.isLoopbackBaseUrl("not a url")).isTrue();
+        assertThat(PublicBaseUrlResolver.isLoopbackBaseUrl(
                 "http://localhost:8080")).isTrue();
-        assertThat(InvitationLinkResolver.isLoopbackBaseUrl(
+        assertThat(PublicBaseUrlResolver.isLoopbackBaseUrl(
                 "http://localhost:8080/invitations/x")).isTrue();
-        assertThat(InvitationLinkResolver.isLoopbackBaseUrl(
+        assertThat(PublicBaseUrlResolver.isLoopbackBaseUrl(
                 "http://127.0.0.1:3000")).isTrue();
-        assertThat(InvitationLinkResolver.isLoopbackBaseUrl(
+        assertThat(PublicBaseUrlResolver.isLoopbackBaseUrl(
                 "http://127.5.6.7:3000")).isTrue();
-        assertThat(InvitationLinkResolver.isLoopbackBaseUrl(
+        assertThat(PublicBaseUrlResolver.isLoopbackBaseUrl(
                 "http://[::1]:8080")).isTrue();
     }
 
     @Test
     void nonLoopbackBaseUrlsAreNotMistakenForLocalOnes() {
-        assertThat(InvitationLinkResolver.isLoopbackBaseUrl(
+        assertThat(PublicBaseUrlResolver.isLoopbackBaseUrl(
                 "http://192.168.4.31:8080")).isFalse();
         // Anything that resolves to a real address, e.g. a LAN name.
-        assertThat(InvitationLinkResolver.isLoopbackBaseUrl(
+        assertThat(PublicBaseUrlResolver.isLoopbackBaseUrl(
                 "http://signflow.example.com")).isFalse();
     }
 }

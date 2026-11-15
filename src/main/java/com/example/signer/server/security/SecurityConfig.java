@@ -4,7 +4,6 @@ import com.example.signer.server.auth.AccessTokenDenyList;
 import com.example.signer.server.auth.JwtService;
 import com.example.signer.server.auth.UserAccountService;
 import com.example.signer.server.web.FrontendRoutingConfiguration;
-import com.example.signer.server.invites.InvitationService;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -51,7 +50,6 @@ import java.time.Duration;
 public class SecurityConfig {
 
     static final String ROLE_USER = "ROLE_USER";
-    static final String ROLE_GUEST = "ROLE_GUEST";
 
     /**
      * Requests that need no token. A bearer header sent to them is ignored
@@ -62,20 +60,18 @@ public class SecurityConfig {
             post("/api/auth/login"),
             post("/api/auth/refresh"),
             post("/api/auth/logout"),
-            post("/api/auth/register"),
-            // Invitation link: preview and opening a guest signing session.
-            // The invitation token in the path is checked by the service.
-            get("/api/invitations/*"),
-            post("/api/invitations/*/guest-code"),
-            post("/api/invitations/*/guest-session"),
-            // Phase B: the launch code in the body is the credential.
-            post("/api/desktop/launch"),
+            // Four entries stood here and are gone with the workflows that
+            // needed them, so the paths now reach denyAll and 404 like any
+            // other: /api/auth/register (an account could only be created by
+            // redeeming an invitation), /api/invitations/* with its
+            // guest-code and guest-session posts, and /api/desktop/launch
+            // (the launch code was the credential, which is why it had to be
+            // public at all). Removing them matters beyond tidiness: every
+            // entry on this list is a route the bearer filter deliberately
+            // does NOT read a token for, so a stale entry is a path that
+            // skips authentication for no reason.
             // Reachability only (no sensitive data).
             get("/api/health"),
-            // Pages behind the emailed link.
-            get("/invitations/*"),
-            get("/sign/*"),
-            get("/sign/*/document"),
             // The website, served from this application's own origin (D2).
             // Named one by one rather than as a wildcard: this list is what
             // needs no token, so anything added to it is a decision. The
@@ -165,7 +161,6 @@ public class SecurityConfig {
     @Order(2)
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService,
             UserAccountService accounts, AccessTokenDenyList deniedTokens,
-            ObjectProvider<InvitationService> invitations,
             LoginRateLimitFilter loginRateLimitFilter,
             DownloadRateLimitFilter downloadRateLimitFilter)
             throws Exception {
@@ -196,13 +191,14 @@ public class SecurityConfig {
             // limiter is: a refusal must cost nothing beyond the count.
             .addFilterBefore(downloadRateLimitFilter,
                     BearerTokenAuthenticationFilter.class)
-            .addFilterAfter(new AuthenticatedRequestFilter(accounts, deniedTokens,
-                            invitations),
+            .addFilterAfter(new AuthenticatedRequestFilter(accounts, deniedTokens),
                     BearerTokenAuthenticationFilter.class)
             .authorizeHttpRequests(a -> a
                     .requestMatchers(PUBLIC).permitAll()
-                    .requestMatchers(path("/api/workflows/**"))
-                            .hasAnyAuthority(ROLE_USER, ROLE_GUEST)
+                    // The workflow API had its own rule because it admitted
+                    // guest and task sessions as well as accounts. Both are
+                    // gone, so it is an account-only API like the rest and
+                    // needs no exception of its own.
                     .requestMatchers(path("/api/**")).hasAuthority(ROLE_USER)
                     .anyRequest().denyAll());
         return http.build();
