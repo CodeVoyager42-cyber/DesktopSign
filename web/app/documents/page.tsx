@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Download, FileText, PenLine, Send } from "lucide-react";
+import { Download, FileText, PenLine } from "lucide-react";
 import { EmptyState, PageHeader } from "@/components/blocks";
 import { AppShell } from "@/components/chrome";
 import { DownloadRelease } from "@/components/download-release";
@@ -256,8 +256,8 @@ export default function Documents() {
                   action={
                     <Button asChild size="lg">
                       <Link href="/send">
-                        <Send aria-hidden="true" />
-                        Send your first document
+                        <PenLine aria-hidden="true" />
+                        Sign your first document
                       </Link>
                     </Button>
                   }
