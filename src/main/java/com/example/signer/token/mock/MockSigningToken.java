@@ -22,8 +22,6 @@ import java.security.cert.X509Certificate;
 import java.security.SecureRandom;
 import java.security.PrivateKey;
 import java.security.Signature;
-import java.security.interfaces.ECPublicKey;
-import java.security.interfaces.RSAPublicKey;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;

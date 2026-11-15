@@ -11,7 +11,6 @@ import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.entity.WorkflowEntity;
 import com.example.signer.server.db.entity.WorkflowSignerEntity;
 import com.example.signer.server.db.repository.AuditEventRepository;
-import com.example.signer.server.db.entity.AuditEventEntity;
 import com.example.signer.server.db.repository.InvitationRepository;
 import com.example.signer.server.db.repository.UserRepository;
 import com.example.signer.server.db.repository.WorkflowRepository;
@@ -24,7 +23,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.List;
 
 /**
  * Invitation-bound registration (brief §16): the invited EMAIL comes from

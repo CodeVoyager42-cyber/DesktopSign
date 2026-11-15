@@ -1,7 +1,6 @@
 package com.example.signer.server.workflow;
 
 import com.example.signer.server.WorkflowServerApplication;
-import com.example.signer.config.LoginProperties;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionRequest;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionResponse;
@@ -18,13 +17,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import org.springframework.test.context.ActiveProfiles;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;

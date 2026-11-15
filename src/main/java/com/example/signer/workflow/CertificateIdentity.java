@@ -4,7 +4,6 @@ import java.util.Locale;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.util.Objects;
 
 /**
  * Cryptographic identity of one workflow signer: the SHA-256 fingerprint of

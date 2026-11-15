@@ -5,7 +5,6 @@ import com.example.signer.pdf.DocumentRenderer;
 import com.example.signer.pdf.PdfRenderService;
 
 import javafx.application.Platform;
-import javafx.concurrent.Task;
 import javafx.embed.swing.SwingFXUtils;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;

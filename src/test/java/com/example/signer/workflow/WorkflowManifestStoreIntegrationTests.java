@@ -5,7 +5,6 @@ import com.example.signer.token.TokenService;
 import com.example.signer.token.mock.MockSigningToken;
 import com.example.signer.token.mock.MockTokenSimulator;
 
-import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.junit.jupiter.api.AfterEach;

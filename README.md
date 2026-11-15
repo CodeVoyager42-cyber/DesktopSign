@@ -151,7 +151,11 @@ timestamp, validity).
 ## Configuration
 
 All settings are environment-overridable (they use Spring's `${ENV_VAR:default}`
-syntax in `src/main/resources/application.yml`):
+syntax in `src/main/resources/application.yml`). The table below covers the
+desktop application; the coordination server's own settings — database, JWT
+secret, sessions, email, invitations, the desktop download and its GitHub
+release mirror — are documented variable by variable in
+[`.env.example`](.env.example):
 
 | Environment variable | Default | Description |
 |---|---|---|
@@ -159,6 +163,7 @@ syntax in `src/main/resources/application.yml`):
 | `SIGNATURE_LOGIN_PASSWORD` | `ISICOD` | Application start-up gate password. **Development default — change it for any real deployment.** |
 | `SIGNATURE_PKCS11_ENABLED` | `false` | When `true`, use a real PKCS#11 device (token/smartcard/SoftHSM2) instead of the mock token. |
 | `PKCS11_LIBRARY` | *(empty)* | Absolute path to the PKCS#11 module for the target platform (`.dll` on Windows, `.so` on Linux, `.dylib` on macOS). Required when `SIGNATURE_PKCS11_ENABLED=true`. |
+| `PKCS11_AUTO_DETECT_DIRS` | `C:\Windows\System32` | Where to look for a known driver (`eTPKCS11.dll`, `gclib.dll`) when `PKCS11_LIBRARY` is empty, so an installed build finds the card without configuration. Comma-separated. |
 | `PKCS11_SLOT_INDEX` | `0` | Index into the PKCS#11 slot list to select which token slot to use. |
 | `SIGNATURE_VERIFICATION_MAX_FILE_BYTES` | `536870912` (512 MiB) | Maximum PDF size the verifier will process; larger files are refused with a friendly error. |
 | `SIGNER_LOG_FILE` | `%TEMP%/signer-app.log` | Log file location (`${java.io.tmpdir}/signer-app.log`). |
@@ -195,16 +200,20 @@ launcher prints a warning asking you to move it. Never commit secrets:
 ├── src/main/java/com/example/signer/
 │   ├── ui/                 JavaFX desktop app
 │   │   ├── (root)          App shell: SignerFxApplication, AppNavigator, single-instance guard
-│   │   ├── dialog/         Login, home screen, invitation and inviter dialogs
+│   │   ├── dialog/         Login, home screen, invitation, inviter and launch dialogs
 │   │   ├── workspace/      Local signing (1–3 signers on this PC, continue a workflow PDF)
 │   │   ├── remote/         Server-backed screens (tasks, remote signing journey, wizard)
 │   │   ├── kit/            Reusable controls
 │   │   └── support/        Background threads, error messages, helpers
 │   ├── client/             HTTP client for the SignFlow server + remote signing service
 │   ├── server/             Coordination server (Spring Boot, profile "server")
-│   │   ├── api/            REST controllers and API contracts
+│   │   ├── api/            The desktop's REST controllers and the API contracts
+│   │   ├── web/            The website's own controllers, sessions, page routing
+│   │   ├── security/       Both filter chains, rate limiters, headers, CSRF
 │   │   ├── auth/           JWT, refresh tokens, guest sessions, accounts
 │   │   ├── invites/        Invitations, emails, public sign page
+│   │   ├── launch/         Launch codes for the website → desktop hand-off
+│   │   ├── downloads/      Installer catalogue, download route, GitHub release mirror
 │   │   ├── workflow/       Workflow aggregate, state machine, service, stores
 │   │   └── db/             JPA entities, repositories, PostgreSQL store
 │   ├── workflow/           Portable workflow manifest, reconciliation, local engine
@@ -221,7 +230,9 @@ launcher prints a warning asking you to move it. Never commit secrets:
 ├── src/test/java/          Tests, in the same packages as the code they test
 ├── web/                    The website: Next.js + TypeScript, exported into static/
 ├── docs/                   Design notes; docs/architecture/ has the sequence diagrams
-├── scripts/                package.sh, db-console.cmd, (un)register-signflow-protocol.cmd
+├── packaging/windows/      The WiX source the MSI is built from
+├── scripts/                package.sh, dev-runtime.cmd, db-console.cmd,
+│                           (un)register-signflow-protocol.cmd
 ├── tools/                  Build helpers (icon generation)
 ├── run-app.cmd             Start the desktop app
 └── run-server.cmd          Start the coordination server

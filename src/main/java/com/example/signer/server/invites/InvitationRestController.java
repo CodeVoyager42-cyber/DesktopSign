@@ -19,7 +19,6 @@ import com.example.signer.server.db.entity.WorkflowEntity;
 import com.example.signer.server.db.repository.UserRepository;
 import com.example.signer.server.db.repository.WorkflowRepository;
 import com.example.signer.server.db.repository.WorkflowSignerRepository;
-import com.example.signer.server.db.entity.WorkflowSignerEntity;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;

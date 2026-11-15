@@ -6,7 +6,6 @@ import com.example.signer.token.TokenState;
 import com.example.signer.token.mock.MockSigningToken;
 import com.example.signer.token.mock.MockTokenSimulator;
 import com.example.signer.verification.SignatureVerificationResult;
-import com.example.signer.workflow.WorkflowSigningEngine.ChainVerificationException;
 import com.example.signer.workflow.WorkflowSigningEngine.SignerRevision;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;

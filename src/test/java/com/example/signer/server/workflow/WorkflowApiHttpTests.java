@@ -1,8 +1,6 @@
 package com.example.signer.server.workflow;
 
 import com.example.signer.server.WorkflowServerApplication;
-import com.example.signer.server.api.ApiContracts.TaskView;
-import com.example.signer.server.api.ApiContracts.WorkflowView;
 import com.example.signer.token.TokenService;
 import com.example.signer.token.mock.MockSigningToken;
 import com.example.signer.token.mock.MockTokenSimulator;
@@ -26,11 +24,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;

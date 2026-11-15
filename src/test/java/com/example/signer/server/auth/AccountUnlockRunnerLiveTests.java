@@ -1,7 +1,6 @@
 package com.example.signer.server.auth;
 
 import com.example.signer.server.WorkflowServerApplication;
-import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.LoginFailureRepository;
 import com.example.signer.server.db.repository.UserRepository;
@@ -14,8 +13,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
-import java.time.Duration;
-import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

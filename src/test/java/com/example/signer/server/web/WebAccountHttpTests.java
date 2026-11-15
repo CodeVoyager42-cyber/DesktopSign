@@ -1,7 +1,6 @@
 package com.example.signer.server.web;
 
 import com.example.signer.server.WorkflowServerApplication;
-import com.example.signer.server.auth.PasswordHashing;
 import com.example.signer.server.auth.RefreshTokenStore;
 import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.db.entity.UserEntity;

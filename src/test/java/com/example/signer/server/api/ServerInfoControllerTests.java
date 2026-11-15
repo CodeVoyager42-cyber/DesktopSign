@@ -12,7 +12,6 @@ import com.example.signer.server.invites.InvitationLinkResolver;
 
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Files;
 
 /**
  * The sender-facing "where are my invitation links sent from?" endpoint.

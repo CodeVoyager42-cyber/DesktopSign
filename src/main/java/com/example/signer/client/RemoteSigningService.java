@@ -12,7 +12,6 @@ import com.example.signer.server.api.ApiContracts.SignatureSubmissionResponse;
 import com.example.signer.server.api.ApiContracts.TaskView;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
 import com.example.signer.token.TokenService;
-import com.example.signer.token.mock.MockSigningToken;
 import com.example.signer.workflow.WorkflowSigningService;
 
 import org.slf4j.Logger;

@@ -13,7 +13,6 @@ import com.example.signer.server.db.entity.InvitationEntity;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.entity.WorkflowEntity;
 import com.example.signer.server.db.repository.AuditEventRepository;
-import com.example.signer.server.db.entity.AuditEventEntity;
 import com.example.signer.server.db.repository.InvitationRepository;
 import com.example.signer.server.db.repository.UserRepository;
 import com.example.signer.server.db.repository.WorkflowSignerRepository;

@@ -15,8 +15,25 @@ import org.springframework.context.ConfigurableApplicationContext;
  *
  * <p>Runs as its own process from the same artifact as the desktop:
  * {@code --spring.profiles.active=server}. The desktop context stays
- * {@code WebApplicationType.NONE}; this context is a servlet app exposing
- * only {@code /api/workflows/*}.
+ * {@code WebApplicationType.NONE}; this one is a servlet app, and it serves
+ * everything this product exposes over HTTP:
+ *
+ * <ul>
+ *   <li>the desktop's bearer-token API — {@code /api/auth/*},
+ *       {@code /api/workflows/**}, {@code /api/invitations/*},
+ *       {@code /api/desktop/*}, {@code /api/server-info/*},
+ *       {@code /api/health};</li>
+ *   <li>the website's session API, {@code /web/api/**}, and the website
+ *       itself (the Next.js export under {@code resources/static}, routed by
+ *       {@code server.web.FrontendRoutingConfiguration});</li>
+ *   <li>the pages behind an emailed link, {@code /invitations/*} and
+ *       {@code /sign/*};</li>
+ *   <li>the desktop installer, {@code /downloads/*}.</li>
+ * </ul>
+ *
+ * <p>Which of those need a credential is not decided here: the two filter
+ * chains in {@code server.security} are the authority, and both end in a
+ * refusal, so a route is protected until it is opened there.
  *
  * <p>Component scanning covers the whole application, so the server reuses
  * the PDF verification and portable-manifest services directly. The token

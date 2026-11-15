@@ -13,12 +13,17 @@ tokens. One Maven artifact ships two applications selected by Spring profile:
 - **Coordination server** (Spring Boot servlet, profile `server`): accounts + JWT auth,
   workflows, invitations by email, guest signing sessions, desktop launch codes, the
   built-in website (Next.js static export), and the desktop installer download
-  (`SignFlow-<version>.msi` + `.sha256` from `SIGNER_DOWNLOAD_DIR`) — the headline feature
-  of this `feature-desktop-download` branch (docs/desktop-download.md §1–§6,
-  `server/downloads/DownloadCatalog.java`, `server/downloads/DownloadController.java`).
+  (`SignFlow-<version>.msi`/`-windows.zip` + `.sha256` from `SIGNER_DOWNLOAD_DIR`, filled
+  either by an operator copy or by the GitHub release mirror) — the headline feature of the
+  `feature-desktop-download` line (docs/desktop-download.md §1–§6,
+  `server/downloads/DownloadCatalog.java`, `server/downloads/DownloadController.java`,
+  `server/downloads/GitHubReleaseMirror.java`).
 
-Branch focus: making the website distribute the Windows installer, and making the website's
-"Sign" button open the installed desktop app via `signflow://` deep links
+Branch focus (`feature/download-catalog-hardening`): the download catalogue's own contract —
+refusing a catalogue entry without a real archive signature, and offering the portable build
+when a release publishes no MSI (`DownloadCatalog.java`, `server/downloads/*Tests`). It
+continues the `feature-desktop-download` line: the website distributes the Windows installer,
+and the website's "Sign" button opens the installed desktop app via `signflow://` deep links
 (`packaging/windows/main.wxs`, `server/launch/LaunchCodeService.java#issue`).
 
 ## 2. Technology stack
@@ -59,13 +64,14 @@ src/main/java/com/example/signer/
   server/    api/ (workflow + auth + invitations controllers), auth/ (JwtService, refresh
              rotation, deny list, accounts), invites/ (invitation lifecycle, guest codes,
              sign page, email), launch/ (launch codes for desktop hand-off), downloads/
-             (installer catalog/controller), security/ (both filter chains, rate limiters),
+             (installer catalog/controller + GitHubReleaseClient/Mirror/LatestReleaseService),
+             security/ (both filter chains, rate limiters),
              web/ (website session controllers + FrontendRoutingConfiguration),
-             workflow/ (RemoteWorkflowService 1263 lines, aggregate, stores), db/
+             workflow/ (RemoteWorkflowService ~1340 lines, aggregate, stores), db/
              (entities, repositories, DbPersistenceConfiguration, JpaWorkflowStore)
 web/         Next.js source; app/ pages (sign-in, documents, document, send, open, download,
              account, verify-email, reset-password…), lib/ (api.ts is the only server client,
-             dashboard/send/timeline/handoff/download.ts helpers + *.test.ts, 48 tests)
+             dashboard/send/timeline/handoff/download.ts helpers + *.test.ts, 54 tests)
 docs/        ARCHITECTURE-ASSESSMENT.md, desktop-download.md, TRANSPORT-SECURITY.md, workflow.md,
              architecture/ (sequence diagrams), security/ (phase 1–F write-ups)
 packaging/windows/  main.wxs (full WiX replacement; registers signflow://), main.wxs.jdk-base
@@ -76,16 +82,19 @@ run-app.cmd / run-server.cmd  Windows launcher scripts (dev profile; secrets fil
 
 ## 4. Startup and execution
 
-- Desktop: `java -jar target/pdf-signer-desktop-0.1.0-SNAPSHOT.jar --spring.profiles.active=dev`
+- Desktop: `java -jar target/pdf-signer-desktop-0.2.1-SNAPSHOT.jar --spring.profiles.active=dev`
   (run-app.cmd) → `SignerApplication.main` → `SignerFxApplication.init/start`
   → `SingleInstanceGuard.acquire` → boot Spring (`WebApplicationType.NONE`, profile `desktop`)
   → `AppNavigator` (login gate `LoginProperties` ISICOD/ISICOD → home dialog).
 - Server: run-server.cmd → `{ JAR }` with `-Dloader.main=…WorkflowServerApplication`,
   profiles `server,dev`, port 8080; DB on by default; secrets read from
   `%SIGNFLOW_SECRETS_FILE%` or `%USERPROFILE%\signflow-secrets\mail-secrets.env`.
-- Build: `./mvnw verify` (tests ~120 classes) → jar. Package: `scripts/package.sh` →
-  `build/dist/SignFlow-0.1.0.msi` + `windows.zip` + `.sha256` sidecars.
-  Publish: copy artifacts into `SIGNER_DOWNLOAD_DIR`; catalog is re-read per request.
+- Build: `./mvnw verify` (143 test classes) → jar. Package: `scripts/package.sh` →
+  `build/dist/SignFlow-<version>.msi` + `windows.zip` + `.sha256` sidecars (APP_VERSION comes
+  from the built jar name; the project is at 0.2.1-SNAPSHOT).
+  Publish: either copy the artifacts into `SIGNER_DOWNLOAD_DIR`, or let the GitHub release
+  mirror fill it on the first request (docs/desktop-download.md §2a/§2b). The catalog is
+  re-read per request either way.
 
 ## 5. Architecture in brief
 
@@ -132,15 +141,36 @@ Web sessions: Spring Session JDBC (V9), `__Host-SF_SESSION` cookie, CSRF in sess
    `SignFlow-<version>.msi`/`-windows.zip` matching strict regex, reads `.sha256` sidecar
    (≤4 KiB) → `GET /downloads/{file}` streams with Range support; unset dir = unavailable,
    set-but-missing dir fails startup; symlink/traversal defenses verified
-   (`DownloadCatalog.java#resolve`, `toRealPath` check).
+   (`DownloadCatalog.java#resolve`, `toRealPath` check). An entry whose archive carries no
+   real signature is refused, and a release that publishes no MSI is offered as the portable
+   zip instead (this branch).
+6. **GitHub release mirror**: the download folder no longer has to be filled by hand.
+   `LatestReleaseService` reads the latest release of `GITHUB_RELEASE_REPOSITORY` through
+   `GitHubReleaseClient` (private repo, so `GITHUB_API_TOKEN` is required; the token is
+   stripped before following GitHub's redirect to the user-content host) and caches one
+   answer for `GITHUB_RELEASE_CACHE_TTL` (default 1 h), serving the last good answer on a
+   failed refresh with a 60 s cooldown. A `GET /downloads/{file}` for an allow-listed name
+   the folder lacks, which the latest release does publish, makes `GitHubReleaseMirror`
+   fetch it once: streamed to a `.part-` scratch name the allow-list cannot serve,
+   checksummed while reading, verified against GitHub's published digest, then moved in —
+   with the `.sha256` sidecar written from the computed digest rather than downloaded.
+   Concurrent requests for one file are serialised, a HEAD never triggers a fetch, and a
+   file already in the folder always wins. Both gates (allow-list + present in the latest
+   release) must pass. No token configured turns the feature off and leaves the folder as
+   the only source. The dashboard's own card reads the same cache via
+   `GET /web/api/latest-release` (`WebLatestReleaseController`, session-gated).
 
 ## 7. Configuration (variable names only)
 
 `SIGNATURE_LOGIN_USERNAME|PASSWORD|SERVER_USER|SERVER_PASSWORD`, `SIGNATURE_PKCS11_ENABLED`,
-`PKCS11_LIBRARY`, `PKCS11_SLOT_INDEX`, `SIGNATURE_VERIFICATION_MAX_FILE_BYTES`,
+`PKCS11_LIBRARY`, `PKCS11_AUTO_DETECT_DIRS`, `PKCS11_SLOT_INDEX`,
+`SIGNATURE_VERIFICATION_MAX_FILE_BYTES`,
 `SIGNER_SERVER_URL`, `SIGNER_UPLOAD_MAX_BYTES|REQUEST_BYTES`, `SIGNER_SERVER_JWT_SECRET`,
 `SIGNER_SERVER_STORAGE`, `SIGNER_DB_ENABLED|URL|USERNAME|PASSWORD`, `SIGNER_DOWNLOAD_DIR`,
-`SIGNER_DOWNLOAD_RATE_LIMIT|WINDOW`, `SIGNER_INVITATION_*`, `SIGNER_PUBLIC_BASE_URL`,
+`SIGNER_DOWNLOAD_RATE_LIMIT`, `SIGNER_DOWNLOAD_RATE_WINDOW`,
+`GITHUB_API_TOKEN`, `GITHUB_RELEASE_REPOSITORY`, `GITHUB_API_BASE_URL`,
+`GITHUB_RELEASE_CACHE_TTL` (the release mirror; no token = feature off),
+`SIGNER_INVITATION_*`, `SIGNER_PUBLIC_BASE_URL`,
 `SIGNER_GUEST_VERIFICATION`, `SIGNER_DESKTOP_MIN_VERSION|TASK_MINUTES`,
 `SIGNER_WEB_SESSION_*`, `SIGNER_WEB_SIGNUP_*`, `SIGNER_WEB_UNVERIFIED_RETENTION`,
 `SIGNER_EMAIL_MODE|FROM`, `SPRING_MAIL_*`, `APP_BASE_URL`, `APP_NAME`,
@@ -192,8 +222,16 @@ Web sessions: Spring Session JDBC (V9), `__Host-SF_SESSION` cookie, CSRF in sess
   drift check on runner JDK 21 may warn (re-validate before bumping the base).
 - Same jar boots desktop and server; `@SpringBootApplication(scanBasePackages="com.example.signer")`
   makes token/PDF beans exist in the server context (unused but scanned).
-- Javadoc mismatch: `WorkflowServerApplication` comment says "exposing only
-  `/api/workflows/*`" (stale — many more routes exist).
+- FIXED (`feature/download-catalog-hardening`): `WorkflowServerApplication`'s javadoc said it
+  exposed "only `/api/workflows/*`"; it now lists the real route groups and points at
+  `server/security` as the authority on which of them need a credential. The same pass
+  removed 52 unused imports across 31 files (`mvnw test-compile` green). Six of them were
+  `server.db.*` types reached for by the `api`/`invites` layers, and one was
+  `WorkflowStore`'s import of its own `JpaWorkflowStore` implementation — it existed only to
+  support a `{@code}` javadoc tag, which needs no import, so the persistence seam no longer
+  compiles against one of the two implementations it chooses between. `DefaultPdfSigningService`
+  held seven (`java.awt.*`, `DateTimeFormatter`, …) left behind when the stamp drawing moved
+  to `SignatureStampRenderer`.
 - Packaged MSI is not code-signed (documented decision, docs/desktop-download.md §1).
 - `reports/database-overview.html` is a generated artifact committed in the repo.
 - `web/package.json` lacks `"type": "module"` (node --test warns; tests still pass).

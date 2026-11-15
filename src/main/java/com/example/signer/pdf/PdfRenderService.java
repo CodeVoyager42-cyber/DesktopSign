@@ -1,6 +1,5 @@
 package com.example.signer.pdf;
 
-import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Path;
 

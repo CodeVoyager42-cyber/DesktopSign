@@ -1,6 +1,5 @@
 package com.example.signer.server.workflow;
 
-import com.example.signer.server.db.JpaWorkflowStore;
 import java.util.List;
 
 /**

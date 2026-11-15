@@ -17,7 +17,6 @@ import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
 import com.example.signer.server.api.ApiErrorType.ApiException;
 
 import com.example.signer.server.auth.AuthController;
-import com.example.signer.server.db.entity.WorkflowEntity;
 import com.example.signer.server.invites.InvitationService;
 
 import org.springframework.beans.factory.ObjectProvider;

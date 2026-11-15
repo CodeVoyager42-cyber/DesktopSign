@@ -11,7 +11,6 @@ import com.example.signer.token.mock.MockSigningToken;
 import com.example.signer.token.mock.MockTokenSimulator;
 import com.example.signer.verification.SignatureVerificationResult;
 
-import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.cos.COSDictionary;
 import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.pdmodel.PDDocument;
