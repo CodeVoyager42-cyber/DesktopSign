@@ -1,19 +1,14 @@
 package com.example.signer.server.security;
 
 import com.example.signer.server.WorkflowServerApplication;
-import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.auth.PasswordHashing;
 import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.WorkflowInvitationCoordinator;
 import com.example.signer.server.web.WebAccountService;
-import com.example.signer.server.workflow.RemoteWorkflowService;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,22 +19,16 @@ import org.springframework.test.context.ActiveProfiles;
 
 import javax.sql.DataSource;
 
-import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Base64;
-import java.util.HexFormat;
-import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -88,7 +77,6 @@ class PasswordChangeEndsTokensHttpTests {
     /** For the accounts this class creates itself. */
     private static final String PASSWORD = "a-perfectly-good-password-7";
 
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     @LocalServerPort
     private int port;
@@ -101,12 +89,6 @@ class PasswordChangeEndsTokensHttpTests {
 
     @Autowired
     private WebAccountService webAccounts;
-
-    @Autowired
-    private WorkflowInvitationCoordinator coordinator;
-
-    @Autowired
-    private RemoteWorkflowService workflows;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
@@ -197,53 +179,6 @@ class PasswordChangeEndsTokensHttpTests {
         return unique;
     }
 
-    private static String fingerprint() {
-        byte[] b = new byte[32];
-        RANDOM.nextBytes(b);
-        return HexFormat.of().withUpperCase().formatHex(b);
-    }
-
-    private static byte[] pdf() {
-        try (PDDocument doc = new PDDocument()) {
-            doc.addPage(new PDPage());
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            doc.save(out);
-            return out.toByteArray();
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    /** alice's workflow with {@code signer} holding slot 1. */
-    private String workflowFor(String signer) {
-        List<CreateWorkflowRequest.SignerSpec> specs = new ArrayList<>();
-        specs.add(new CreateWorkflowRequest.SignerSpec(1, signer, null));
-        WorkflowInvitationCoordinator.Preparation prep = coordinator.prepare(
-                new CreateWorkflowRequest("d7.pdf", "SEQUENTIAL", specs), "alice");
-        return workflows.createWorkflow(prep.request(), pdf(), "alice").workflowId();
-    }
-
-    /**
-     * A desktop task session for {@code user} on a workflow where it holds
-     * slot 1: bind a certificate, issue a launch code, exchange it.
-     */
-    private String taskSession(String user, String password, String workflowId)
-            throws Exception {
-        String bearer = login(user, password);
-        Reply bound = call("POST",
-                "/api/workflows/" + workflowId + "/signers/" + user + "/certificate",
-                bearer, "{\"certificateSha256\":\"" + fingerprint() + "\"}");
-        assertThat(bound.status()).as(bound.body()).isIn(200, 204);
-        Reply issued = call("POST", "/api/workflows/" + workflowId + "/launch-codes",
-                bearer, null);
-        assertThat(issued.status()).as(issued.body()).isEqualTo(201);
-        String link = mapper.readTree(issued.body()).path("deepLink").asText();
-        String code = link.substring(link.indexOf("&c=") + 3);
-        Reply opened = call("POST", "/api/desktop/launch", null, mapper.writeValueAsString(
-                Map.of("code", code, "appVersion", "9.9.9", "device", "d7-test")));
-        assertThat(opened.status()).as(opened.body()).isEqualTo(200);
-        return mapper.readTree(opened.body()).path("accessToken").asText();
-    }
 
     /* ------------------------------- tests ------------------------------ */
 
@@ -282,23 +217,6 @@ class PasswordChangeEndsTokensHttpTests {
 
         assertThat(readTasks(after)).as("the brand new token is not caught by the guard")
                 .isEqualTo(200);
-    }
-
-    @Test
-    void aTaskSessionIssuedBeforeTheChangeStopsWorkingToo() throws Exception {
-        // The longer half of the risk: 30 minutes, not 15.
-        String wf = workflowFor("charlie");
-        String task = taskSession("charlie", "charlie-pass", wf);
-        assertThat(call("GET", "/api/workflows/" + wf + "/task", task, null).status())
-                .as("the one thing a task session is for").isEqualTo(200);
-
-        intoTheNextSecond();
-        assertThat(webAccounts.changePassword("charlie", "charlie-pass",
-                "yet-another-password-3", null)).isTrue();
-
-        assertThat(call("GET", "/api/workflows/" + wf + "/task", task, null).status())
-                .as("a launch-code session is desktop access to the account as well")
-                .isEqualTo(401);
     }
 
     @Test

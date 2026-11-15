@@ -6,12 +6,12 @@ import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowResponse;
 import com.example.signer.server.api.ApiContracts.InvitationStatusView;
 import com.example.signer.server.api.ApiContracts.InvitationView;
-import com.example.signer.server.api.ApiContracts.LaunchCodeIssued;
 import com.example.signer.server.api.ApiContracts.RevisionView;
 import com.example.signer.server.api.ApiContracts.SigningTasksView;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
+import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
+import com.example.signer.server.api.ApiErrorType.ApiException;
 import com.example.signer.server.api.WorkflowOperations;
-import com.example.signer.server.launch.LaunchCodeService;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -82,15 +82,10 @@ public class WebWorkflowController {
 
     private final WorkflowOperations operations;
 
-    /** Phase B's launch codes, issued here for a website session. */
-    private final LaunchCodeService launches;
-
     public WebWorkflowController(RemoteWorkflowService workflows,
-                                 WorkflowOperations operations,
-                                 LaunchCodeService launches) {
+                                 WorkflowOperations operations) {
         this.workflows = workflows;
         this.operations = operations;
-        this.launches = launches;
     }
 
     /** Workflows this account created — the dashboard's "sent" side. */
@@ -207,17 +202,20 @@ public class WebWorkflowController {
      * Phase B review's H2 — a launch never enrols a certificate), the
      * address must be verified, and at most five codes a minute.
      *
-     * <p><b>{@code Cache-Control: no-store}</b>, because the answer contains
-     * the code itself. It is the credential that opens a signing session: two
-     * minutes, one use, and no copy of it is kept server-side beyond its
-     * hash.
+     * <p><b>Removed (scope B), and answering 410 for one release.</b> The
+     * website no longer hands a signer to the desktop: the {@code /open} page
+     * and the "Sign now" action that called this are gone, and a signer opens
+     * the task from the desktop application's own task list instead. This
+     * route stays for one release so a cached copy of the old page fails as a
+     * removal rather than as a 403 it would try to recover from. It is
+     * deleted in the next step.
      */
     @PostMapping("/{workflowId}/launch-codes")
-    public ResponseEntity<LaunchCodeIssued> launchCode(@PathVariable String workflowId,
-                                                       Authentication caller) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .header(HttpHeaders.CACHE_CONTROL, "no-store")
-                .body(this.launches.issue(caller.getName(), workflowId));
+    public void launchCode() {
+        throw new ApiException(ApiErrorCode.FEATURE_REMOVED,
+                "The desktop launch-code path has been removed. Sign in to the "
+                + "SignFlow desktop application and open the signing task from "
+                + "its task list.");
     }
 
     /* --------------------- part 3: the finished document --------------- */

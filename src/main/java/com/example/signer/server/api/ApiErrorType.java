@@ -89,7 +89,15 @@ public final class ApiErrorType {
          * Phase B remediation: the signer's certificate is not registered
          * for this slot yet, so it cannot be opened from a launch link.
          */
-        CERTIFICATE_NOT_BOUND
+        CERTIFICATE_NOT_BOUND,
+        /**
+         * The endpoint existed in an earlier release and has been removed on
+         * purpose. Answered with 410, not 404, for exactly one release: a
+         * client still calling it is out of date, and 410 says so — where a
+         * 404 would read as "wrong URL" and invite a retry. The route is
+         * deleted outright in the release after.
+         */
+        FEATURE_REMOVED
     }
 
     /** Exception carrying an {@link ApiErrorCode}; thrown by the service layer. */
@@ -185,6 +193,7 @@ public final class ApiErrorType {
                 case EMAIL_NOT_VERIFIED -> HttpStatus.FORBIDDEN;       // 403
                 case TOO_MANY_REQUESTS -> HttpStatus.TOO_MANY_REQUESTS; // 429
                 case CERTIFICATE_NOT_BOUND -> HttpStatus.CONFLICT;     // 409
+                case FEATURE_REMOVED -> HttpStatus.GONE;               // 410
                 case EMAIL_DELIVERY_FAILED -> HttpStatus.BAD_GATEWAY;  // 502
                 case UPLOAD_TOO_LARGE -> HttpStatus.PAYLOAD_TOO_LARGE;  // 413
                 case AUTHENTICATION_REQUIRED -> HttpStatus.UNAUTHORIZED; // 401

@@ -245,37 +245,6 @@ class WebWorkflowWriteHttpTests {
 
     /** One signer slot as the JSON of {@code CreateWorkflowRequest}. */
     @Test
-    void aSignerAsksTheWebsiteForTheLinkThatOpensTheirDesktop() throws Exception {
-        String signer = account(true);
-        Session owner = signIn(account(true));
-        // slot() binds a certificate, so slot 1 can sign as soon as it exists
-        // — a launch never enrols a certificate (Phase B review, H2).
-        String workflow = owner.workflow(signer);
-
-        Session theSigner = signIn(signer);
-        String path = "/web/api/workflows/" + workflow + "/launch-codes";
-        Reply issued = theSigner.post(path, null);
-
-        assertThat(issued.status()).as(issued.body()).isEqualTo(201);
-        assertThat(issued.json().path("deepLink").asText())
-                .as("the deep link carries a versioned, single-use code")
-                .startsWith("signflow://launch?v=1&c=");
-        assertThat(issued.json().path("expiresInSeconds").asLong()).isEqualTo(120);
-
-        // The answer contains the credential itself, so it must not be
-        // stored by anything between here and the page.
-        HttpResponse<String> raw = this.http.send(
-                HttpRequest.newBuilder(uri(path))
-                        .header("Cookie", theSigner.cookies())
-                        .header("X-XSRF-TOKEN", theSigner.csrf)
-                        .POST(HttpRequest.BodyPublishers.ofString("{}")).build(),
-                HttpResponse.BodyHandlers.ofString());
-        assertThat(raw.headers().firstValue("Cache-Control")).hasValue("no-store");
-        // And a second ask is a different code: the first is revoked unused.
-        assertThat(raw.body()).isNotEqualTo(issued.body());
-    }
-
-    @Test
     void theHandOffScreenCanAskWhereToGetTheApplication() throws Exception {
         Session session = signIn(account(true));
 
@@ -296,53 +265,6 @@ class WebWorkflowWriteHttpTests {
                 HttpRequest.newBuilder(uri("/web/api/app-info")).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
         assertThat(anonymous.statusCode()).isEqualTo(401);
-    }
-
-    @Test
-    void onlyASignerOfTheWorkflowGetsALaunchLink() throws Exception {
-        String signer = account(true);
-        Session owner = signIn(account(true));
-        String workflow = owner.workflow(signer);
-
-        // The creator of a workflow they do not sign holds no slot of it, so
-        // there is no signing task for them to open.
-        assertThat(owner.post("/web/api/workflows/" + workflow + "/launch-codes", null)
-                .status())
-                .as("the owner is not a signer here")
-                .isEqualTo(403);
-
-        // A stranger gets the uniform answer for a workflow that is not
-        // theirs, and never learns whether this one exists.
-        Session stranger = signIn(account(true));
-        assertThat(stranger.post("/web/api/workflows/" + workflow + "/launch-codes", null)
-                .status())
-                .isIn(403, 404);
-    }
-
-    @Test
-    void aSlotWithNoCertificateCannotBeOpenedFromTheWebsite() throws Exception {
-        String signer = account(true);
-        Session owner = signIn(account(true));
-        // The shape every workflow the website creates has: no certificate,
-        // because one lives on the signer's own card.
-        Reply created = owner.createWorkflow(
-                "{\"documentName\":\"unbound.pdf\",\"signingPolicy\":\"SEQUENTIAL\","
-                + "\"signers\":[{\"order\":1,\"userId\":\"" + signer
-                + "\",\"certificateSha256\":null}]}");
-        assertThat(created.status()).as(created.body()).isEqualTo(201);
-        String workflow = created.json().path("workflow").path("workflowId").asText();
-
-        Session theSigner = signIn(signer);
-        Reply refused = theSigner.post(
-                "/web/api/workflows/" + workflow + "/launch-codes", null);
-
-        // 409, and the code says which of the two reasons it is: the slot has
-        // no certificate yet. The signer registers one from the desktop
-        // application the first time; a launch session can never do it, which
-        // is what keeps a stolen code from attaching a thief's card.
-        assertThat(refused.status()).as(refused.body()).isEqualTo(409);
-        assertThat(refused.json().path("code").asText())
-                .isIn("CERTIFICATE_NOT_BOUND", "INVALID_WORKFLOW_STATE");
     }
 
     private static String slot(int order, String userId) {
