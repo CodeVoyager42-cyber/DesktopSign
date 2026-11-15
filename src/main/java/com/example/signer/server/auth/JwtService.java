@@ -88,13 +88,11 @@ public class JwtService {
      */
     public static final String TYPE_GUEST = "guest";
 
-    /**
-     * Desktop task session opened with a website launch code (Phase B): one
-     * account, one workflow, one signer slot, short-lived, never refreshed.
-     * Accepted only where a guest token would be ({@code GuestAccessPolicy})
-     * and only while its launch code is not revoked.
-     */
-    public static final String TYPE_TASK = "task";
+    // There was a third type here, `task`: the desktop session a website
+    // launch code opened (Phase B). The launch-code path is gone, and so is
+    // the type. Nothing needs to remember the name in order to refuse it —
+    // TokenAuthenticationConverter accepts `guest` and `access` and lets
+    // everything else fail as an invalid token.
 
     private final NimbusJwtEncoder encoder;
     private final JwtDecoder decoder;
@@ -146,9 +144,12 @@ public class JwtService {
             @Value("${signature.remote-server.jwt-secret:}") String configuredSecret,
             @Value("${signature.remote-server.access-token-minutes:15}") long accessMinutes,
             @Value("${signature.remote-server.guest-session-minutes:60}") long guestMinutes,
-            @Value("${signature.remote-server.desktop.task-session-minutes:30}") long taskMinutes,
             Environment environment) {
-        this(configuredSecret, accessMinutes, Math.max(guestMinutes, taskMinutes),
+        // Was max(guestMinutes, taskMinutes): the desktop task session was
+        // the other long-lived type and set the bound when it was configured
+        // higher. With the launch-code path gone, guest sessions are the only
+        // long-lived tokens left, so they set it alone.
+        this(configuredSecret, accessMinutes, guestMinutes,
                 environment.acceptsProfiles(Profiles.of("server"))
                         && !environment.acceptsProfiles(
                                 Profiles.of("dev")));
@@ -156,7 +157,7 @@ public class JwtService {
 
     /** As configured by Spring, with the default 60-minute guest sessions. */
     public JwtService(String configuredSecret, long accessMinutes, Environment environment) {
-        this(configuredSecret, accessMinutes, 60, 30, environment);
+        this(configuredSecret, accessMinutes, 60, environment);
     }
 
     /** Guest sessions limited to the default 60 minutes. */
@@ -287,49 +288,6 @@ public class JwtService {
     /** Validates signature, algorithm, expiry, issuer, audience and token type. */
     public JwtAuthentication validateAccessJwt(String token) {
         return toAccess(decode(token));
-    }
-
-    /**
-     * Issues a desktop task token (Phase B) for {@code principal}'s slot
-     * {@code signerOrder} of {@code workflowId}, opened with launch code
-     * {@code launchId}. No refresh token exists for it.
-     */
-    public String issueTaskJwt(String principal, String workflowId, int signerOrder,
-                               long launchId, Duration ttl) {
-        Instant now = Instant.now();
-        return sign(base(principal, now, now.plus(ttl))
-                .claim(TYPE_CLAIM, TYPE_TASK)
-                .claim("wf", workflowId)
-                .claim("slot", signerOrder)
-                .claim("lc", launchId)
-                .build());
-    }
-
-    /** A validated desktop task session. */
-    public record TaskAuthentication(String principal, String workflowId, int signerOrder,
-                                     long launchId, String tokenId, Instant expiresAt) {
-    }
-
-    /** An already-decoded token as a desktop task session, or a rejection. */
-    public static TaskAuthentication toTask(Jwt jwt) {
-        if (!TYPE_TASK.equals(jwt.getClaimAsString(TYPE_CLAIM))) {
-            throw new JwtValidationException(RejectionReason.WRONG_TYPE, "wrong token type");
-        }
-        String subject = jwt.getSubject();
-        String workflowId = jwt.getClaimAsString("wf");
-        Object slot = jwt.getClaim("slot");
-        Object lc = jwt.getClaim("lc");
-        if (subject == null || subject.isBlank() || workflowId == null || workflowId.isBlank()
-                || !(slot instanceof Number s) || !(lc instanceof Number l)) {
-            throw new JwtValidationException(RejectionReason.MISSING_CLAIM, "missing claim");
-        }
-        return new TaskAuthentication(subject, workflowId, s.intValue(), l.longValue(),
-                jwt.getId(), jwt.getExpiresAt());
-    }
-
-    /** Validates a desktop task token (signature, expiry, type, scope claims). */
-    public TaskAuthentication validateTaskJwt(String token) {
-        return toTask(decode(token));
     }
 
     /** Validates a guest signing-session token (signature, expiry, type, scope claims). */

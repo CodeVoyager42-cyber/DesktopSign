@@ -5,7 +5,6 @@ import com.example.signer.server.auth.JwtService;
 import com.example.signer.server.auth.UserAccountService;
 import com.example.signer.server.web.FrontendRoutingConfiguration;
 import com.example.signer.server.invites.InvitationService;
-import com.example.signer.server.launch.LaunchCodeService;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -53,8 +52,6 @@ public class SecurityConfig {
 
     static final String ROLE_USER = "ROLE_USER";
     static final String ROLE_GUEST = "ROLE_GUEST";
-    /** Phase B: desktop task session from a website launch code. */
-    static final String ROLE_TASK = "ROLE_TASK";
 
     /**
      * Requests that need no token. A bearer header sent to them is ignored
@@ -169,7 +166,6 @@ public class SecurityConfig {
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService,
             UserAccountService accounts, AccessTokenDenyList deniedTokens,
             ObjectProvider<InvitationService> invitations,
-            ObjectProvider<LaunchCodeService> launches,
             LoginRateLimitFilter loginRateLimitFilter,
             DownloadRateLimitFilter downloadRateLimitFilter)
             throws Exception {
@@ -201,12 +197,12 @@ public class SecurityConfig {
             .addFilterBefore(downloadRateLimitFilter,
                     BearerTokenAuthenticationFilter.class)
             .addFilterAfter(new AuthenticatedRequestFilter(accounts, deniedTokens,
-                            invitations, launches),
+                            invitations),
                     BearerTokenAuthenticationFilter.class)
             .authorizeHttpRequests(a -> a
                     .requestMatchers(PUBLIC).permitAll()
                     .requestMatchers(path("/api/workflows/**"))
-                            .hasAnyAuthority(ROLE_USER, ROLE_GUEST, ROLE_TASK)
+                            .hasAnyAuthority(ROLE_USER, ROLE_GUEST)
                     .requestMatchers(path("/api/**")).hasAuthority(ROLE_USER)
                     .anyRequest().denyAll());
         return http.build();

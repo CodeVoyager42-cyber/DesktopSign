@@ -161,7 +161,6 @@ class WebWorkflowWriteHttpTests {
                 {"/web/api/workflows/" + workflow + "/invitations",
                         "{\"signerOrder\":1,\"email\":\"x@example.test\"}"},
                 {"/web/api/workflows/" + workflow + "/cancel", null},
-                {"/web/api/workflows/" + workflow + "/launch-codes", null},
                 {"/web/api/invitations/" + invitation + "/resend", null},
                 {"/web/api/invitations/" + invitation + "/revoke", null}};
         for (String[] post : posts) {

@@ -401,9 +401,10 @@ public class WebAccountService {
      * resend and reset request adds a row, and open sign-up means anyone can
      * add them.
      *
-     * <p>The same shape as {@code DbRefreshTokenStore.deleteExpired} and
-     * {@code LaunchCodeService.deleteStaleCodes}, with a later initial delay
-     * than either so the three sweeps do not all run at once on start-up.
+     * <p>The same shape as {@code DbRefreshTokenStore.deleteExpired}, with a
+     * later initial delay than it so the sweeps do not both run at once on
+     * start-up. There was a third, {@code LaunchCodeService.deleteStaleCodes},
+     * until the launch-code path was removed.
      */
     @Scheduled(fixedDelay = 3_600_000, initialDelay = 1_200_000)
     @Transactional

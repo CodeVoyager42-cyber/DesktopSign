@@ -9,8 +9,6 @@ import com.example.signer.server.api.ApiContracts.InvitationView;
 import com.example.signer.server.api.ApiContracts.RevisionView;
 import com.example.signer.server.api.ApiContracts.SigningTasksView;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
-import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
-import com.example.signer.server.api.ApiErrorType.ApiException;
 import com.example.signer.server.api.WorkflowOperations;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 
@@ -183,39 +181,6 @@ public class WebWorkflowController {
     @PostMapping("/{workflowId}/cancel")
     public WorkflowView cancel(@PathVariable String workflowId, Authentication caller) {
         return this.workflows.cancelWorkflow(workflowId, caller.getName());
-    }
-
-    /* ------------------- Phase F: the hand-off to the desktop ---------- */
-
-    /**
-     * A single-use link that opens SignFlow on this person's computer at this
-     * one signing task (Phase F; the launch codes themselves are Phase B).
-     *
-     * <p>Why the website needs a route of its own for something Phase B
-     * already exposed at {@code POST /api/workflows/{id}/launch-codes}: that
-     * one reads a bearer token, and this chain has no bearer token to read —
-     * it has a session cookie and a CSRF token, and the two chains do not
-     * parse each other's credentials (Phase C §3). The service underneath is
-     * the same call, so every rule it applies is applied here by
-     * construction: the caller must hold a slot of this workflow, the slot
-     * must be able to sign now, its certificate must already be bound (the
-     * Phase B review's H2 — a launch never enrols a certificate), the
-     * address must be verified, and at most five codes a minute.
-     *
-     * <p><b>Removed (scope B), and answering 410 for one release.</b> The
-     * website no longer hands a signer to the desktop: the {@code /open} page
-     * and the "Sign now" action that called this are gone, and a signer opens
-     * the task from the desktop application's own task list instead. This
-     * route stays for one release so a cached copy of the old page fails as a
-     * removal rather than as a 403 it would try to recover from. It is
-     * deleted in the next step.
-     */
-    @PostMapping("/{workflowId}/launch-codes")
-    public void launchCode() {
-        throw new ApiException(ApiErrorCode.FEATURE_REMOVED,
-                "The desktop launch-code path has been removed. Sign in to the "
-                + "SignFlow desktop application and open the signing task from "
-                + "its task list.");
     }
 
     /* --------------------- part 3: the finished document --------------- */

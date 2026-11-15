@@ -234,17 +234,15 @@ signature:
       # resend). Off outside development: the link is the invitee's.
       expose-links-to-sender: ${SIGNER_INVITATION_EXPOSE_LINKS:false}
 
-    # ── Desktop launch from the website (Phase B) ───────────────────────
+    # ── Desktop client compatibility ─────────────────────────────────────
     desktop:
-      # Oldest SignFlow desktop version allowed to exchange a launch code
-      # (older apps get HTTP 426 and are asked to upgrade).
+      # The oldest desktop version this deployment considers current, as
+      # advertised by GET /api/health. Nothing enforces it: the launch-code
+      # path that used to refuse an older desktop with HTTP 426 has been
+      # removed, so this is now a published floor a client may check itself,
+      # not a gate. Kept because the health endpoint is the one place a
+      # desktop can ask "am I too old for this server?" before trying.
       min-version: ${SIGNER_DESKTOP_MIN_VERSION:0.1.0-SNAPSHOT}
-      # Lifetime of the task session a launch code opens (1..60, no refresh).
-      task-session-minutes: ${SIGNER_DESKTOP_TASK_MINUTES:30}
-      # A desktop that reports its version as "unknown" (IDE run, unfiltered
-      # build) is refused with 426 unless this is true. Development only:
-      # production refuses to start with it.
-      accept-unknown-version: ${SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION:false}
 
     # ── Website sessions (security Phase C) ──────────────────────────────
     # The website (/web/**) authenticates with a server-side session stored
@@ -327,9 +325,6 @@ signature:
       expose-links-to-sender: true
     # Accept certificates/signatures from the development mock token.
     accept-development-identities: true
-    # Desktop builds started from the IDE report their version as "unknown".
-    desktop:
-      accept-unknown-version: true
     web:
       session:
         # Development serves the website over plain http://localhost. The

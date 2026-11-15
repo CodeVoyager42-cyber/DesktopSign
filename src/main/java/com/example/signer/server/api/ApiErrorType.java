@@ -73,14 +73,12 @@ public final class ApiErrorType {
         GUEST_CODE_INVALID,
         /** No usable code: expired, used up, or too many wrong entries. */
         GUEST_CODE_EXPIRED,
-        /**
-         * Phase B: a launch code that cannot be used — unknown, malformed,
-         * expired, already used, revoked or no longer matching its task. One
-         * answer for all of them on purpose.
-         */
-        LAUNCH_CODE_INVALID,
-        /** The desktop app is older than the server accepts. */
-        UPGRADE_REQUIRED,
+        // LAUNCH_CODE_INVALID and UPGRADE_REQUIRED stood here: a launch code
+        // that could not be used, and a desktop too old to exchange one. Only
+        // the launch-code path ever answered with either, and it is gone, so
+        // nothing can issue them. They are removed rather than kept as a
+        // vocabulary no endpoint speaks. Audit rows naming those sessions are
+        // a different matter and are retained (see AuditEventType).
         /** The account's e-mail address is not verified yet. */
         EMAIL_NOT_VERIFIED,
         /** Too many requests of this kind; try again later. */
@@ -188,8 +186,6 @@ public final class ApiErrorType {
                 case GUEST_VERIFICATION_REQUIRED, GUEST_CODE_INVALID
                         -> HttpStatus.FORBIDDEN;                       // 403
                 case GUEST_CODE_EXPIRED -> HttpStatus.GONE;            // 410
-                case LAUNCH_CODE_INVALID -> HttpStatus.BAD_REQUEST;    // 400
-                case UPGRADE_REQUIRED -> HttpStatus.UPGRADE_REQUIRED;  // 426
                 case EMAIL_NOT_VERIFIED -> HttpStatus.FORBIDDEN;       // 403
                 case TOO_MANY_REQUESTS -> HttpStatus.TOO_MANY_REQUESTS; // 429
                 case CERTIFICATE_NOT_BOUND -> HttpStatus.CONFLICT;     // 409

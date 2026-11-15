@@ -330,8 +330,19 @@ class ProductionSafetyValidatorTests {
                 .hasMessageContaining("SIGNER_GUEST_VERIFICATION=false");
     }
 
+    /**
+     * SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION used to fail production start-up.
+     * The setting guarded one thing — a desktop reporting no version opening a
+     * launch link — and with the launch-code path removed there is no version
+     * gate left for it to weaken, so both the setting and its rule are gone.
+     *
+     * <p>This test now pins the opposite: the name is inert. Setting it must
+     * not fail start-up, so a deployment carrying it over from an older
+     * release keeps booting rather than being refused over a flag that no
+     * longer means anything.
+     */
     @Test
-    void productionServerRefusesDesktopsOfUnknownVersion() {
+    void theRetiredUnknownVersionFlagNoLongerBlocksStartUp() {
         MockEnvironment env = env("server");
         env.setProperty("server.ssl.key-store", "classpath:server.p12");
         env.setProperty("signature.remote-server.database.enabled", "true");
@@ -339,8 +350,8 @@ class ProductionSafetyValidatorTests {
                 "https://signflow.example.com");
         env.setProperty("signature.remote-server.email.mode", "smtp");
         env.setProperty("signature.remote-server.desktop.accept-unknown-version", "true");
-        assertThatThrownBy(() -> ProductionSafetyValidator.validate(env))
-                .hasMessageContaining("SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION=true");
+
+        ProductionSafetyValidator.validate(env);
     }
 
     /* ------------- website sessions (security Phase C) ----------------- */

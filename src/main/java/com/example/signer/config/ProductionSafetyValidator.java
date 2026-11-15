@@ -251,12 +251,11 @@ public class ProductionSafetyValidator {
                         + " open a guest signing session (the sender, or anyone the e-mail"
                         + " reaches, could sign in the invitee's place).");
             }
-            if (Boolean.parseBoolean(env.getProperty(
-                    "signature.remote-server.desktop.accept-unknown-version", "false"))) {
-                problems.add("SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION=true lets desktop builds"
-                        + " that do not report a version open launch links (development"
-                        + " only).");
-            }
+            // A rule for SIGNER_DESKTOP_ACCEPT_UNKNOWN_VERSION stood here. It
+            // guarded one thing — a desktop that reported no version opening a
+            // launch link — and with the launch-code path removed there is no
+            // longer a version gate for it to weaken, so the setting and its
+            // rule are both gone rather than left to look meaningful.
             String mode = env.getProperty("signature.remote-server.email.mode", "console");
             if (!"smtp".equalsIgnoreCase(mode.trim())) {
                 problems.add("SIGNER_EMAIL_MODE must be smtp: the console mailbox is a"

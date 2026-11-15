@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SigningActionPolicyTests {
 
     @Test
-    void theFiveSigningActionsAreCovered() {
+    void theFourSigningActionsAreCovered() {
         assertThat(SigningActionPolicy.requiresVerifiedEmail(
                 "POST", "/api/workflows/WF-1/claim")).isTrue();
         assertThat(SigningActionPolicy.requiresVerifiedEmail(
@@ -20,9 +20,19 @@ class SigningActionPolicyTests {
         assertThat(SigningActionPolicy.requiresVerifiedEmail(
                 "POST", "/api/workflows/WF-1/signatures")).isTrue();
         assertThat(SigningActionPolicy.requiresVerifiedEmail(
-                "POST", "/api/workflows/WF-1/launch-codes")).isTrue();
-        assertThat(SigningActionPolicy.requiresVerifiedEmail(
                 "POST", "/api/workflows/WF-1/signers/alice/certificate")).isTrue();
+    }
+
+    /**
+     * There were five. {@code POST /api/workflows/{id}/launch-codes} was the
+     * fifth, and the route is gone with the desktop launch-code path — so the
+     * policy no longer names it, and must not: a pattern matching a route
+     * nobody serves reads as protection that is doing something.
+     */
+    @Test
+    void theRetiredLaunchCodeRouteIsNoLongerNamed() {
+        assertThat(SigningActionPolicy.requiresVerifiedEmail(
+                "POST", "/api/workflows/WF-1/launch-codes")).isFalse();
     }
 
     @Test

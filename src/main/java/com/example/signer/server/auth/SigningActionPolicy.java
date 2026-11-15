@@ -14,7 +14,6 @@ import java.util.regex.Pattern;
  *   <tr><td>GET</td><td>/api/workflows/{id}/document</td><td>download the revision to sign</td></tr>
  *   <tr><td>POST</td><td>/api/workflows/{id}/signatures</td><td>submit a signature</td></tr>
  *   <tr><td>POST</td><td>/api/workflows/{id}/signers/{user}/certificate</td><td>bind a signing certificate</td></tr>
- *   <tr><td>POST</td><td>/api/workflows/{id}/launch-codes</td><td>open a desktop signing session</td></tr>
  * </table>
  *
  * <p>The document download is the one <b>read</b> here, and it is here
@@ -31,19 +30,17 @@ import java.util.regex.Pattern;
  *
  * <p><b>Guests are not subject to this.</b> A guest signing session proves
  * control of its address by receiving an e-mailed code, and has no account to
- * verify; {@link GuestAccessPolicy} is what bounds it. Desktop task sessions
- * (Phase B launch codes) are not checked here either — their launch code is
- * re-evaluated on every request, and that check includes the same rule.
+ * verify; {@link GuestAccessPolicy} is what bounds it.
  *
- * <p>Matching is on the raw request URI, exact and anchored, in the style of
- * {@link TaskAccessPolicy}: this policy only ever <i>adds</i> a requirement,
- * so a spelling it fails to match is still subject to every other rule.
+ * <p>Matching is on the raw request URI, exact and anchored: this policy only
+ * ever <i>adds</i> a requirement, so a spelling it fails to match is still
+ * subject to every other rule.
  */
 public final class SigningActionPolicy {
 
     private static final Pattern PATH = Pattern.compile(
             "^/api/workflows/[^/]+/"
-                    + "(claim|document|signatures|launch-codes|signers/[^/]+/certificate)$");
+                    + "(claim|document|signatures|signers/[^/]+/certificate)$");
 
     private SigningActionPolicy() {
     }

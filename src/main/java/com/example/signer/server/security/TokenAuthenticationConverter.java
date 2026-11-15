@@ -25,9 +25,11 @@ final class TokenAuthenticationConverter implements Converter<Jwt, AbstractAuthe
             if (JwtService.TYPE_GUEST.equals(type)) {
                 return new GuestSessionAuthentication(jwt, JwtService.toGuest(jwt));
             }
-            if (JwtService.TYPE_TASK.equals(type)) {
-                return new TaskSessionAuthentication(jwt, JwtService.toTask(jwt));
-            }
+            // Anything that is not `access` from here on — including the
+            // `task` type the removed desktop launch path used to mint —
+            // fails toAccess and leaves as a 401. Nothing has to name the
+            // retired type for that to hold, which is the point: one
+            // accepted type and one refusal, rather than a growing list.
             JwtService.JwtAuthentication user = JwtService.toAccess(jwt);
             return new JwtAuthenticationToken(jwt,
                     AuthorityUtils.createAuthorityList(SecurityConfig.ROLE_USER), user.subject());

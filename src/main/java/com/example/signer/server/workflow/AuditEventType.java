@@ -41,8 +41,24 @@ public enum AuditEventType {
     DUPLICATE_OPERATION_IGNORED,
     WORKFLOW_CANCELLED,
     WORKFLOW_BLOCKED,
-    /** Phase B: a desktop task session was opened with a website launch code. */
+    /**
+     * A desktop task session was opened with a website launch code.
+     *
+     * @deprecated <b>Historical only — never delete.</b> The launch-code path
+     *     that wrote this is removed, so nothing appends it any more, but rows
+     *     bearing it record sessions that really happened and are evidence in
+     *     exactly the disputes this product's audit trail exists to settle.
+     *     The value stays so those rows keep deserialising into a trail that
+     *     can still be read and verified.
+     */
+    @Deprecated
     DESKTOP_SESSION_OPENED,
-    /** Phase B: the user revoked a desktop task session ("this wasn't me"). */
+    /**
+     * The user revoked a desktop task session ("this wasn't me").
+     *
+     * @deprecated Historical only — never delete; see
+     *     {@link #DESKTOP_SESSION_OPENED}.
+     */
+    @Deprecated
     DESKTOP_SESSION_REVOKED
 }

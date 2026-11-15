@@ -4,11 +4,9 @@ import com.example.signer.server.api.ApiErrorType;
 import com.example.signer.server.auth.AccessTokenDenyList;
 import com.example.signer.server.auth.GuestAccessPolicy;
 import com.example.signer.server.auth.SigningActionPolicy;
-import com.example.signer.server.auth.TaskAccessPolicy;
 import com.example.signer.server.auth.UserAccountService;
 import com.example.signer.server.auth.JwtService;
 import com.example.signer.server.invites.InvitationService;
-import com.example.signer.server.launch.LaunchCodeService;
 import com.example.signer.server.workflow.RemoteWorkflowService;
 
 import jakarta.servlet.FilterChain;
@@ -59,16 +57,13 @@ public final class AuthenticatedRequestFilter extends OncePerRequestFilter {
     private final UserAccountService accounts;
     private final AccessTokenDenyList deniedTokens;
     private final ObjectProvider<InvitationService> invitations;
-    private final ObjectProvider<LaunchCodeService> launches;
 
     public AuthenticatedRequestFilter(UserAccountService accounts,
                                       AccessTokenDenyList deniedTokens,
-                                      ObjectProvider<InvitationService> invitations,
-                                      ObjectProvider<LaunchCodeService> launches) {
+                                      ObjectProvider<InvitationService> invitations) {
         this.accounts = accounts;
         this.deniedTokens = deniedTokens;
         this.invitations = invitations;
-        this.launches = launches;
     }
 
     @Override
@@ -97,49 +92,6 @@ public final class AuthenticatedRequestFilter extends OncePerRequestFilter {
             }
             request.setAttribute(USER_ATTR, guest.guest().principal());
             request.setAttribute(GUEST_ATTR, guest.guest());
-        } else if (auth instanceof TaskSessionAuthentication taskSession) {
-            // Phase B: the launch code's single task, while the code is not
-            // revoked and the account can still sign in.
-            JwtService.TaskAuthentication task = taskSession.task();
-            // Its own allow-list, not the guest one: no certificate binding.
-            if (!TaskAccessPolicy.allows(request.getMethod(), request.getRequestURI(),
-                    task.workflowId())) {
-                log.info("Desktop task session refused {} {} (outside its signing task)",
-                        request.getMethod(), request.getRequestURI());
-                JsonSecurityErrors.forbidden(response, "WORKFLOW_NOT_ACCESSIBLE",
-                        "This signing session only gives access to its own signing task");
-                return;
-            }
-            LaunchCodeService service = launches.getIfAvailable();
-            RemoteWorkflowService.TaskSlotState state = service == null
-                    || !accounts.knowsUser(task.principal())
-                    || !accounts.isRegistered(task.principal())
-                    // Phase D1 risk D7, and the longer half of it: a task
-                    // session lives 30 minutes, twice an access token, so
-                    // leaving it out would have left a bigger window than
-                    // the one being closed.
-                    || accounts.passwordChangedSince(task.principal(),
-                            taskSession.getToken().getIssuedAt())
-                    ? RemoteWorkflowService.TaskSlotState.INVALID
-                    : service.taskSessionState(task);
-            if (state == RemoteWorkflowService.TaskSlotState.INVALID) {
-                log.info("Desktop task session refused: revoked, or the account can no"
-                        + " longer sign in");
-                SecurityContextHolder.clearContext();
-                JsonSecurityErrors.unauthorized(response);
-                return;
-            }
-            if (state == RemoteWorkflowService.TaskSlotState.FINISHED
-                    && !TaskAccessPolicy.isStatusRead(request.getMethod(),
-                            request.getRequestURI(), task.workflowId())) {
-                log.info("Desktop task session refused {} {} (task finished)",
-                        request.getMethod(), request.getRequestURI());
-                JsonSecurityErrors.forbidden(response, "TASK_SESSION_FINISHED",
-                        "This signing task is finished. Open it from the SignFlow website"
-                                + " to see the result.");
-                return;
-            }
-            request.setAttribute(USER_ATTR, task.principal());
         } else if (auth instanceof JwtAuthenticationToken user) {
             String userId = user.getName();
             // Phase 2 risk L4, and first, before the account is even looked
