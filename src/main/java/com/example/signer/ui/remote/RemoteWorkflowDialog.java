@@ -75,7 +75,7 @@ public final class RemoteWorkflowDialog {
     private final long maxUploadBytes;
 
     private Stage dialog;
-    /** Column of the task page (the owner's invitations card is added to it). */
+    /** Column of the task page. */
     private VBox taskColumn;
     private BorderPane root;
     private Button backButton;
@@ -212,9 +212,9 @@ public final class RemoteWorkflowDialog {
     }
 
     /**
-     * Shows the dialog pre-authenticated (invitation flow, brief §43): the
-     * caller supplies a client built from the accepted invitation's token
-     * pair; the dialog skips sign-in and lands directly on Signing Tasks.
+     * Shows the dialog pre-authenticated: the caller supplies a client that
+     * already holds a token pair, so the dialog skips sign-in and lands
+     * directly on Signing Tasks.
      */
     public void showAndWait(Window owner,
                             WorkflowApiClient preAuthenticated,
@@ -224,8 +224,8 @@ public final class RemoteWorkflowDialog {
 
     /**
      * Pre-authenticated entry with an optional workflow to focus (brief
-     * §20): invitation acceptance lands directly on that signing request
-     * instead of making the user search for it.
+     * §20): the caller lands directly on that signing request instead of
+     * making the user search for it.
      */
     public void showAndWait(Window owner,
                             WorkflowApiClient preAuthenticated,
@@ -254,41 +254,41 @@ public final class RemoteWorkflowDialog {
     }
 
     /* ------------------------------------------------------------------
-     * guest signing (invited signer, no account)
+     * single-task session (opened from a website launch code)
      * ------------------------------------------------------------------ */
 
-    /** True when this dialog runs a guest signing session (no account). */
+    /**
+     * True when this dialog runs a single-task session rather than a
+     * signed-in one. The field keeps its {@code guest} name because the
+     * session plumbing underneath it does; a rename is worth its own change.
+     */
     private boolean guestMode;
-    private String guestEmail;
     private String guestWorkflowId;
 
     /**
-     * Opens the dialog for an INVITED SIGNER with a guest signing session:
-     * no sign-in screen, no task lists, no owner tools — straight to the
-     * one signing task the invitation is for.
+     * Opens the dialog for a session limited to ONE signing task, as the
+     * website launch hand-off gives it: no sign-in screen, no task lists, no
+     * owner tools — straight to that task.
      *
      * @param signerId the slot's signer id (as listed in the task)
-     * @param email    the invited address, shown as "Signing as"
      */
     public void showGuestAndWait(Window owner, WorkflowApiClient guestClient,
-                                 String signerId, String workflowId, String email,
+                                 String signerId, String workflowId,
                                  String documentName) {
         guestMode = true;
-        guestEmail = email;
         guestWorkflowId = workflowId;
         guestDocumentName = documentName;
         try {
             showAndWait(owner, guestClient, signerId, workflowId);
         } finally {
             guestMode = false;
-            guestEmail = null;
             guestWorkflowId = null;
         }
     }
 
     private String guestDocumentName;
 
-    /** Guest: open the task — straight into the workspace when it is their turn. */
+    /** Single-task session: straight into the workspace when it is their turn. */
     private void openGuestTask() {
         content.getChildren().setAll(RemoteScreens.centered(RemoteScreens.loadingCard("Opening your signing task…")));
         runInBackground(new Task<TaskView>() {
@@ -319,9 +319,9 @@ public final class RemoteWorkflowDialog {
         });
     }
 
-    /** "Signing as": the invited address for a guest, else the account. */
+    /** "Signing as": the signer of the one task, else the signed-in account. */
     private String signingAsLabel() {
-        return guestMode && guestEmail != null ? guestEmail : signedInUser;
+        return signedInUser;
     }
 
     /** Opens the wizard once, if the home screen asked for it. */
@@ -501,8 +501,8 @@ public final class RemoteWorkflowDialog {
 
     private void showTasks() {
         if (guestMode) {
-            // A guest session only reaches its own task (the server refuses
-            // the task lists): the "home" of a guest is that task.
+            // A single-task session only reaches its own task (the server
+            // refuses the task lists): its "home" is that task.
             showTask(guestWorkflowId);
             return;
         }
@@ -549,7 +549,7 @@ public final class RemoteWorkflowDialog {
         final String focus = focusWorkflowId;
         tasksView.load(() -> {
             if (focus != null) {
-                // Invitation entry (brief §20): return to the exact signing
+                // Focused entry (brief §20): return to the exact signing
                 // request instead of making the user search for it.
                 focusWorkflowId = null;
                 showTask(focus);

@@ -2,7 +2,7 @@ package com.example.signer.client;
 
 /**
  * Remembers the remote session used most recently during this app run
- * (brief §6/§43). When an emailed invitation arrives, the cached session is
+ * (brief §6/§43). When a later screen needs a session, the cached one is
  * offered to the backend silently and the SERVER decides whether that
  * identity may act as the recipient (brief §45/§81) — a refusal simply
  * falls through to the normal sign-in/registration branch.

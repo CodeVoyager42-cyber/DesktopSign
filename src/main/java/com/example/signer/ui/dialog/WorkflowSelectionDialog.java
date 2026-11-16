@@ -179,8 +179,8 @@ public final class WorkflowSelectionDialog {
                 });
         VBox sendForSignature = actionTile(FontAwesomeSolid.PAPER_PLANE,
                 "Send for signature",
-                "Choose a PDF and the people who must sign it. They are"
-                        + " invited by email.",
+                "Choose a PDF and the people who must sign it. Each one"
+                        + " needs a SignFlow account.",
                 () -> {
                     remoteWorkflowRequested = true;
                     sendForSignatureRequested = true;

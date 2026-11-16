@@ -29,7 +29,7 @@ import java.time.Instant;
  * <p>Every value comes from the signed PDF and its certificate (via the
  * verifier): rows whose data is absent are left out, and what SignFlow does
  * not check — certificate trust and revocation, trusted time — is said
- * explicitly instead of being shown as "OK". Invitation or workflow data is
+ * explicitly instead of being shown as "OK". Workflow data is
  * never mixed in.
  */
 public final class SignaturePropertiesView {

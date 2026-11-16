@@ -5,7 +5,7 @@ import com.example.signer.exception.SignerException;
 
 /**
  * A coordination-server answer that was an error: keeps the HTTP status and
- * the server's stable error code (e.g. {@code INVITATION_EXPIRED}) so the UI
+ * the server's stable error code (e.g. {@code LAUNCH_CODE_INVALID}) so the UI
  * can show the right state instead of one generic message. Still a
  * {@link SignerException}, so existing callers are unaffected.
  */

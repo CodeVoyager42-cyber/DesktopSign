@@ -6,7 +6,7 @@
  * login gate, then the home screen, then one of the flows below. Each flow
  * returns to the home screen when its window closes.</p>
  * <ul>
- *   <li>{@code dialog} — login, home screen, invitation and inviter dialogs</li>
+ *   <li>{@code dialog} — login, home screen and launch dialogs</li>
  *   <li>{@code workspace} — local signing (1–3 signers on this PC, continuing a
  *       workflow PDF) with the shared {@code PlacementViewer}</li>
  *   <li>{@code remote} — server-backed screens: signing tasks, the remote

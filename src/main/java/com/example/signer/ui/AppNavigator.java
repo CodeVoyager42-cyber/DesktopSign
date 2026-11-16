@@ -76,9 +76,9 @@ final class AppNavigator {
 
     /**
      * Phase B: opened from a website launch link. The one-time code is
-     * exchanged for a session limited to that one signing task, then the
-     * same signing screens as an invited guest's open — no sign-in, no task
-     * lists. Local PKCS#11 signing is unchanged.
+     * exchanged for a session limited to that one signing task, which opens
+     * the signing screens directly — no sign-in, no task lists. Local
+     * PKCS#11 signing is unchanged.
      */
     void openLaunch(Window parent, String code) {
         com.example.signer.ui.dialog.LaunchDialog.Result result =
@@ -91,7 +91,7 @@ final class AppNavigator {
         log.info("Desktop task session opened for workflow {}", session.workflowId());
         try {
             remoteWorkflowDialog().showGuestAndWait(owner, result.client(), session.signerId(),
-                    session.workflowId(), null, session.documentName());
+                    session.workflowId(), session.documentName());
         } finally {
             // Wipes the task token from memory.
             result.client().close();

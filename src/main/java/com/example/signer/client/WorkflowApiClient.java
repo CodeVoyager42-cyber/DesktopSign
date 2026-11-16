@@ -81,7 +81,7 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
         private volatile String refreshToken;
         private volatile boolean closed;
         private volatile boolean guest;
-        /** Opened from a website launch link (Phase B), not an invitation. */
+        /** Opened from a website launch link (Phase B). */
         private volatile boolean launched;
         /** The ACCOUNT id; replaced by the server's answer via /me. */
         private volatile String username;
@@ -110,7 +110,7 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
         /**
          * A single-task signing session: one access
          * token scoped by the server to a single signing task, no refresh
-         * token. When it expires the signer re-opens the invitation link.
+         * token. When it expires the signer starts again from the website.
          */
         static Session ofGuest(String signerId, String accessToken) {
             Session s = new Session(signerId);
@@ -120,7 +120,7 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
             return s;
         }
 
-        /** True for a guest signing session (see {@link #ofGuest}). */
+        /** True for a single-task session (see {@link #ofGuest}). */
         public boolean isGuest() {
             return guest;
         }
@@ -144,7 +144,7 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
 
         /**
          * Adopts the server-validated account id as the session identity.
-         * The label a dialog starts from (an invited email, a typed login)
+         * The label a dialog starts from (a typed login)
          * is only a hint; the server's answer is authoritative.
          */
         void adoptUsername(String accountId) {
@@ -230,7 +230,7 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
     }
 
     /**
-     * Transport policy (P0.9): passwords, JWTs, refresh tokens, invitation
+     * Transport policy (P0.9): passwords, JWTs, refresh tokens, launch
      * tokens and PDFs only travel over https. Plain http is accepted for
      * this machine's loopback address (local development server, tests) or
      * when the {@code dev} profile explicitly allowed it. Certificate
@@ -273,11 +273,14 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
      * pending signer may claim the turn). Signer fingerprints may be null — 
      * those signers then bind their own certificate from their own machine.
      *
-     * <p>The response carries the workflow plus the exact invitation links
-     * that were emailed to its email-addressed slots. Those links are
-     * returned here once and are not retrievable afterwards (the server
-     * stores only their token hashes), so a caller that wants to show the
-     * sender what went out must read them now.
+     * <p>Every signer slot has to name an account that already exists: an
+     * e-mail-shaped slot is refused by the server, because there is no
+     * invitation left to turn one into an account.
+     *
+     * <p>The response still carries an {@code invitations} list, and it is
+     * always empty. The field is part of the contract both clients read and
+     * is emptied server-side rather than removed under them; it goes when the
+     * contract does.
      */
     @Override
     public CreateWorkflowResponse createWorkflow(String documentName,
@@ -536,8 +539,7 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
 
     /**
      * A client acting with a task session from {@link #exchangeLaunchCode}.
-     * Like a guest session: one signing task, no refresh token, nothing to
-     * revoke on close.
+     * One signing task, no refresh token, nothing to revoke on close.
      */
     public static WorkflowApiClient forTask(String baseUrl, ApiContracts.LaunchSessionView task) {
         WorkflowApiClient client = new WorkflowApiClient(baseUrl, null);

@@ -29,8 +29,9 @@ import java.util.List;
  *   <li>{@link #init()}: make sure only one SignFlow runs
  *       ({@link SingleInstanceGuard}), then start Spring;</li>
  *   <li>{@link #start(Stage)}: report start-up problems, then hand over to
- *       {@link AppNavigator} — the invitation flow when opened from a
- *       {@code signflow://} link, otherwise sign-in and the home screen;</li>
+ *       {@link AppNavigator} — one signing task when opened from a
+ *       {@code signflow://launch} link, otherwise sign-in and the home
+ *       screen;</li>
  *   <li>{@link #stop()}: release everything.</li>
  * </ol>
  *

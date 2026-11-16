@@ -27,7 +27,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Small building blocks shared by the signing screens (invitation, confirm,
+ * Small building blocks shared by the signing screens (confirm,
  * progress, success, signature properties) so every screen has the same
  * hierarchy: a navy step rail on the left, one card in the middle, one
  * obvious primary action. Pure presentation — no services, no I/O.
@@ -145,7 +145,7 @@ public final class SignFlowUi {
         return label;
     }
 
-    /** A rounded status pill, e.g. "Invitation ready". */
+    /** A rounded status pill, e.g. "Ready to sign". */
     public static Label chip(String text, Tone tone) {
         Label chip = new Label(text);
         chip.getStyleClass().addAll("sf-chip", tone.styleClass());
