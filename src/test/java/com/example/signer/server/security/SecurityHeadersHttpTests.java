@@ -20,9 +20,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * D10): the response headers, against a real server.
  *
  * <p>L9 is specifically about the pages behind an e-mailed link, which carry
- * a one-time token <b>in the URL</b> — so the first test is the invitation
- * page, and what it asserts is that the token cannot leave in a
- * {@code Referer} header.
+ * a one-time token <b>in the URL</b> — so the first test is one of those
+ * pages, and what it asserts is that the token cannot leave in a
+ * {@code Referer} header. Those pages are now the ACCOUNT ones: confirming
+ * an address and setting a new password. The invitation page this test used
+ * to name went with the invitation workflow, and pointing at it afterwards
+ * would have proved the header on a 404.
  *
  * <p>The policy is asserted character by character on purpose. It is short,
  * it is security-relevant, and a change to it should be a change someone
@@ -74,14 +77,13 @@ class SecurityHeadersHttpTests {
     /* ------------------------------------------------------------------ */
 
     @Test
-    void theInvitationPathSendsNoReferrerBecauseItsUrlHoldsAToken() throws Exception {
-        // Risk L9, on the very path it names. The page itself needs a
-        // database (SignPageController is conditional on one), so in file
-        // mode this route answers without rendering it — which does not
-        // weaken the test, because the header is a property of the FILTER
-        // CHAIN and not of the handler. The rendered page is covered by
-        // SignPageRendererTests, and the web chain by WebAccountHttpTests.
-        HttpResponse<String> page = get("/invitations/not-a-real-token");
+    void aTokenBearingPageSendsNoReferrerBecauseItsUrlHoldsAToken() throws Exception {
+        // Risk L9, on a path that really carries a one-time token: the
+        // password-reset page, reached from an account e-mail as
+        // /reset-password?token=... The header is a property of the FILTER
+        // CHAIN rather than of any handler, which is what makes it safe to
+        // assert here and on a page that needs no database.
+        HttpResponse<String> page = get("/reset-password");
 
         assertThat(page.headers().firstValue("Referrer-Policy"))
                 .contains("no-referrer");
@@ -124,7 +126,7 @@ class SecurityHeadersHttpTests {
         // The whole point of it. default-src 'none' with nothing relaxing
         // script means injected script does not run even if some escaping
         // were wrong somewhere.
-        String policy = get("/invitations/not-a-real-token")
+        String policy = get("/reset-password")
                 .headers().firstValue("Content-Security-Policy").orElseThrow();
 
         assertThat(policy).contains("default-src 'none'");
@@ -161,7 +163,7 @@ class SecurityHeadersHttpTests {
         // come for free — and asserting them means switching them off cannot
         // pass unnoticed. no-store matters most here: it is a URL with a
         // one-time token in it.
-        HttpResponse<String> page = get("/invitations/not-a-real-token");
+        HttpResponse<String> page = get("/reset-password");
 
         assertThat(page.headers().firstValue("X-Content-Type-Options")).contains("nosniff");
         assertThat(page.headers().firstValue("X-Frame-Options")).contains("DENY");

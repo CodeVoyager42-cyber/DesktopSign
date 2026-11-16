@@ -15,12 +15,11 @@ import java.io.IOException;
  * The three workflow operations that are more than one service call, in the
  * one place both chains reach them from.
  *
- * <p>Creating a workflow and reading it back each need several steps in a particular order — and each of those orders carries
- * a rule. Starting a workflow has to prepare the e-mail-addressed slots
- * before the workflow exists and send their invitations only after it does.
- * Inviting a slot has to check the caller may see the workflow at all
- * <em>before</em> telling them how many slots it has. Invitation status has
- * to run the same access check and then re-check ownership in the service.
+ * <p>Creating a workflow and reading one back each need several steps in a
+ * particular order, and each order carries a rule: the caller's right to see
+ * a workflow at all is checked <em>before</em> anything tells them how many
+ * slots it has, and ownership is re-checked in the service rather than
+ * trusted from the controller.
  *
  * <p>Phase E gave the website its own controllers (deliberately, see
  * {@code web/WebWorkflowController}), and a second copy of these orderings is
@@ -31,7 +30,7 @@ import java.io.IOException;
  *
  * <p>This holds no authorization rules of its own. Every path starts with
  * {@link RemoteWorkflowService#getWorkflow}, whose uniform 404 is the Phase 3
- * guard, and the ownership rules for invitations stay in
+ * guard, and the ownership rules stay in
  * the service.
  */
 @Component

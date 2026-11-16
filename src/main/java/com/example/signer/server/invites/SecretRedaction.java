@@ -8,14 +8,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Log-safe rendering of text that may contain bearer secrets (invitation
+ * Log-safe rendering of text that may contain bearer secrets (account
  * tokens inside links). A long URL-safe token is replaced by a short SHA-256
  * prefix: enough to correlate log lines with the stored token hash, useless
  * to an attacker reading the log.
  */
 public final class SecretRedaction {
 
-    /** Invitation tokens are 32-byte base64url values (43 chars); be generous. */
+    /** These tokens are 32-byte base64url values (43 chars); be generous. */
     private static final Pattern TOKEN = Pattern.compile("[A-Za-z0-9_-]{24,}");
 
     private SecretRedaction() {

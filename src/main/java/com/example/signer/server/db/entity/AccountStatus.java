@@ -9,6 +9,11 @@ public enum AccountStatus {
     ACTIVE,
     /** Switched off by an operator; may not sign in. */
     DISABLED,
-    /** Invitation identity only: no password, may not sign in. */
+    /**
+     * A placeholder row: no password, may not sign in. Created by the
+     * invitation workflow and by the file-to-database import; nothing creates
+     * one from an invitation any more, and the name is kept because the value
+     * is stored in the users table.
+     */
     PENDING_INVITE
 }

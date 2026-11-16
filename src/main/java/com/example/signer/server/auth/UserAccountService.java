@@ -95,9 +95,9 @@ public interface UserAccountService {
      *       request.</li>
      * </ul>
      *
-     * <p>It does <b>not</b> gate guest signing sessions: a guest has no
-     * account, and proves control of its address by receiving an e-mailed
-     * code instead.
+     * <p>There used to be an exemption here for guest signing sessions,
+     * which had no account to verify. Guests went with the invitation
+     * workflow, so every signer now passes through this gate.
      */
     default boolean maySign(String username) {
         return true;

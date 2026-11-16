@@ -1,5 +1,14 @@
 # Phase E — workflows on the website
 
+> **Historical.** This document records a design as it stood when it was
+> written. The e-mail/guest invitation workflow it describes has since been
+> REMOVED: no invitations, no guest accounts, no guest codes, no
+> `/sign/{token}` page. The only signing flow now is sign in on the website
+> → upload a PDF → click Sign → the desktop opens through
+> `signflow://launch/?v=1&c=<code>` → sign with the smart card. The audit
+> events of past invitations are retained deliberately. Read this for the
+> reasoning it captures, not as a description of the product today.
+
 The website can manage an account (Phase D) but knows nothing about
 documents. Phase E gives it the workflow routes under `/web/api`, in three
 parts:

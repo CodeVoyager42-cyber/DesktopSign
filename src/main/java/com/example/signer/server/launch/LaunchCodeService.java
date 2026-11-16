@@ -42,7 +42,7 @@ import java.util.regex.Pattern;
  *
  * <ul>
  *   <li>Issue: re-checks the user's slot and turn ({@link
- *       RemoteWorkflowService#requireLaunchableSlot}), the invitation state
+ *       RemoteWorkflowService#requireLaunchableSlot}), the slot state
  *       and a verified e-mail; 32 random bytes from {@link SecureRandom};
  *       only SHA-256 stored; 2 minutes; bound to user, workflow, slot,
  *       purpose and the minimum desktop version; replaces unused codes for

@@ -9,11 +9,12 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 
 /**
- * Development email delivery (brief §18/§19): the invitation is shown on the
- * server console instead of being sent.
+ * Development email delivery (brief §18/§19): the e-mail is shown on the
+ * server console instead of being sent. What it carries now is the ACCOUNT
+ * messages — confirm an address, reset a password.
  *
  * <p>Secret hygiene (P0.11): the server LOG never receives the raw one-time
- * invitation token — the logged copy of the email has the token redacted
+ * token — the logged copy of the email has the token redacted
  * (SHA-256 prefix). The complete email, with the usable link, is printed to
  * the process's standard output only, which is the developer's mailbox. The
  * production safety checks refuse console mode outside the {@code dev}

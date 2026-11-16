@@ -32,9 +32,10 @@ import java.util.stream.Stream;
  * redeploying the server.
  *
  * <p>Unset is a supported state: then there is nothing to serve, and
- * {@code SIGNER_DOWNLOAD_URL} — the link the invitation page has used since
- * Phase 3 — is offered instead if it is configured. Both unset means the
- * website says the download is not available yet, which is the truth.
+ * {@code SIGNER_DOWNLOAD_URL} — an external link, typically an
+ * organisation's own software portal — is offered instead if it is
+ * configured. Both unset means the website says the download is not
+ * available yet, which is the truth.
  *
  * <p><b>Set but unusable fails startup.</b> A deployment that names a
  * directory and gets it wrong wants to know at once, not the first time
@@ -138,7 +139,7 @@ public class DownloadCatalog {
     public DownloadCatalog(
             @Value("${signature.remote-server.download.dir:${SIGNER_DOWNLOAD_DIR:}}")
             String directory,
-            @Value("${signature.remote-server.invitation.download-url:${SIGNER_DOWNLOAD_URL:}}")
+            @Value("${signature.remote-server.download.fallback-url:${SIGNER_DOWNLOAD_URL:}}")
             String externalUrl,
             @Value("${app.name:SignFlow}") String appName) {
         this.externalUrl = externalUrl == null || externalUrl.isBlank()

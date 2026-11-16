@@ -1,5 +1,14 @@
 # SignFlow – sequence diagrams and architecture notes
 
+> **Historical.** This document records a design as it stood when it was
+> written. The e-mail/guest invitation workflow it describes has since been
+> REMOVED: no invitations, no guest accounts, no guest codes, no
+> `/sign/{token}` page. The only signing flow now is sign in on the website
+> → upload a PDF → click Sign → the desktop opens through
+> `signflow://launch/?v=1&c=<code>` → sign with the smart card. The audit
+> events of past invitations are retained deliberately. Read this for the
+> reasoning it captures, not as a description of the product today.
+
 Status: October 2026. Everything marked **implemented** was checked against the source code
 (`src/main/java/com/example/signer/**`, Flyway `V1`–`V4`). Everything marked **planned** does not
 exist yet.

@@ -48,7 +48,8 @@ carries its own Java runtime.
 ### For the people who will use it
 
 **From your own SignFlow server: `/download`.** A public page — no account
-needed, because somebody invited to sign has not got one yet — offering the
+needed, because the signing happens inside the application and nobody can be
+asked to sign in to something they have not installed — offering the
 installer with its version, size and SHA-256, the three install steps, and
 what to do about the SmartScreen warning. The server serves it from
 `SIGNER_DOWNLOAD_DIR`; see [docs/desktop-download.md](docs/desktop-download.md)
@@ -153,7 +154,7 @@ timestamp, validity).
 All settings are environment-overridable (they use Spring's `${ENV_VAR:default}`
 syntax in `src/main/resources/application.yml`). The table below covers the
 desktop application; the coordination server's own settings — database, JWT
-secret, sessions, email, invitations, the desktop download and its GitHub
+secret, sessions, account e-mail, the desktop download and its GitHub
 release mirror — are documented variable by variable in
 [`.env.example`](.env.example):
 
@@ -200,7 +201,7 @@ launcher prints a warning asking you to move it. Never commit secrets:
 ├── src/main/java/com/example/signer/
 │   ├── ui/                 JavaFX desktop app
 │   │   ├── (root)          App shell: SignerFxApplication, AppNavigator, single-instance guard
-│   │   ├── dialog/         Login, home screen, invitation, inviter and launch dialogs
+│   │   ├── dialog/         Login, home screen and launch dialogs
 │   │   ├── workspace/      Local signing (1–3 signers on this PC, continue a workflow PDF)
 │   │   ├── remote/         Server-backed screens (tasks, remote signing journey, wizard)
 │   │   ├── kit/            Reusable controls
@@ -210,8 +211,8 @@ launcher prints a warning asking you to move it. Never commit secrets:
 │   │   ├── api/            The desktop's REST controllers and the API contracts
 │   │   ├── web/            The website's own controllers, sessions, page routing
 │   │   ├── security/       Both filter chains, rate limiters, headers, CSRF
-│   │   ├── auth/           JWT, refresh tokens, guest sessions, accounts
-│   │   ├── invites/        Invitations, emails, public sign page
+│   │   ├── auth/           JWT, refresh tokens, single-task sessions, accounts
+│   │   ├── invites/        Account e-mail (confirm an address, reset a password)
 │   │   ├── launch/         Launch codes for the website → desktop hand-off
 │   │   ├── downloads/      Installer catalogue, download route, GitHub release mirror
 │   │   ├── workflow/       Workflow aggregate, state machine, service, stores

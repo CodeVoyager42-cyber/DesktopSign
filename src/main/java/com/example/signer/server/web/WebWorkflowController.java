@@ -31,7 +31,7 @@ import java.util.List;
 
 /**
  * What the website may do with workflows: read them (Phase E part 1), start,
- * invite to, track and cancel them (part 2), and take the finished document
+ * track and cancel them (part 2), and take the finished document
  * away at the end (part 3). Each route is one line
  * over {@link RemoteWorkflowService} or {@link WorkflowOperations} — the same
  * service, the same arguments and the same refusals the desktop's

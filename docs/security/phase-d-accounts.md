@@ -1,5 +1,14 @@
 # Security Phase D1 — website accounts (server side)
 
+> **Historical.** This document records a design as it stood when it was
+> written. The e-mail/guest invitation workflow it describes has since been
+> REMOVED: no invitations, no guest accounts, no guest codes, no
+> `/sign/{token}` page. The only signing flow now is sign in on the website
+> → upload a PDF → click Sign → the desktop opens through
+> `signflow://launch/?v=1&c=<code>` → sign with the smart card. The audit
+> events of past invitations are retained deliberately. Read this for the
+> reasoning it captures, not as a description of the product today.
+
 Status: implemented, **server side only**. Scope: how a visitor gets an
 account, proves they control the address, recovers a forgotten password and
 changes a known one — and how none of that becomes a way to discover who has

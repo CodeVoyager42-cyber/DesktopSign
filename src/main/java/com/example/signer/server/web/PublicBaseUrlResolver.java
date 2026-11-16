@@ -45,7 +45,7 @@ import java.util.Locale;
  *       {@code app.base-url} are preserved.</li>
  *   <li>{@code app.base-url} as a last resort. Links then only open on this
  *       machine, which is logged as a warning rather than passed off as a
- *       working invitation.</li>
+ *       working link.</li>
  * </ol>
  *
  * <p>Nothing here reaches the network: detection is local interface
@@ -116,17 +116,17 @@ public class PublicBaseUrlResolver {
         }
 
         if (localOnly) {
-            log.warn("Invitation links will use {} ({}). That address only"
-                            + " resolves on this machine, so a signer on"
-                            + " another computer cannot open the emailed link."
-                            + " Set SIGNER_PUBLIC_BASE_URL to a reachable"
+            log.warn("Account e-mail links will use {} ({}). That address only"
+                            + " resolves on this machine, so somebody reading"
+                            + " the e-mail on another computer cannot open the"
+                            + " link. Set SIGNER_PUBLIC_BASE_URL to a reachable"
                             + " address to fix it.", resolved, source);
         } else {
-            log.info("Invitation links will use {} ({}).", resolved, source);
+            log.info("Account e-mail links will use {} ({}).", resolved, source);
         }
     }
 
-    /** Base URL for emailed invitation links, never with a trailing slash. */
+    /** Base URL for emailed account links, never with a trailing slash. */
     public String baseUrl() {
         return resolved == null ? configuredBaseUrl : resolved;
     }

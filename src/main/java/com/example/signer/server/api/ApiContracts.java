@@ -79,9 +79,10 @@ public final class ApiContracts {
          * input):
          *
          * <ul>
-         *   <li>{@code INVITED} — the slot belongs to an invited address that
-         *       has no registered account yet: invitation exists, recipient
-         *       not registered, nothing signed;</li>
+         *   <li>{@code INVITED} — the slot names an account that does not
+         *       exist, so nobody can sign it. Historically an invited address
+         *       awaiting registration; nobody is invited any more, and the
+         *       server refuses an address-shaped slot outright;</li>
          *   <li>{@code PENDING} — the recipient has a registered account but
          *       has NOT signed;</li>
          *   <li>{@code SIGNED} — an accepted signature exists for this slot.
@@ -244,7 +245,11 @@ public final class ApiContracts {
             String signingPolicy,
             /** Every signer slot in order, with its state (names only, no emails). */
             List<TaskParticipantView> participants,
-            /** When the caller's own invitation expires (ISO-8601), or null. */
+            /**
+             * Always null. It carried the caller's own invitation expiry,
+             * which was the only deadline a signing task ever had; a task has
+             * none of its own. Kept so both clients' parsers are unaffected.
+             */
             String expiresAt,
             /** Time of the workflow's latest event (ISO-8601), or null. */
             String updatedAt) {

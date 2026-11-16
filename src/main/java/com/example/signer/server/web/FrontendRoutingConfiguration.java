@@ -115,10 +115,11 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
      * worth bookmarking and nothing is lost if it is.
      *
      * <p><b>Not {@code /sign}</b>, although that is what the button says.
-     * {@code /sign/{token}} is already the public, server-rendered invitation
-     * page, and a second meaning one segment away from it is the kind of
-     * neighbourhood where a matcher written {@code /sign*} quietly covers a
-     * page nobody meant it to. {@code /open} also says what the screen does.
+     * {@code /sign/{token}} was the public, server-rendered invitation page;
+     * it went with that workflow, but the name is deliberately left unused.
+     * A matcher written {@code /sign*} quietly covers a neighbour one
+     * segment away, and this is a path that has carried a one-time token
+     * before. {@code /open} also says what the screen does.
      */
     public static final String OPEN_PAGE = "/open";
 

@@ -1,17 +1,32 @@
-# Platform Upgrade — PostgreSQL, Invitations, Email (Runbook)
+# Platform Upgrade — PostgreSQL and Email (Runbook)
 
 Companion to [ARCHITECTURE-ASSESSMENT.md](ARCHITECTURE-ASSESSMENT.md). Covers
 what the platform upgrade added and how to run everything.
+
+> **The invitation workflow described by earlier versions of this runbook has
+> been removed.** Nobody invites anybody: no e-mail invitations, no guest
+> accounts, no 6-digit guest codes, no `/sign/{token}` page, no
+> `POST /api/auth/register`. The sections that explained how to exercise
+> them are gone from this document rather than left to be followed.
+>
+> **The only signing flow is:** sign in on the website → upload a PDF →
+> click **Sign** → the browser offers *Open SignFlow* → the desktop opens
+> through `signflow://launch/?v=1&c=<code>` → sign with the smart card.
+> Every signer slot must name an account that already exists; a slot that
+> looks like an e-mail address is refused.
+>
+> E-mail itself is RETAINED and still configured here: the account messages
+> (confirm an address, reset a password) use it.
 
 ## What was added
 
 | Area | Before | Now |
 |---|---|---|
 | Workflow persistence | `state.json` per workflow (files) | Same default **plus optional PostgreSQL** via JPA (`workflows`, `workflow_signers`, `document_versions`, `audit_events`); PDF bytes stay on disk in the identical layout |
-| Users | YAML config map (`alice`, `bob`, `charlie`) | Same default **plus DB accounts** (bcrypt, email or username login, ACTIVE/DISABLED/PENDING_INVITE); dev seed migrates the config users on first DB startup |
-| Invitations | none | Email invitations per signer slot: 256-bit token, **only the SHA-256 hash stored**, expiry, revoke, resend (old token invalidated), single-use acceptance bound to the invited email |
-| Registration | none | `POST /api/auth/register` — invitation-bound; the email comes from the invitation record, never the client; placeholder accounts (`PENDING_INVITE`, no password) are activated transactionally |
-| Email | none | `EmailService` abstraction: `console` (default — invitation links printed to the server log) and `smtp` (via `spring.mail.*` from the environment) |
+| Users | YAML config map (`alice`, `bob`, `charlie`) | Same default **plus DB accounts** (bcrypt, email or username login, ACTIVE/DISABLED/PENDING_INVITE); dev seed migrates the config users on first DB startup. `PENDING_INVITE` survives only as the status of placeholder rows that were created before the removal |
+| Invitations | none | **Removed.** They existed and are gone; the `invitations` table is kept read-only pending export, and its audit events are retained for ever |
+| Registration | none | The website's own sign-up, `POST /web/api/auth/register`. The invitation-bound `POST /api/auth/register` is gone |
+| Email | none | `EmailService` abstraction: `console` (default — links printed to the server log) and `smtp` (via `spring.mail.*` from the environment). Used by the ACCOUNT messages |
 
 Nothing changed for the existing default mode: `run-server.cmd` without
 `SIGNER_DB_ENABLED` behaves exactly as before (file store + YAML accounts).
@@ -23,7 +38,6 @@ Nothing changed for the existing default mode: `run-server.cmd` without
 | `SIGNER_DB_ENABLED` | `true` = PostgreSQL mode | `false` |
 | `SIGNER_DB_URL` | JDBC URL | `jdbc:postgresql://localhost:5432/signer` |
 | `SIGNER_DB_USERNAME` / `SIGNER_DB_PASSWORD` | DB credentials | `postgres` / empty |
-| `SIGNER_INVITATION_EXPIRATION` | Invitation TTL (ISO-8601 duration) | `PT48H` |
 | `SIGNER_EMAIL_MODE` | `console` or `smtp` | `console` |
 | `SIGNER_EMAIL_FROM` | From address (SMTP mode) | `signflow@localhost` |
 
@@ -55,41 +69,19 @@ run-server.cmd
 Flyway creates the schema on first start; the dev seeder inserts
 alice/bob/charlie with bcrypt passwords (dev flag only).
 
-## How to test email invitations locally
+## How to test the website → desktop hand-off
 
-1. Start the server in DB mode (`SIGNER_EMAIL_MODE=console`).
-2. Sign in as alice in the desktop (Remote workflow) and create a workflow
-   typing an EMAIL as a signer (`bob@example.com` instead of `bob`).
-3. Watch the server console — the "email" is printed there with the
-   invitation deep link (`signflow://invitation/<token>`).
-4. The invited signer registers through `POST /api/auth/register` with that
-   token (UI integration below is pending), or logs in if their account is
-   already ACTIVE and their email matches.
+1. Start the server (PostgreSQL mode, above) and open the website.
+2. Sign in, go to **Send a document**, upload a PDF and name it. You are the
+   signer; no e-mail goes anywhere.
+3. On the document screen press **Sign now**. The browser asks to open
+   SignFlow; confirm it.
+4. The desktop opens on that one signing task, with a session limited to it,
+   and the smart card finishes the signature.
 
-### Clicking the link instead of pasting it
-
-A **packaged install** (the MSI built by `scripts/package.sh`) gets
-`signflow://` from the **installer**, not from the application:
-`packaging/windows/main.wxs` declares the keys under
-`Software\Classes\signflow` as a component of the product, so they are
-written in the same transaction that installs the files and removed again
-when the product is uninstalled. A per-user install lands them in HKCU, which
-needs no admin rights. The application never writes these keys at run time —
-see the comment at the top of `main.wxs` for why that is the installer's job.
-
-**Running from source** (`mvnw javafx:run`, `run-app.cmd`) has no installer,
-so register the scheme by hand with `scripts\register-signflow-protocol.cmd`
-(also HKCU, no admin rights; undo with
-`scripts\unregister-signflow-protocol.cmd`). That script points the key at
-this checkout's jar and starts it in the `dev` profile, so re-run it after
-rebuilding to a new jar location.
-
-Either way, clicking an emailed `signflow://invitation/<token>` link opens
-the desktop app with the invitation dialog pre-filled. If the app is
-already running, the second launch hands the token to the running instance
-over the authenticated local channel (a per-user Unix-domain socket, not a
-loopback port -- see docs/desktop-download.md §3) and the dialog opens on top
-of the current screen.
+An old `signflow://invitation/<token>` link is refused with an explanation
+rather than ignored: the desktop says invitation links no longer work and
+points at the website.
 
 ## How to test Alice → Bob → Charlie signing
 
@@ -100,16 +92,6 @@ test `RemoteWorkflowLiveE2ETests` still exercises it over real HTTP, and
 `PostgresWorkflowStoreLiveTests.aggregateSurvivesRestartInPostgres` proves
 the aggregate survives a server restart in PostgreSQL (fresh store instance,
 turn claim, revision chain, append-only refusal intact).
-
-## Invitation acceptance UI (brief §43)
-
-The workflow-selection screen has an **Accept invitation…** button. The
-signer pastes the emailed link, reviews document / inviter / email / expiry,
-then either creates their signer account (password + display name →
-`POST /api/auth/register`; the email comes from the invitation record) or
-signs in and accepts (email-match enforced server-side). On success the
-remote-workflow dialog opens pre-authenticated, straight on My Signing
-Tasks.
 
 ## Signature placement persistence (brief §33)
 
@@ -130,17 +112,16 @@ ids are skipped — and the legacy state.json files are left untouched as the
 read-only source. PDF bytes are shared, not copied (both stores use the
 same revision layout).
 
-## Invitation expiry sweep
-
-`InvitationExpirySweeper` (database mode, every 15 minutes) flips overdue
-PENDING invitations to EXPIRED and writes `INVITATION_EXPIRED` audit events,
-so expiration is active and visible instead of lazy-on-presentation.
-
 ## Tests
 
-- `PostgresWorkflowStoreLiveTests` — live-PostgreSQL: dev seed accounts,
-  aggregate restart round-trip incl. relational shape + append-only blobs,
-  email-invitation → registration → single-use acceptance (3; skipped when
-  no PostgreSQL is reachable). Self-provisions the `signer_test` database.
+- `PostgresWorkflowStoreLiveTests` — live-PostgreSQL: dev seed accounts and
+  the aggregate restart round-trip, including the relational shape and the
+  append-only blobs. Skipped when no PostgreSQL is reachable; self-provisions
+  the `signer_test` database.
 
-Full suite: **166/166 green**.
+  The invitation → registration → single-use acceptance case it also carried
+  went with the invitation workflow.
+
+Server suite at the time of the removal: **462 tests, 1 pre-existing failure**
+(`RemoteWorkflowLiveE2ETests` — a 500 from `claimTurn`, unrelated to this
+removal and reproducible before it).

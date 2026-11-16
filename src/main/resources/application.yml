@@ -29,11 +29,13 @@ spring:
       - org.springframework.boot.autoconfigure.session.SessionAutoConfiguration
 
 app:
-  # Public web base URL used to build the invitation link that is emailed
-  # to a signer: ${APP_BASE_URL}/sign/{invitationToken}. Must be reachable
-  # from the signer's browser - localhost is fine for a local trial.
+  # Public web base URL used to build the links sent in ACCOUNT e-mails:
+  # confirming an address, setting a new password. Must be reachable from
+  # the reader's browser - localhost is fine for a local trial. (It used to
+  # build ${APP_BASE_URL}/sign/{invitationToken} as well; that page went
+  # with the invitation workflow.)
   base-url: ${APP_BASE_URL:http://localhost:3000}
-  # Shown in the invitation email ("Regards, ...").
+  # Shown in account e-mail ("Regards, ...") and on the download page.
   name: ${APP_NAME:SignFlow}
 
 logging:
@@ -129,7 +131,7 @@ signature:
   remote-server:
     storage: ${SIGNER_SERVER_STORAGE:${java.io.tmpdir}/signer-server}
     # No built-in accounts. (File mode: configure pre-hashed users here;
-    # database mode: users come from the users table / invitations.)
+    # database mode: users come from the users table.)
     # JWT authentication. Access tokens are short-lived; refresh tokens
     # rotate on every use and reuse revokes the session family.
     # jwt-secret is REQUIRED (>= 32 bytes) outside the 'dev' profile: the
@@ -182,13 +184,22 @@ signature:
       # published installer and its .sha256 — see docs/desktop-download.md
       # for how a release is published into it. Unset means there is nothing
       # to download from this server, and the website then offers
-      # SIGNER_DOWNLOAD_URL (below, under `invitation`) if that is set, or
-      # says the download is not available yet.
+      # `fallback-url` below if that is set, or says the download is not
+      # available yet.
       #
       # Set but missing or unreadable FAILS STARTUP, deliberately: a
       # deployment that names a directory and gets it wrong should hear about
       # it at once, not the first time somebody clicks Download.
       dir: ${SIGNER_DOWNLOAD_DIR:}
+      # Where to send somebody when `dir` holds nothing: an external link,
+      # typically an organisation's own software portal. Empty means the
+      # website says the download is not available yet, which is the truth.
+      #
+      # This was `invitation.download-url` until the invitation workflow was
+      # removed, because the invitation page was the first screen to need it.
+      # It kept its environment variable, so a deployment setting
+      # SIGNER_DOWNLOAD_URL needs no change.
+      fallback-url: ${SIGNER_DOWNLOAD_URL:}
       # Per client address, across /downloads/** and /web/api/download-info
       # together. Generous on purpose: a cancelled save, an installer plus
       # its checksum, a download manager opening several ranged connections
@@ -309,7 +320,7 @@ signature:
 #
 # Enables: the software mock token (random per-installation keys, PIN 1234),
 # plaintext dev passwords and the seeded alice/bob/charlie accounts, an
-# ephemeral random JWT key, plain HTTP, console "mailbox" invitations.
+# ephemeral random JWT key, plain HTTP, console "mailbox" account e-mail.
 # =============================================================================
 spring:
   config:

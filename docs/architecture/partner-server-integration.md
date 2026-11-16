@@ -1,5 +1,14 @@
 # Partner backend ↔ SignFlow server integration
 
+> **Historical.** This document records a design as it stood when it was
+> written. The e-mail/guest invitation workflow it describes has since been
+> REMOVED: no invitations, no guest accounts, no guest codes, no
+> `/sign/{token}` page. The only signing flow now is sign in on the website
+> → upload a PDF → click Sign → the desktop opens through
+> `signflow://launch/?v=1&c=<code>` → sign with the smart card. The audit
+> events of past invitations are retained deliberately. Read this for the
+> reasoning it captures, not as a description of the product today.
+
 Status: October 2026. Checked against the SignFlow code (`src/main/java/com/example/signer/**`,
 Flyway `V1`–`V4`). The partner's application is **not** in this repository, so everything on the
 partner side is marked **Assumed**.

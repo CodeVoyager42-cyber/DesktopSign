@@ -20,14 +20,11 @@ import org.springframework.context.ConfigurableApplicationContext;
  *
  * <ul>
  *   <li>the desktop's bearer-token API — {@code /api/auth/*},
- *       {@code /api/workflows/**}, {@code /api/invitations/*},
- *       {@code /api/desktop/*}, {@code /api/server-info/*},
+ *       {@code /api/workflows/**}, {@code /api/desktop/*},
  *       {@code /api/health};</li>
  *   <li>the website's session API, {@code /web/api/**}, and the website
  *       itself (the Next.js export under {@code resources/static}, routed by
  *       {@code server.web.FrontendRoutingConfiguration});</li>
- *   <li>the pages behind an emailed link, {@code /invitations/*} and
- *       {@code /sign/*};</li>
  *   <li>the desktop installer, {@code /downloads/*}.</li>
  * </ul>
  *
