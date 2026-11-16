@@ -54,7 +54,22 @@ public class WorkflowRestController {
         this.operations = operations;
     }
 
-    /** Creates a workflow (multipart: request part + original PDF part). */
+    /**
+     * Creates a workflow (multipart: request part + original PDF part).
+     *
+     * <p><b>The desktop no longer calls this.</b> Its "Send a document"
+     * screens are gone — a document is sent for signature from the website,
+     * and the desktop opens one signing task from a launch link and signs it.
+     *
+     * <p>The route stays anyway, and deliberately: the website is
+     * {@code @ConditionalOnProperty} on {@code database.enabled} (its session
+     * store is PostgreSQL), so in FILE MODE — which is still the documented
+     * default — {@code POST /web/api/workflows} does not exist and this is
+     * the only way to create a workflow at all. Removing it would make a
+     * database mandatory to use the product, which is a bigger decision than
+     * taking a screen off the desktop. Both routes share the one ordering in
+     * {@link WorkflowOperations}, so they cannot drift apart.
+     */
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<CreateWorkflowResponse> create(
             @RequestPart("request") CreateWorkflowRequest request,
