@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { FileText, PenLine, Upload } from "lucide-react";
+import { FileText, PenLine, Plus, Upload, X } from "lucide-react";
 import {
   Initials,
   Links,
@@ -23,19 +23,32 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
-import { documentNameFor, readableSize } from "@/lib/send";
+import {
+  coSignerProblem,
+  documentNameFor,
+  POLICIES,
+  problemWith,
+  readableSize,
+  signersFrom,
+} from "@/lib/send";
 import { cn } from "@/lib/utils";
 
 /**
- * Signing a document — one screen, and the signer is you.
+ * Sending a document for signature — one screen. You are always signer 1,
+ * and you may add the people who sign after you.
  *
  * The three-step wizard this screen replaces asked who else should be
- * invited and in what order, and every e-mail-addressed answer put an
- * invitation e-mail on the server's outbox. None of that is here any more:
- * the only signer of the document is the account that uploads it, so the
- * server has no invitation to send and nobody waits for an e-mail. Upload,
- * name it, and the document screen's <b>Sign now</b> hands the signing to
- * the desktop application on this computer.
+ * invited, and every e-mail-addressed answer put an invitation e-mail on the
+ * server's outbox. That is gone and is not coming back: a signer is named by
+ * their SignFlow <b>username</b>, which means they must already have an
+ * account. They make one themselves — sign-up is open — and the server
+ * refuses a name it cannot find rather than accepting a workflow that would
+ * wait for ever on somebody who does not exist.
+ *
+ * With more than one signer the order matters, so the policy choice appears:
+ * one after another, or any order. With only you it does not, and it stays
+ * hidden. Upload, name it, add anyone else, and the document screen's
+ * <b>Sign now</b> hands your own signature to the desktop application.
  *
  * Nothing about what reaches the server has changed otherwise: the same
  * multipart create call, the same `.pdf`-only rule, the same document name
@@ -53,6 +66,12 @@ export default function Send() {
   const [documentName, setDocumentName] = useState("");
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // Co-signers, by username. The reader is always signer 1; these are the
+  // people after them. Usernames, not addresses: there is no invitation to
+  // send, so a signer must already have an account (the server refuses a
+  // name it cannot find, and says so).
+  const [others, setOthers] = useState<string[]>([]);
+  const [policy, setPolicy] = useState("SEQUENTIAL");
 
   function chooseFile(chosen: File | null) {
     setFile(chosen);
@@ -86,17 +105,23 @@ export default function Send() {
       say("Only PDF documents can be signed.", "bad");
       return;
     }
-    if (!documentName.trim() || !me) {
-      say("Give the document a name.", "bad");
+    if (!me) {
+      return;
+    }
+    // Signer 1 is always the reader; the rest are the rows they added.
+    const rows = [me.username, ...others];
+    const problem = problemWith(file, documentName, rows) ?? coSignerProblem(rows);
+    if (problem) {
+      say(problem, "bad");
       return;
     }
     setBusy(true);
     say("Preparing…");
-    // One signer: the account reading this screen. A username slot is a
-    // direct slot on the server — nothing is sent to anybody.
+    // Username slots are direct slots on the server: nothing is e-mailed to
+    // anybody, and each signer finds the document under their signing tasks.
     api
-      .createWorkflow(documentName.trim(), "SEQUENTIAL",
-        [{ order: 1, userId: me.username, certificateSha256: null }], file)
+      .createWorkflow(documentName.trim(), others.length > 0 ? policy : "SEQUENTIAL",
+        signersFrom(rows), file)
       .then((result) => {
         if (!result.ok || !result.body) {
           say(
@@ -225,15 +250,101 @@ export default function Send() {
           disabled={busy}
         />
 
-        <div className="flex items-center gap-3 rounded-xl border border-border bg-muted p-4">
-          <Initials of={me.displayName} />
-          <div className="min-w-0">
-            <p className="font-medium">{me.displayName}</p>
-            <p className="text-sm text-muted-foreground">
-              You are the signer. The next step opens the app for your
-              signature.
-            </p>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 rounded-xl border border-border bg-muted p-4">
+            <Initials of={me.displayName} />
+            <div className="min-w-0">
+              <p className="font-medium">
+                {me.displayName}{" "}
+                <span className="text-sm font-normal text-muted-foreground">
+                  — signer 1, you
+                </span>
+              </p>
+              <p className="text-sm text-muted-foreground">
+                The next step opens the app for your signature.
+              </p>
+            </div>
           </div>
+
+          {others.map((who, index) => (
+            <div key={index} className="flex items-end gap-2">
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <Label htmlFor={`signer-${index}`}>
+                  Signer {index + 2} — their SignFlow username
+                </Label>
+                <Input
+                  id={`signer-${index}`}
+                  value={who}
+                  autoComplete="off"
+                  placeholder="the username they signed up with"
+                  disabled={busy}
+                  onChange={(event) =>
+                    setOthers((rows) =>
+                      rows.map((row, i) => (i === index ? event.target.value : row)),
+                    )
+                  }
+                />
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={busy}
+                aria-label={`Remove signer ${index + 2}`}
+                onClick={() =>
+                  setOthers((rows) => rows.filter((_, i) => i !== index))
+                }
+              >
+                <X aria-hidden="true" />
+              </Button>
+            </div>
+          ))}
+
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={() => {
+              clear();
+              setOthers((rows) => [...rows, ""]);
+            }}
+          >
+            <Plus aria-hidden="true" />
+            Add another signer
+          </Button>
+
+          <p className="text-sm text-muted-foreground">
+            Anyone you add needs a SignFlow account already — there are no
+            e-mail invitations. They sign up themselves, then you add them by
+            the username they chose.
+          </p>
+
+          {others.length > 0 ? (
+            <fieldset className="space-y-2 rounded-xl border border-border p-4">
+              <legend className="px-1 text-sm font-medium">Signing order</legend>
+              {POLICIES.map((option) => (
+                <label
+                  key={option.value}
+                  className="flex items-start gap-3 text-sm"
+                  htmlFor={`policy-${option.value}`}
+                >
+                  <input
+                    id={`policy-${option.value}`}
+                    type="radio"
+                    name="policy"
+                    className="mt-1"
+                    value={option.value}
+                    checked={policy === option.value}
+                    disabled={busy}
+                    onChange={() => setPolicy(option.value)}
+                  />
+                  <span>
+                    <span className="font-medium">{option.label}</span>
+                    <span className="block text-muted-foreground">{option.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          ) : null}
         </div>
 
         <NoteAlert note={note} />

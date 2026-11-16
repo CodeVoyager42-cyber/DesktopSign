@@ -86,6 +86,34 @@ export function signersFrom(rows: string[]): SignerSpec[] {
 }
 
 /**
+ * What is wrong with the list of signers, in the reader's words, or null.
+ *
+ * Only what the form itself can know. Whether an account exists is the
+ * server's judgement and it answers with its own message (the rule this
+ * module keeps) -- but a duplicate row and an e-mail address in a username
+ * box are visible here, and both are worth catching before a round trip:
+ * the first would make the server refuse the whole document, and the second
+ * is the mistake somebody makes who remembers the old e-mail invitations.
+ */
+export function coSignerProblem(rows: string[]): string | null {
+  const named = rows.map((row) => row.trim()).filter((row) => row.length > 0);
+  for (const who of named) {
+    if (isEmail(who)) {
+      return `"${who}" is an e-mail address. Signers are named by their SignFlow username -- ask them which one they chose.`;
+    }
+  }
+  const seen = new Set<string>();
+  for (const who of named) {
+    const key = who.toLowerCase();
+    if (seen.has(key)) {
+      return `${who} is named twice. Each signer signs once.`;
+    }
+    seen.add(key);
+  }
+  return null;
+}
+
+/**
  * The first thing missing from the form, in the reader's words, or null when
  * there is nothing to say. One message at a time: a list of complaints about
  * a form the reader is still filling in is noise.

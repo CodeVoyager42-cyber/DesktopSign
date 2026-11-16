@@ -1288,6 +1288,25 @@ public class RemoteWorkflowService {
                                 + " account, not an e-mail address. Inviting a signer by"
                                 + " e-mail is no longer supported.");
             }
+            // ...and the account has to actually exist. Rejecting the '@'
+            // shape above was never enough: a plain typo ("alicce") was
+            // accepted, and the workflow then waited for ever on a signer who
+            // can never appear, shown as INVITED for a person who does not
+            // exist. That is the silent failure this validation exists to
+            // end, and it is the thing that made adding a signer unsafe.
+            //
+            // This does tell an authenticated caller whether a username
+            // exists. That is a deliberate, much narrower trade than the
+            // public sign-up, which stays non-enumerable on purpose: naming
+            // somebody as a signer is impossible without it, and the
+            // alternative is a workflow that fails silently later.
+            if (!isRegistered(s.userId())) {
+                throw new ApiException(ApiErrorCode.BAD_REQUEST,
+                        "Signer " + s.order() + ": there is no account named \""
+                                + s.userId() + "\". Ask them to create one on the"
+                                + " SignFlow website first, then add them by the"
+                                + " username they chose.");
+            }
             if (s.certificateSha256() != null && !s.certificateSha256().isBlank()) {
                 String fingerprint = s.certificateSha256().replace(":", "").trim();
                 if (!fingerprint.matches("[0-9a-fA-F]{64}")) {
