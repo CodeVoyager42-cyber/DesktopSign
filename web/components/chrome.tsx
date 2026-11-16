@@ -147,7 +147,7 @@ function MobileMenu({ me }: { me: Profile | null }) {
                 <Button asChild className="justify-start">
                   <Link href="/send">
                     <Send aria-hidden="true" />
-                    Send a document
+                    Sign a document
                   </Link>
                 </Button>
               </SheetClose>
@@ -210,7 +210,7 @@ export function AppHeader({ me }: { me: Profile | null }) {
         <Button asChild className="hidden sm:inline-flex">
           <Link href="/send">
             <Send aria-hidden="true" />
-            Send a document
+            Sign a document
           </Link>
         </Button>
         {me ? (

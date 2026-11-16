@@ -2,90 +2,62 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { FileText, PenLine, Plus, Upload, X } from "lucide-react";
-import {
-  Initials,
-  Links,
-  PageHeader,
-  SectionCard,
-  TextLink,
-} from "@/components/blocks";
+import { FileText, PenLine, Upload } from "lucide-react";
+import { PageHeader } from "@/components/blocks";
 import { AppShell } from "@/components/chrome";
 import {
   Busy,
-  Field,
   NoteAlert,
   SessionPending,
   useNote,
   useSession,
 } from "@/components/session";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
-import {
-  coSignerProblem,
-  documentNameFor,
-  POLICIES,
-  problemWith,
-  readableSize,
-  signersFrom,
-} from "@/lib/send";
+import { documentNameFor, readableSize } from "@/lib/send";
 import { cn } from "@/lib/utils";
 
 /**
- * Sending a document for signature — one screen. You are always signer 1,
- * and you may add the people who sign after you.
+ * Upload a PDF and sign it. The whole website, more or less.
  *
- * The three-step wizard this screen replaces asked who else should be
- * invited, and every e-mail-addressed answer put an invitation e-mail on the
- * server's outbox. That is gone and is not coming back: a signer is named by
- * their SignFlow <b>username</b>, which means they must already have an
- * account. They make one themselves — sign-up is open — and the server
- * refuses a name it cannot find rather than accepting a workflow that would
- * wait for ever on somebody who does not exist.
+ * One screen, two steps, and the second one leaves: choose the file, then
+ * press <b>Sign it with your smart card</b>. That creates the signing task
+ * and hands straight over to {@code /open}, which asks the server for a
+ * one-time launch code and navigates to {@code signflow://launch/…} so the
+ * desktop application opens on this document. The signature happens there,
+ * against the card — this website never sees the key.
  *
- * With more than one signer the order matters, so the policy choice appears:
- * one after another, or any order. With only you it does not, and it stays
- * hidden. Upload, name it, add anyone else, and the document screen's
- * <b>Sign now</b> hands your own signature to the desktop application.
+ * <p>What this screen replaced, and why there is less of it: a "Send a
+ * document" form that also asked for a document name, for co-signers by
+ * username, and for a signing order. The name is the file's own name, which
+ * is what the signed PDF is downloaded as anyway. The rest served a workflow
+ * where somebody sends a document to other people; the product is somebody
+ * signing their own, so the form asked questions with one answer. The server
+ * still supports several signers — {@code POST /web/api/workflows} takes a
+ * list — so adding that back is a screen, not a feature.
  *
- * Nothing about what reaches the server has changed otherwise: the same
- * multipart create call, the same `.pdf`-only rule, the same document name
- * defaulted from the file. The preview is a local blob URL — the document
- * bytes never leave this computer before the reader says so.
+ * <p>The preview is a local blob URL: the document bytes stay on this
+ * computer until the reader presses the button.
  */
 export default function Send() {
   const { me, state } = useSession();
   const { note, say, clear } = useNote();
   const [file, setFile] = useState<File | null>(null);
-  // A local blob URL of the chosen PDF, so the reader sees the pages they
-  // are about to sign before the desktop app is asked to open. It is
-  // revoked the moment the file changes or the screen goes away.
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [documentName, setDocumentName] = useState("");
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
-  // Co-signers, by username. The reader is always signer 1; these are the
-  // people after them. Usernames, not addresses: there is no invitation to
-  // send, so a signer must already have an account (the server refuses a
-  // name it cannot find, and says so).
-  const [others, setOthers] = useState<string[]>([]);
-  const [policy, setPolicy] = useState("SEQUENTIAL");
 
   function chooseFile(chosen: File | null) {
     setFile(chosen);
     clear();
-    setDocumentName(documentNameFor(chosen?.name ?? ""));
     setPreviewUrl((old) => {
       if (old) URL.revokeObjectURL(old);
       return chosen ? URL.createObjectURL(chosen) : null;
     });
   }
 
-  // The blob URL is this screen's own resource: released when the screen
-  // goes away, so the browser does not keep the document bytes for the
-  // life of the tab.
+  // The blob URL is this screen's own resource: released when the screen goes
+  // away, so the browser does not hold the document for the life of the tab.
   useEffect(
     () => () => {
       setPreviewUrl((current) => {
@@ -96,48 +68,43 @@ export default function Send() {
     [],
   );
 
-  function send() {
-    if (!file) {
-      say("Choose the PDF you want signed.", "bad");
+  function signIt() {
+    if (!file || !me) {
+      say("Choose the PDF you want to sign.", "bad");
       return;
     }
     if (!file.name.toLowerCase().endsWith(".pdf")) {
       say("Only PDF documents can be signed.", "bad");
       return;
     }
-    if (!me) {
-      return;
-    }
-    // Signer 1 is always the reader; the rest are the rows they added.
-    const rows = [me.username, ...others];
-    const problem = problemWith(file, documentName, rows) ?? coSignerProblem(rows);
-    if (problem) {
-      say(problem, "bad");
+    const documentName = documentNameFor(file.name);
+    if (!documentName) {
+      say("That file has no name the signed PDF could keep.", "bad");
       return;
     }
     setBusy(true);
     say("Preparing…");
-    // Username slots are direct slots on the server: nothing is e-mailed to
-    // anybody, and each signer finds the document under their signing tasks.
     api
-      .createWorkflow(documentName.trim(), others.length > 0 ? policy : "SEQUENTIAL",
-        signersFrom(rows), file)
+      .createWorkflow(documentName, "SEQUENTIAL",
+        [{ order: 1, userId: me.username, certificateSha256: null }], file)
       .then((result) => {
         if (!result.ok || !result.body) {
           say(
             result.status === 429
               ? "Too many attempts — please wait a few minutes and try again."
-              : // The server's own message: it knows which address is
-                // malformed, which account does not exist and how large a
-                // file may be.
+              : // The server's own message: it knows how large a file may be
+                // and what it will not accept.
                 (result.message ?? "The document could not be prepared."),
             "bad",
           );
           setBusy(false);
           return;
         }
+        // Straight to the hand-off. /open asks for the one-time code and
+        // navigates to signflow://launch, and it is the screen that knows
+        // what to say when nothing opens because the app is not installed.
         window.location.assign(
-          `/document?id=${encodeURIComponent(result.body.workflow.workflowId)}`,
+          `/open?id=${encodeURIComponent(result.body.workflow.workflowId)}`,
         );
       });
   }
@@ -146,39 +113,18 @@ export default function Send() {
     return <SessionPending />;
   }
 
-  // The server refuses to create a document for an account that has not
-  // confirmed its address. Saying so here beats a form that fills in and
-  // then fails.
-  if (!me.emailVerified) {
-    return (
-      <AppShell me={me} narrow>
-        <PageHeader
-          title="Confirm your email first"
-          description="Signing needs a confirmed email address for your account."
-        />
-        <SectionCard>
-          <p className="text-base text-muted-foreground">
-            Your account screen can send the confirmation link again.
-          </p>
-          <Button asChild size="lg" className="w-full">
-            <Link href="/account">Go to my account</Link>
-          </Button>
-        </SectionCard>
-      </AppShell>
-    );
-  }
-
   return (
-    <AppShell me={me} narrow>
+    <AppShell me={me}>
       <PageHeader title="Sign a document">
-        <p className="pt-2 text-base text-muted-foreground">
-          You sign it yourself. After this screen the SignFlow app on this
-          computer does the signing — the website never touches your card.
+        <p className="pt-1 text-base text-muted-foreground">
+          Choose a PDF, then sign it with your smart card. The signing happens
+          in the app on this computer — the card never leaves your hands.
         </p>
       </PageHeader>
 
-      <SectionCard>
-        <div
+      <div className="space-y-6">
+        <label
+          htmlFor="pdf"
           onDragOver={(event) => {
             event.preventDefault();
             setDragging(true);
@@ -190,162 +136,51 @@ export default function Send() {
             chooseFile(event.dataTransfer.files?.[0] ?? null);
           }}
           className={cn(
-            "rounded-xl border-2 border-dashed p-6 text-center transition-colors duration-200",
+            "flex cursor-pointer flex-col items-center gap-3 rounded-xl border-2 border-dashed p-10 text-center transition-colors",
             dragging ? "border-primary bg-accent" : "border-border bg-muted",
           )}
         >
-          <Upload aria-hidden="true" className="mx-auto size-8 text-muted-foreground" />
-          <p className="mt-3 text-base font-medium">
-            Drag your PDF here, or choose it
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            A PDF. Nothing else can be signed.
-          </p>
-          <div className="mx-auto mt-4 max-w-xs">
-            <Label htmlFor="file" className="sr-only">
-              Choose a PDF
-            </Label>
-            <Input
-              id="file"
-              name="file"
-              type="file"
-              accept="application/pdf,.pdf"
-              className="cursor-pointer bg-background file:mr-3 file:font-medium"
-              onChange={(event) => chooseFile(event.target.files?.[0] ?? null)}
-            />
-          </div>
-        </div>
+          <Upload aria-hidden="true" className="size-8 text-muted-foreground" />
+          <span className="text-base font-medium">
+            {file ? "Choose a different PDF" : "Drop a PDF here, or click to choose one"}
+          </span>
+          <span className="text-sm text-muted-foreground">
+            Only PDF documents can be signed.
+          </span>
+          <input
+            id="pdf"
+            type="file"
+            accept="application/pdf,.pdf"
+            className="sr-only"
+            disabled={busy}
+            onChange={(event) => chooseFile(event.target.files?.[0] ?? null)}
+          />
+        </label>
 
         {file ? (
-          <>
-            <p className="flex items-center gap-2 rounded-lg bg-success/10 p-3 text-base text-success-strong">
-              <FileText aria-hidden="true" className="size-5 shrink-0" />
-              <span className="break-all font-medium">{file.name}</span>
-              <span className="ml-auto shrink-0 text-sm">
-                {readableSize(file.size)}
-              </span>
-            </p>
-            {previewUrl ? (
-              <div className="overflow-hidden rounded-lg border bg-muted">
-                {/* The browser's own PDF viewer, pointed at a local
-                    blob URL: the document bytes never leave this
-                    computer, so a preview here is not a second copy
-                    on a server anywhere. */}
-                <iframe
-                  src={previewUrl}
-                  title={`Preview of ${documentName || file.name}`}
-                  className="h-[420px] w-full bg-background"
-                />
-              </div>
-            ) : null}
-          </>
-        ) : null}
-
-        <Field
-          label="Document name"
-          name="documentName"
-          value={documentName}
-          onChange={setDocumentName}
-          hint="What the signed PDF is downloaded as."
-          disabled={busy}
-        />
-
-        <div className="space-y-3">
-          <div className="flex items-center gap-3 rounded-xl border border-border bg-muted p-4">
-            <Initials of={me.displayName} />
+          <div className="flex items-center gap-3 rounded-xl border border-border p-4">
+            <FileText aria-hidden="true" className="size-5 shrink-0" />
             <div className="min-w-0">
-              <p className="font-medium">
-                {me.displayName}{" "}
-                <span className="text-sm font-normal text-muted-foreground">
-                  — signer 1, you
-                </span>
-              </p>
+              <p className="truncate font-medium">{documentNameFor(file.name)}</p>
               <p className="text-sm text-muted-foreground">
-                The next step opens the app for your signature.
+                {readableSize(file.size)}
+                {previewUrl ? (
+                  <>
+                    {" · "}
+                    <a
+                      href={previewUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline"
+                    >
+                      Look at it first
+                    </a>
+                  </>
+                ) : null}
               </p>
             </div>
           </div>
-
-          {others.map((who, index) => (
-            <div key={index} className="flex items-end gap-2">
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <Label htmlFor={`signer-${index}`}>
-                  Signer {index + 2} — their SignFlow username
-                </Label>
-                <Input
-                  id={`signer-${index}`}
-                  value={who}
-                  autoComplete="off"
-                  placeholder="the username they signed up with"
-                  disabled={busy}
-                  onChange={(event) =>
-                    setOthers((rows) =>
-                      rows.map((row, i) => (i === index ? event.target.value : row)),
-                    )
-                  }
-                />
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={busy}
-                aria-label={`Remove signer ${index + 2}`}
-                onClick={() =>
-                  setOthers((rows) => rows.filter((_, i) => i !== index))
-                }
-              >
-                <X aria-hidden="true" />
-              </Button>
-            </div>
-          ))}
-
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy}
-            onClick={() => {
-              clear();
-              setOthers((rows) => [...rows, ""]);
-            }}
-          >
-            <Plus aria-hidden="true" />
-            Add another signer
-          </Button>
-
-          <p className="text-sm text-muted-foreground">
-            Anyone you add needs a SignFlow account already — there are no
-            e-mail invitations. They sign up themselves, then you add them by
-            the username they chose.
-          </p>
-
-          {others.length > 0 ? (
-            <fieldset className="space-y-2 rounded-xl border border-border p-4">
-              <legend className="px-1 text-sm font-medium">Signing order</legend>
-              {POLICIES.map((option) => (
-                <label
-                  key={option.value}
-                  className="flex items-start gap-3 text-sm"
-                  htmlFor={`policy-${option.value}`}
-                >
-                  <input
-                    id={`policy-${option.value}`}
-                    type="radio"
-                    name="policy"
-                    className="mt-1"
-                    value={option.value}
-                    checked={policy === option.value}
-                    disabled={busy}
-                    onChange={() => setPolicy(option.value)}
-                  />
-                  <span>
-                    <span className="font-medium">{option.label}</span>
-                    <span className="block text-muted-foreground">{option.hint}</span>
-                  </span>
-                </label>
-              ))}
-            </fieldset>
-          ) : null}
-        </div>
+        ) : null}
 
         <NoteAlert note={note} />
 
@@ -354,23 +189,25 @@ export default function Send() {
           size="lg"
           className="w-full"
           disabled={busy || !file}
-          onClick={send}
+          onClick={signIt}
         >
           {busy ? (
             <Busy>Preparing…</Busy>
           ) : (
             <>
               <PenLine aria-hidden="true" />
-              Sign this document
+              Sign it with your smart card
             </>
           )}
         </Button>
-      </SectionCard>
 
-      <div className="mt-6">
-        <Links>
-          <TextLink href="/documents">Cancel and go back to my documents</TextLink>
-        </Links>
+        <p className="text-center text-sm text-muted-foreground">
+          Signing opens the SignFlow app. Not installed yet?{" "}
+          <Link href="/download" className="underline">
+            Get it here
+          </Link>
+          .
+        </p>
       </div>
     </AppShell>
   );

@@ -74,7 +74,7 @@ function Actions({ row }: { row: Row }) {
         asChild
         variant={row.waitingForMe && !finished ? "ghost" : "outline"}
       >
-        <Link href={`/document?id=${encodeURIComponent(row.id)}`}>View</Link>
+        {null}
       </Button>
     </div>
   );

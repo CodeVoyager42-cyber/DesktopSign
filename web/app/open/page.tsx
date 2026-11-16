@@ -348,9 +348,7 @@ export default function Open() {
 
       <div className="mt-6">
         <Links>
-          <TextLink href={`/document?id=${encodeURIComponent(id ?? "")}`}>
-            Back to the document
-          </TextLink>
+          <TextLink href="/documents">Back to my documents</TextLink>
         </Links>
       </div>
     </AppShell>

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  coSignerProblem,
   documentNameFor,
   isEmail,
   problemWith,
@@ -78,24 +77,3 @@ test("a file size reads the way a reader glances at it", () => {
   assert.equal(readableSize(12 * 1024 * 1024), "12.0 MB");
 });
 
-test("an e-mail in a signer box is caught before the server sees it", () => {
-  // The mistake somebody makes who remembers the old e-mail invitations.
-  const problem = coSignerProblem(["alice", "bob@example.com"]);
-  assert.match(String(problem), /e-mail address/);
-  assert.match(String(problem), /username/);
-});
-
-test("the same signer twice is refused, case-insensitively", () => {
-  assert.match(String(coSignerProblem(["alice", "bob", "Bob"])), /named twice/);
-  assert.equal(coSignerProblem(["alice", "bob", "charlie"]), null);
-});
-
-test("blank rows are ignored rather than reported", () => {
-  // The reader is still filling the form in; an empty row is not a mistake.
-  assert.equal(coSignerProblem(["alice", "  ", ""]), null);
-});
-
-test("whether the account exists is deliberately not checked here", () => {
-  // That is the server’s judgement, and it answers with its own message.
-  assert.equal(coSignerProblem(["alice", "nobody-with-this-name"]), null);
-});

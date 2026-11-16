@@ -142,7 +142,7 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String[] PAGES = {
         VERIFY_EMAIL_PAGE, RESET_PASSWORD_PAGE,
         SIGN_IN_PAGE, SIGN_UP_PAGE, FORGOT_PASSWORD_PAGE, CHANGE_PASSWORD_PAGE,
-        ACCOUNT_PAGE, DOCUMENTS_PAGE, DOCUMENT_PAGE, SEND_PAGE, OPEN_PAGE, DOWNLOAD_PAGE,
+        ACCOUNT_PAGE, DOCUMENTS_PAGE, SEND_PAGE, OPEN_PAGE, DOWNLOAD_PAGE,
     };
 
     /**

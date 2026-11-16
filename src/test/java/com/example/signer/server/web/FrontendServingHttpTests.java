@@ -224,7 +224,7 @@ class FrontendServingHttpTests {
         // a real page per route, so the forward goes to that page's own file
         // and this asserts the right one arrives.
         for (String path : new String[] {"/sign-in", "/sign-up", "/forgot-password",
-                "/change-password", "/account", "/documents", "/document",
+                "/change-password", "/account", "/documents",
                 "/send", "/open", "/download", "/verify-email", "/reset-password"}) {
             HttpResponse<String> page = get(path);
 
