@@ -1,8 +1,6 @@
 package com.example.signer.ui.remote;
 
 import com.example.signer.client.WorkflowApiClient;
-import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
 import java.io.File;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -12,7 +10,6 @@ import javafx.scene.control.Hyperlink;
 import com.example.signer.ui.support.Background;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowResponse;
-import com.example.signer.server.api.ApiContracts.InvitationLinkView;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
 import com.example.signer.token.SigningCertificate;
 import com.example.signer.token.TokenService;
@@ -45,20 +42,20 @@ import java.util.function.Consumer;
 
 /**
  * Guided "New signing workflow" flow — replaces the old flat form so the
- * signer/invitation functionality is impossible to miss:
+ * signer functionality is impossible to miss:
  * <ol>
  *   <li><b>Document</b> — pick the PDF (name, size, type; replace/remove),</li>
- *   <li><b>Signers</b> — "Who needs to sign?" cards with order chips, live
- *   email-vs-username badges, remove and reorder, sequential/flexible
- *   policy with a plain-language explanation,</li>
+ *   <li><b>Signers</b> — "Who needs to sign?" cards with order chips,
+ *   remove and reorder, sequential/flexible policy with a plain-language
+ *   explanation,</li>
  *   <li><b>Review &amp; send</b> — a "Ready to send" summary and a single
  *   obvious "Send for signature" action,</li>
- *   <li><b>Success</b> — who was invited by email and what happens next.</li>
+ *   <li><b>Success</b> — what happens next.</li>
  * </ol>
  *
- * <p>Email-shaped signer slots are invited automatically by the server
- * ({@code WorkflowInvitationCoordinator}); username slots must already exist.
- * The wizard surfaces that distinction live instead of hiding it.
+ * <p>Every signer slot has to name an account that already exists. An
+ * e-mail-shaped slot is refused by the server: there is no invitation left to
+ * turn one into an account. The wizard says so rather than hiding it.
  */
 public final class NewWorkflowWizard {
 
@@ -77,7 +74,6 @@ public final class NewWorkflowWizard {
     private final Consumer<String> status;
     private final String signedInUser;
     private final Runnable onDone;
-    private final Runnable onInviteAnother;
     /** Largest document the coordination server accepts (config-derived). */
     private final long maxUploadBytes;
 
@@ -88,7 +84,7 @@ public final class NewWorkflowWizard {
     public NewWorkflowWizard(WorkflowApiClient client, TokenService tokenService,
                              Stage owner, VBox content, Consumer<String> status,
                              String signedInUser, Runnable onDone,
-                             Runnable onInviteAnother, long maxUploadBytes) {
+                             long maxUploadBytes) {
         this.client = client;
         this.tokenService = tokenService;
         this.owner = owner;
@@ -96,7 +92,6 @@ public final class NewWorkflowWizard {
         this.status = status;
         this.signedInUser = signedInUser;
         this.onDone = onDone;
-        this.onInviteAnother = onInviteAnother;
         this.maxUploadBytes = maxUploadBytes;
     }
 
@@ -292,8 +287,8 @@ public final class NewWorkflowWizard {
         add.getStyleClass().add("btn-add-signer");
         add.setMaxWidth(Double.MAX_VALUE);
         add.setTooltip(new Tooltip(
-                "Add another person who must sign. Email addresses are"
-                        + " invited automatically when you send."));
+                "Add another person who must sign. Each one needs a SignFlow"
+                        + " account already."));
         add.setOnAction(e -> {
             rows.add(newRow(null));
             showSignersStep();
@@ -348,15 +343,14 @@ public final class NewWorkflowWizard {
         content.getChildren().setAll(
                 stepIndicator(2),
                 sectionTitle("Who needs to sign?"),
-                subtitle("Type each signer's email address. They receive an"
-                        + " invitation email when you send. (People who already"
-                        + " have a SignFlow account can also be added by"
-                        + " username.)"),
+                subtitle("Type each signer's SignFlow username. They need an"
+                        + " account already — SignFlow no longer sends e-mail"
+                        + " invitations, so an e-mail address is refused."),
                 signerSection,
                 new VBox(4, new Label("Signing order"), policyBox,
                         subtitle("SEQUENTIAL".equals(policy)
-                                ? "Sequential: signer 2 is invited to sign only"
-                                + " after signer 1 has signed."
+                                ? "Sequential: signer 2 can sign only after"
+                                + " signer 1 has signed."
                                 : "Flexible: the turn is open — any pending"
                                 + " signer may claim it, one at a time.")),
                 new HBox(10, back, next));
@@ -367,8 +361,7 @@ public final class NewWorkflowWizard {
         SignerRow row = new SignerRow();
         int order = rows.size() + 1;
 
-        row.identifier.setPromptText(
-                "email address (invited by email) or username");
+        row.identifier.setPromptText("username of an existing account");
         row.identifier.setPrefColumnCount(30);
         if (preset != null) {
             row.identifier.setText(preset);
@@ -414,8 +407,8 @@ public final class NewWorkflowWizard {
         HBox.setHgrow(row.fingerprint, Priority.ALWAYS);
 
         // Advanced, optional: pre-assigning the signer's key. Hidden by
-        // default — signers normally register their own key when they open
-        // the invitation, so most senders never need this.
+        // default — signers normally register their own key the first time
+        // they sign, so most senders never need this.
         Hyperlink advanced = new Hyperlink(
                 "Advanced: set this signer's signing key now (optional)");
         boolean keyPreset = !row.fingerprint.getText().isBlank();
@@ -443,7 +436,7 @@ public final class NewWorkflowWizard {
         return chip;
     }
 
-    /** Live badge: '@' → invited by email, otherwise an existing account. */
+    /** Live badge: '@' → refused by the server, otherwise an account name. */
     private void updateBadge(SignerRow row) {
         String text = row.identifier.getText() == null
                 ? "" : row.identifier.getText().trim();
@@ -454,7 +447,7 @@ public final class NewWorkflowWizard {
             row.badge.setVisible(false);
             row.badge.setManaged(false);
         } else if (text.contains("@")) {
-            row.badge.setText("invited by email");
+            row.badge.setText("e-mail — not accepted");
             row.badge.getStyleClass().add("role-badge--email");
             row.badge.setVisible(true);
             row.badge.setManaged(true);
@@ -505,8 +498,8 @@ public final class NewWorkflowWizard {
         content.getChildren().setAll(
                 stepIndicator(3),
                 sectionTitle("Ready to send"),
-                subtitle("One last look — the invitation emails go out as soon"
-                        + " as you send."),
+                subtitle("One last look before the signers are notified in"
+                        + " their signing tasks."),
                 card,
                 new HBox(10, back, send));
     }
@@ -529,7 +522,7 @@ public final class NewWorkflowWizard {
         for (int i = 0; i < rows.size(); i++) {
             String id = rows.get(i).identifier.getText().trim();
             Label line = new Label(marker + "  " + (i + 1) + ".  " + id
-                    + (id.contains("@") ? "  —  invited by email"
+                    + (id.contains("@") ? "  —  e-mail, not accepted"
                             : "  —  existing account"));
             line.setWrapText(true);
             box.getChildren().add(line);
@@ -577,8 +570,7 @@ public final class NewWorkflowWizard {
 
         content.getChildren().setAll(stepIndicator(3),
                 sectionTitle("Ready to send"),
-                subtitle("Sending — creating the workflow and delivering the"
-                        + " invitation emails…"));
+                subtitle("Sending — creating the workflow…"));
         run(new Task<CreateWorkflowResponse>() {
             private CreateWorkflowResponse created;
 
@@ -609,15 +601,8 @@ public final class NewWorkflowWizard {
 
     private void showSuccess(CreateWorkflowResponse created) {
         WorkflowView workflow = created.workflow();
-        // Outside development the server does not return the invitee's link
-        // (security Phase 3): only entries that carry one are shown.
-        List<InvitationLinkView> sentLinks = created.invitations() == null
-                ? List.of() : created.invitations().stream()
-                        .filter(l -> l.invitationUrl() != null).toList();
-        long invited = rows.stream().map(r -> r.identifier.getText().trim())
-                .filter(id -> id.contains("@")).count();
 
-        Label title = new Label("Invitations sent successfully");
+        Label title = new Label("Sent for signature");
         title.getStyleClass().add("success-title");
 
         VBox summary = signerSummary("✓");
@@ -626,17 +611,9 @@ public final class NewWorkflowWizard {
         card.getStyleClass().add("card");
         card.setPadding(new Insets(16));
 
-        String hint = invited > 0
-                ? invited + " signer" + (invited == 1 ? " has" : "s have")
-                        + " been invited by email. Each signer opens the link,"
-                        + " reviews the document and signs on their own machine."
-                : "All signers are existing accounts — they will find the"
-                        + " workflow under their signing tasks.";
-
-        Button invite = new Button("Invite another signer…",
-                new FontIcon(FontAwesomeSolid.ENVELOPE_OPEN));
-        invite.getStyleClass().add("btn-secondary");
-        invite.setOnAction(e -> onInviteAnother.run());
+        String hint = "Each signer finds the workflow under their signing"
+                + " tasks, reviews the document and signs on their own"
+                + " machine.";
 
         Button again = new Button("Create another workflow",
                 new FontIcon(FontAwesomeSolid.PLUS));
@@ -653,71 +630,9 @@ public final class NewWorkflowWizard {
                 sectionTitle("Workflow sent"),
                 card,
                 new Label(hint),
-                sentLinks.isEmpty() ? new Region() : sentLinksCard(sentLinks),
-                new HBox(10, done, invite, again));
+                new HBox(10, done, again));
         status.accept("Workflow " + workflow.workflowId()
-                + " created — invitations sent.");
-    }
-
-    /**
-     * Shows the exact links that just went out, with a copy action per
-     * recipient. The server returns them only here — it keeps token hashes,
-     * not tokens — so this is the sender's one chance to see or share them.
-     */
-    private VBox sentLinksCard(List<InvitationLinkView> links) {
-        Label title = new Label(links.size() == 1
-                ? "Link in the email" : "Links in the emails");
-        title.getStyleClass().add("card-title");
-
-        Label note = new Label("This is exactly what your signers received."
-                + " Keep it private. Opening it also needs the one-time code we"
-                + " e-mail to the signer.");
-        note.setWrapText(true);
-        note.getStyleClass().add("page-subtitle");
-
-        VBox rows = new VBox(8);
-        for (InvitationLinkView link : links) {
-            Label email = new Label(link.email());
-            email.getStyleClass().add("timeline-name");
-
-            Label url = new Label(shortenLink(link.invitationUrl()));
-            url.getStyleClass().addAll("page-subtitle", "mono-text");
-            url.setTooltip(new Tooltip(link.invitationUrl()));
-
-            Button copy = new Button("Copy link",
-                    new FontIcon(FontAwesomeSolid.COPY));
-            copy.getStyleClass().add("btn-ghost");
-            copy.setOnAction(e -> {
-                copyToClipboard(link.invitationUrl());
-                copy.setText("Copied");
-            });
-
-            Region gap = new Region();
-            HBox.setHgrow(gap, Priority.ALWAYS);
-            HBox head = new HBox(10, email, gap, copy);
-            head.setAlignment(Pos.CENTER_LEFT);
-            rows.getChildren().addAll(head, url);
-        }
-
-        VBox card = new VBox(10, title, note, rows);
-        card.getStyleClass().add("card");
-        card.setPadding(new Insets(16));
-        return card;
-    }
-
-    /** Middle of a long link: the base URL and token tail stay visible. */
-    static String shortenLink(String url) {
-        if (url == null || url.length() <= 72) {
-            return String.valueOf(url);
-        }
-        return url.substring(0, 40) + "…" + url.substring(url.length() - 24);
-    }
-
-    static void copyToClipboard(String text) {
-        StringSelection selection =
-                new StringSelection(text);
-        Toolkit.getDefaultToolkit().getSystemClipboard()
-                .setContents(selection, selection);
+                + " created — sent for signature.");
     }
 
     /* ------------------------------------------------------------------ */

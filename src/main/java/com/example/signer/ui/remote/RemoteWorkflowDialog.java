@@ -36,7 +36,6 @@ import com.example.signer.pdf.PdfRenderService;
 import com.example.signer.server.api.ApiContracts.TaskView;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
 import com.example.signer.token.SigningCertificate;
-import com.example.signer.ui.dialog.InviterDialog;
 import com.example.signer.token.TokenService;
 import com.example.signer.workflow.WorkflowSigningService;
 
@@ -460,8 +459,8 @@ public final class RemoteWorkflowDialog {
 
             @Override
             protected void succeeded() {
-                // Remember this session so an emailed invitation opened later
-                // in the same app run can skip the login (brief §6 Scenario 1).
+                // Remember this session so a later screen in the same app run
+                // can skip the login (brief §6 Scenario 1).
                 RemoteSessionCache.store(signedInUser, client);
                 afterSignedIn();
             }
@@ -484,9 +483,8 @@ public final class RemoteWorkflowDialog {
     }
 
     private static Label noAccountHint() {
-        Label hint = new Label("No account yet? If someone asked you to sign,"
-                + " open the link in their invitation email — or go Back and"
-                + " choose \"Open an invitation\".");
+        Label hint = new Label("No account yet? Ask whoever sent you the"
+                + " document to create one for you — signing needs an account.");
         hint.getStyleClass().add("page-subtitle");
         hint.setWrapText(true);
         return hint;
@@ -527,11 +525,6 @@ public final class RemoteWorkflowDialog {
                         @Override
                         public void newWorkflow() {
                             showCreateWorkflow();
-                        }
-
-                        @Override
-                        public void inviteSigner() {
-                            openInviter();
                         }
 
                         @Override
@@ -659,7 +652,7 @@ public final class RemoteWorkflowDialog {
             @Override
             protected void succeeded() {
                 statusLabel.setText("Workflows you created — open one to track"
-                        + " its signing progress and invitations.");
+                        + " its signing progress.");
                 VBox list = new VBox(10);
                 if (owned.isEmpty()) {
                     VBox empty = new VBox(8);
@@ -670,8 +663,8 @@ public final class RemoteWorkflowDialog {
                     icon.getStyleClass().add("empty-state-icon");
                     Label title = new Label("No workflows yet");
                     title.getStyleClass().add("empty-state-title");
-                    Label hint = new Label("Create a signing workflow and invite"
-                            + " signers by email — everything lands here for"
+                    Label hint = new Label("Create a signing workflow and choose"
+                            + " who signs it — everything lands here for"
                             + " tracking.");
                     hint.getStyleClass().add("empty-state-hint");
                     hint.setWrapText(true);
@@ -705,70 +698,6 @@ public final class RemoteWorkflowDialog {
                 showError(getException());
             }
         });
-    }
-
-    /* ------------------------------------------------------------------
-     * invitation invite (server-side) + deep link
-     * ------------------------------------------------------------------ */
-
-    /** Opens the inviter bound to the signed-in session (JWT on every call). */
-    private void openInviter() {
-        InviterDialog inviter = new InviterDialog(client);
-        inviter.showAndWait(dialog);
-        InviterDialog.Result result = inviter.getResult();
-        if (result == null) {
-            // Closed without sending. The inviter reports its own refusals
-            // (and logs them), so adding a second message here would only
-            // guess at a reason the dialog already showed.
-            return;
-        }
-        if (result.workflowId() != null) {
-            statusLabel.setText("Invitation sent for signer slot "
-                    + result.signerOrder() + ".");
-            // The link exists only in the response that sent it, so show it
-            // now — there is no later read that can reproduce it.
-            if (result.inviteUrl() != null) {
-                showInviteLink(result.workflowId(), result.signerOrder(),
-                        result.inviteUrl());
-            }
-        } else if (result.token() != null) {
-            statusLabel.setText("Invite link ready: " + result.inviteUrl()
-                    + " — hand it to the signer to paste into the"
-                    + " Invitation dialog.");
-        } else {
-            statusLabel.setText("No invitation was sent.");
-        }
-    }
-
-    /**
-     * Shows a just-emailed invitation link with a copy action. The server
-     * returns the link once, when it sends it, and keeps only the token
-     * hash — so this dialog is the sender's only look at what went out.
-     */
-    private void showInviteLink(String workflowId, int signerOrder, String url) {
-        Alert alert = new Alert(
-                Alert.AlertType.INFORMATION);
-        alert.initOwner(dialog);
-        alert.setTitle("Invitation sent");
-        alert.setHeaderText("The invitation email for signer slot "
-                + signerOrder + " of " + workflowId + " is on its way.");
-
-        Label urlLabel = new Label(url);
-        urlLabel.setWrapText(true);
-        urlLabel.getStyleClass().add("mono-text");
-        Label note = new Label("This is the exact link that was emailed."
-                + " Keep it private — anyone who opens it can sign.");
-        note.setWrapText(true);
-        Button copy = new Button("Copy link",
-                new FontIcon(FontAwesomeSolid.COPY));
-        copy.setOnAction(e -> {
-            NewWorkflowWizard.copyToClipboard(url);
-            copy.setText("Copied");
-        });
-        alert.getDialogPane().setContent(new VBox(10, urlLabel, note, copy));
-        alert.getDialogPane().getButtonTypes().add(
-                ButtonType.CLOSE);
-        alert.showAndWait();
     }
 
     /* ------------------------------------------------------------------
@@ -970,7 +899,6 @@ public final class RemoteWorkflowDialog {
                 taskColumn.setMaxWidth(720);
                 card.setMaxWidth(720);
                 content.getChildren().setAll(RemoteScreens.centered(taskColumn));
-                loadInvitations(workflowId);
             }
 
             @Override
@@ -983,15 +911,17 @@ public final class RemoteWorkflowDialog {
     /** One signer row: number/check, name (you), and a plain state chip. */
     private HBox signerRow(TaskView.StepView step, TaskView task) {
         // "Signed" is reserved for the server's own signature verdict on THIS
-        // slot. An invited recipient who has not registered is shown as
-        // invited, never as signed.
+        // slot. A slot whose account is not registered yet is shown as such,
+        // never as signed.
         String text;
         SignFlowUi.Tone tone;
         if (step.signed()) {
             text = "Signed";
             tone = SignFlowUi.Tone.OK;
         } else if ("INVITED".equals(step.signerState())) {
-            text = "Invited — not signed yet";
+            // The server still reports INVITED for a slot whose account does
+            // not exist yet. Nobody is invited any more, so say what it means.
+            text = "No account yet — cannot sign";
             tone = SignFlowUi.Tone.WARN;
         } else if (step.yourTurn()) {
             text = signedInUser.equals(step.userId()) ? "Your turn" : "Signing now";
@@ -1033,70 +963,6 @@ public final class RemoteWorkflowDialog {
      * participant (user id + certificate fingerprint), optionally capture
      * the fingerprint of the currently connected token, and submit.
      */
-    /* ------------------------------------------------------------------
-     * 3d. invitation tracking (owner only)
-     * ------------------------------------------------------------------ */
-
-    /**
-     * Appends the per-slot invitation status card for the workflow's creator:
-     * sent/accepted timestamps, status badges and a Resend action. Signers
-     * who do not own the workflow simply never see the card (the server
-     * answers 4xx and the section is skipped silently).
-     */
-    private void loadInvitations(String workflowId) {
-        if (guestMode) {
-            return; // owner-only information
-        }
-        runInBackground(new Task<List<ApiContracts.InvitationStatusView>>() {
-            private ApiContracts.InvitationLinkInfo linkInfo;
-
-            @Override
-            protected List<ApiContracts.InvitationStatusView> call() {
-                List<ApiContracts.InvitationStatusView> invitations =
-                        client.workflowInvitations(workflowId);
-                try {
-                    linkInfo = client.invitationLinkInfo();
-                } catch (RuntimeException ignored) {
-                    linkInfo = null; // a server without the endpoint still shows the card
-                }
-                return invitations;
-            }
-
-            @Override
-            protected void succeeded() {
-                List<ApiContracts.InvitationStatusView> invitations = getValue();
-                if (invitations == null || invitations.isEmpty()
-                        || taskColumn == null || taskColumn.getScene() == null) {
-                    return;
-                }
-                taskColumn.getChildren().add(InvitationsCard.build(
-                        invitations, linkInfo, RemoteWorkflowDialog.this::resendInvitation));
-            }
-        });
-    }
-
-    /** Resend: invalidates the emailed link and emails a fresh one. */
-    private void resendInvitation(ApiContracts.InvitationStatusView invitation,
-                                  Consumer<ApiContracts.InvitationLinkView> onSent) {
-        runInBackground(new Task<ApiContracts.InvitationLinkView>() {
-            @Override
-            protected ApiContracts.InvitationLinkView call() {
-                return client.resendInvitation(invitation.invitationId());
-            }
-
-            @Override
-            protected void succeeded() {
-                statusLabel.setText("Fresh invitation emailed to " + invitation.email() + ".");
-                onSent.accept(getValue());
-            }
-
-            @Override
-            protected void failed() {
-                showError(getException());
-            }
-        });
-    }
-
     /**
      * New-workflow entry point: the guided wizard now owns the whole flow
      * (document → signers & order → review & send → success), rendering into
@@ -1106,7 +972,7 @@ public final class RemoteWorkflowDialog {
         navigateTo(this::showCreateWorkflow);
         new NewWorkflowWizard(client, tokenService, dialog, content,
                 statusLabel::setText, signedInUser,
-                this::showTasks, this::openInviter, maxUploadBytes).start();
+                this::showTasks, maxUploadBytes).start();
     }
 
     /* ------------------------------------------------------------------

@@ -80,7 +80,7 @@ final class RemoteSigningJourney {
 
         boolean guestMode();
 
-        /** "Signing as": the invited address for a guest, else the account. */
+        /** "Signing as": the task's signer for a launched session, else the account. */
         String signingAsLabel();
 
         String signedInUser();

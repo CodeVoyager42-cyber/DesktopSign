@@ -71,7 +71,7 @@ import java.util.Map;
  */
 public final class SigningTasksView {
 
-    /** Callbacks into the host dialog (opening tasks, wizard, inviter…). */
+    /** Callbacks into the host dialog (opening tasks, the wizard, tracking). */
     public interface Host {
         /** Opens the task details page for one workflow. */
         void openTask(String workflowId);
@@ -83,9 +83,6 @@ public final class SigningTasksView {
 
         /** Starts the new-workflow wizard. */
         void newWorkflow();
-
-        /** Opens the inviter (owner-side email invitations). */
-        void inviteSigner();
 
         /** Opens the owner tracking view. */
         void manageWorkflows();
@@ -156,7 +153,7 @@ public final class SigningTasksView {
 
     /**
      * Loads with skeleton state; {@code afterLoad} runs on the FX thread
-     * after data arrives (used to focus a workflow from an invitation).
+     * after data arrives (used to focus one workflow).
      */
     public void load(Runnable afterLoad) {
         showSkeleton();
@@ -298,11 +295,8 @@ public final class SigningTasksView {
         Button send = new Button("Send a document", new FontIcon(FontAwesomeSolid.PLUS));
         send.getStyleClass().addAll("btn-primary", "st-send");
         send.setMaxWidth(Double.MAX_VALUE);
-        send.setTooltip(new Tooltip("Pick a PDF, add the signers and send them invitations"));
+        send.setTooltip(new Tooltip("Pick a PDF and choose who signs it"));
         send.setOnAction(e -> host.newWorkflow());
-        Hyperlink invite = new Hyperlink("Invite a signer by email…");
-        invite.getStyleClass().add("st-nav-link");
-        invite.setOnAction(e -> host.inviteSigner());
 
         Label avatar = new Label(username == null || username.isBlank()
                 ? "?" : username.substring(0, 1).toUpperCase());
@@ -323,7 +317,7 @@ public final class SigningTasksView {
         Region grow = new Region();
         VBox.setVgrow(grow, Priority.ALWAYS);
         VBox side = new VBox(6, brand, spacer(14), tasksNav, completedNav, sentNav,
-                spacer(14), send, invite, grow, profile);
+                spacer(14), send, grow, profile);
         side.getStyleClass().add("st-sidebar");
         side.setPrefWidth(220);
         side.setMinWidth(200);

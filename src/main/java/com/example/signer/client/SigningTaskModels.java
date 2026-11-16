@@ -188,9 +188,10 @@ public final class SigningTaskModels {
                     }
                 }
                 case INVITED -> {
-                    // An invitation exists; the recipient has no account yet.
-                    // Invitation state, not a signature.
-                    label = "Invited — not signed";
+                    // The server still reports INVITED for a slot whose account
+                    // does not exist. Nobody is invited any more: this is an
+                    // account that was never created, not a signature state.
+                    label = "No account yet — cannot sign";
                     style = "waiting";
                 }
                 case DECLINED -> {

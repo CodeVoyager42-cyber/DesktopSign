@@ -16,10 +16,6 @@ import com.example.signer.server.api.ApiContracts.ApiError;
 import com.example.signer.server.api.ApiContracts.AuditView;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowResponse;
-// Owner-side invitation views, used only by the sender's invite surface that
-// goes next (scope A, PR-2b) together with these imports.
-import com.example.signer.server.api.ApiContracts.InvitationLinkInfo;
-import com.example.signer.server.api.ApiContracts.InvitationLinkView;
 import com.example.signer.server.api.ApiContracts.LoginRequest;
 import com.example.signer.server.api.ApiContracts.RevisionView;
 import com.example.signer.server.api.ApiContracts.SignatureSubmissionRequest;
@@ -339,7 +335,7 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
                 200);
     }
 
-    /** Workflows created by the signed-in user (the inviter's picker). */
+    /** Workflows created by the signed-in user (the sender's picker). */
     @Override
     public List<WorkflowView> myWorkflows() {
         return Arrays.asList(send(HttpRequest.newBuilder()
@@ -601,77 +597,6 @@ public class WorkflowApiClient implements SignerTasksApi, WorkflowOwnerApi {
         } catch (java.io.IOException | IllegalArgumentException e) {
             return UNKNOWN_VERSION;
         }
-    }
-
-    /**
-     * Creates an invitation email for one signer slot of a workflow the
-     * signed-in user participates in. Authenticated via the Bearer session
-     * exactly like every other API call; the email is delivered by the
-     * {@code EmailService} and carries the deep link. The raw token is
-     * never returned by the API — only its hash is stored server-side.
-     */
-    @Override
-    public ApiContracts.InvitationView invite(
-            String workflowId, int signerOrder, String email) {
-        try {
-            String json = mapper.writeValueAsString(
-                    new ApiContracts.CreateInvitationRequest(
-                            signerOrder, email));
-            return send(HttpRequest.newBuilder()
-                            .uri(URI.create(baseUrl + "api/workflows/"
-                                    + urlEncode(workflowId) + "/invitations"))
-                            .header("Content-Type", "application/json")
-                            .POST(HttpRequest.BodyPublishers.ofByteArray(
-                                    json.getBytes(StandardCharsets.UTF_8))),
-                    ApiContracts.InvitationView.class,
-                    201);
-        } catch (SignerException e) {
-            throw e;
-        } catch (Exception e) {
-            throw transportFailure("The invite request", e);
-        }
-    }
-
-    /**
-     * Owner view of per-slot invitation status (workflow tracking): status,
-     * sent/accepted timestamps, slot completion. Never contains raw tokens.
-     */
-    @Override
-    public List<ApiContracts.InvitationStatusView>
-            workflowInvitations(String workflowId) {
-        return Arrays.asList(send(HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl + "api/workflows/"
-                                + urlEncode(workflowId) + "/invitations"))
-                        .GET(),
-                ApiContracts.InvitationStatusView[].class,
-                200));
-    }
-
-    /**
-     * Owner operation: invalidates the emailed link and sends a fresh one.
-     * The server re-checks ownership and invitation state.
-     *
-     * @return the freshly emailed link, so the sender can see what went out
-     */
-    @Override
-    public InvitationLinkView resendInvitation(long invitationId) {
-        return send(HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl + "api/invitations/"
-                                + invitationId + "/resend"))
-                        .POST(HttpRequest.BodyPublishers.noBody()),
-                InvitationLinkView.class, 200);
-    }
-
-    /**
-     * Base URL that emailed invitation links use, as resolved by the server,
-     * plus whether it is loopback-only (recipients elsewhere cannot open it).
-     */
-    @Override
-    public InvitationLinkInfo invitationLinkInfo() {
-        return send(HttpRequest.newBuilder()
-                        .uri(URI.create(baseUrl + "api/server-info/invitation-link"))
-                        .GET(),
-                InvitationLinkInfo.class, 200);
     }
 
     /** Builds a client bound to an already-issued token pair. */
