@@ -146,46 +146,65 @@ class WebWorkflowWriteHttpTests {
 
     /* ----------------------------- the tests ---------------------------- */
 
+    /**
+     * A workflow started here belongs to the caller, and its signer slot
+     * names an account.
+     *
+     * <p>This test used to name the signer by e-mail address and then check
+     * that an invitation link came back exactly once and that the slot was
+     * trackable by invitation status. Invitations are gone: a slot names an
+     * existing account, and the response's invitation list is always empty.
+     * What is still worth asserting is that creation succeeds, the workflow
+     * is the caller's, and nothing claims an invitation was sent.
+     */
     @Test
-    void aWorkflowStartedHereIsOwnedAndItsInvitationsAreTracked() throws Exception {
+    void aWorkflowStartedHereIsOwnedAndNamesAnExistingAccount() throws Exception {
         Session owner = signIn(account(true));
-        String invitee = "invitee-" + UUID.randomUUID() + "@example.test";
+        String signer = account(true);
 
-        Reply created = owner.createWorkflow(slot(1, invitee));
+        Reply created = owner.createWorkflow(slot(1, signer));
         assertThat(created.status()).as(created.body()).isEqualTo(201);
         String workflow = created.json().path("workflow").path("workflowId").asText();
         assertThat(workflow).isNotBlank();
 
-        // It is the caller's, and the e-mailed link came back exactly once —
-        // in the answer to the call that sent it.
         assertThat(owner.get("/web/api/workflows/owned").body()).contains(workflow);
-        assertThat(created.json().path("invitations").get(0).path("invitationUrl").asText())
-                .startsWith("http");
+        assertThat(created.json().path("invitations"))
+                .as("no invitation is created, so the list is empty")
+                .isEmpty();
+    }
 
-        // And the slot is tracked, by status, without the token.
-        Reply tracked = owner.get("/web/api/workflows/" + workflow + "/invitations");
-        assertThat(tracked.status()).isEqualTo(200);
-        assertThat(tracked.json().get(0).path("signerOrder").asInt()).isEqualTo(1);
-        assertThat(tracked.json().get(0).path("invitationId").asLong()).isPositive();
-        assertThat(tracked.body()).doesNotContain("invitationUrl");
+    /**
+     * The e-mail form of a signer slot is refused rather than taken for a
+     * username. Accepted, it would create a workflow waiting on a signer who
+     * cannot exist, and report success to the sender.
+     */
+    @Test
+    void anEmailAddressIsNotAcceptedAsASignerSlot() throws Exception {
+        Session owner = signIn(account(true));
+
+        Reply refused = owner.createWorkflow(
+                slot(1, "invitee-" + UUID.randomUUID() + "@example.test"));
+
+        assertThat(refused.status()).isEqualTo(400);
+        assertThat(refused.json().path("code").asText()).isEqualTo("BAD_REQUEST");
+        assertThat(refused.body()).contains("not an e-mail address");
     }
 
     @Test
     void everyStateChangingRouteNeedsItsCsrfToken() throws Exception {
         Session owner = signIn(account(true));
-        String workflow = owner.workflow("invitee-" + UUID.randomUUID() + "@example.test");
-        long invitation = owner.get("/web/api/workflows/" + workflow + "/invitations")
-                .json().get(0).path("invitationId").asLong();
+        String workflow = owner.workflow(account(true));
 
         // A session, and no CSRF token: refused before anything happens.
         assertThat(owner.withoutCsrf().createWorkflow(slot(1, account(true))).status())
                 .as("create without a CSRF token").isEqualTo(403);
+        // The invitation routes were here too and went with them. What is
+        // left is every state change the website can still make, and the
+        // launch-code route is the one this removal put back — a POST that
+        // mints a one-time credential is exactly what CSRF has to cover.
         String[][] posts = {
-                {"/web/api/workflows/" + workflow + "/invitations",
-                        "{\"signerOrder\":1,\"email\":\"x@example.test\"}"},
                 {"/web/api/workflows/" + workflow + "/cancel", null},
-                {"/web/api/invitations/" + invitation + "/resend", null},
-                {"/web/api/invitations/" + invitation + "/revoke", null}};
+                {"/web/api/workflows/" + workflow + "/launch-codes", null}};
         for (String[] post : posts) {
             assertThat(owner.withoutCsrf().post(post[0], post[1]).status())
                     .as("POST " + post[0] + " without a CSRF token").isEqualTo(403);
@@ -198,20 +217,17 @@ class WebWorkflowWriteHttpTests {
                 .isNotEqualTo("CANCELLED");
     }
 
+    /**
+     * Only the owner may cancel. The invite and track probes that used to
+     * stand beside this went with the invitation routes; cancelling is the
+     * state change those rules still have to hold for.
+     */
     @Test
-    void onlyTheOwnerInvitesTracksAndCancels() throws Exception {
+    void onlyTheOwnerCancels() throws Exception {
         Session owner = signIn(account(true));
         String signerName = account(true);
         String workflow = owner.workflow(signerName);
 
-        // The signer of it is not its owner, and a stranger is neither.
-        for (Session caller : new Session[] {signIn(signerName), signIn(account(true))}) {
-            assertThat(caller.post("/web/api/workflows/" + workflow + "/invitations",
-                    "{\"signerOrder\":1,\"email\":\"x@example.test\"}").status())
-                    .as("invite as someone other than the owner").isIn(403, 404);
-            assertThat(caller.get("/web/api/workflows/" + workflow + "/invitations").status())
-                    .as("track as someone other than the owner").isIn(200, 403, 404);
-        }
         // A stranger cannot even see it, so cancelling is the uniform 404.
         Session stranger = signIn(account(true));
         Reply cancel = stranger.post("/web/api/workflows/" + workflow + "/cancel", null);
@@ -225,30 +241,6 @@ class WebWorkflowWriteHttpTests {
                 .isEqualTo(200);
         assertThat(owner.get("/web/api/workflows/" + workflow).json().path("status").asText())
                 .isEqualTo("CANCELLED");
-    }
-
-    @Test
-    void anInvitationIdIsNotACapability() throws Exception {
-        Session owner = signIn(account(true));
-        String workflow = owner.workflow("invitee-" + UUID.randomUUID() + "@example.test");
-        long invitation = owner.get("/web/api/workflows/" + workflow + "/invitations")
-                .json().get(0).path("invitationId").asLong();
-
-        // Somebody else's invitation id, known exactly, is worth nothing:
-        // the answer is the one a made-up id gets.
-        Session stranger = signIn(account(true));
-        for (String action : new String[] {"/resend", "/revoke"}) {
-            Reply theirs = stranger.post("/web/api/invitations/" + invitation + action, null);
-            Reply nobodys = stranger.post("/web/api/invitations/" + (invitation + 10_000)
-                    + action, null);
-            assertThat(theirs.status()).as("POST " + action + " on another owner's invitation")
-                    .isEqualTo(nobodys.status());
-            assertThat(theirs.status()).isNotEqualTo(200);
-            assertThat(theirs.status()).isNotEqualTo(204);
-        }
-        // Untouched: the owner can still resend it.
-        assertThat(owner.post("/web/api/invitations/" + invitation + "/resend", null).status())
-                .isEqualTo(200);
     }
 
     @Test

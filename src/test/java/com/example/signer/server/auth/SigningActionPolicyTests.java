@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SigningActionPolicyTests {
 
     @Test
-    void theFourSigningActionsAreCovered() {
+    void theFiveSigningActionsAreCovered() {
         assertThat(SigningActionPolicy.requiresVerifiedEmail(
                 "POST", "/api/workflows/WF-1/claim")).isTrue();
         assertThat(SigningActionPolicy.requiresVerifiedEmail(
@@ -21,18 +21,10 @@ class SigningActionPolicyTests {
                 "POST", "/api/workflows/WF-1/signatures")).isTrue();
         assertThat(SigningActionPolicy.requiresVerifiedEmail(
                 "POST", "/api/workflows/WF-1/signers/alice/certificate")).isTrue();
-    }
-
-    /**
-     * There were five. {@code POST /api/workflows/{id}/launch-codes} was the
-     * fifth, and the route is gone with the desktop launch-code path — so the
-     * policy no longer names it, and must not: a pattern matching a route
-     * nobody serves reads as protection that is doing something.
-     */
-    @Test
-    void theRetiredLaunchCodeRouteIsNoLongerNamed() {
+        // The hand-off is a signing action like the rest: it opens a session
+        // that can commit a signature, so it needs the same verified address.
         assertThat(SigningActionPolicy.requiresVerifiedEmail(
-                "POST", "/api/workflows/WF-1/launch-codes")).isFalse();
+                "POST", "/api/workflows/WF-1/launch-codes")).isTrue();
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.example.signer.server.security;
 
 import com.example.signer.server.auth.AccessTokenDenyList;
 import com.example.signer.server.auth.JwtService;
+import com.example.signer.server.launch.LaunchCodeService;
 import com.example.signer.server.auth.UserAccountService;
 import com.example.signer.server.web.FrontendRoutingConfiguration;
 
@@ -50,6 +51,8 @@ import java.time.Duration;
 public class SecurityConfig {
 
     static final String ROLE_USER = "ROLE_USER";
+    /** Desktop signing session opened from a website launch code. */
+    static final String ROLE_TASK = "ROLE_TASK";
 
     /**
      * Requests that need no token. A bearer header sent to them is ignored
@@ -60,16 +63,18 @@ public class SecurityConfig {
             post("/api/auth/login"),
             post("/api/auth/refresh"),
             post("/api/auth/logout"),
-            // Four entries stood here and are gone with the workflows that
-            // needed them, so the paths now reach denyAll and 404 like any
-            // other: /api/auth/register (an account could only be created by
-            // redeeming an invitation), /api/invitations/* with its
-            // guest-code and guest-session posts, and /api/desktop/launch
-            // (the launch code was the credential, which is why it had to be
-            // public at all). Removing them matters beyond tidiness: every
-            // entry on this list is a route the bearer filter deliberately
-            // does NOT read a token for, so a stale entry is a path that
-            // skips authentication for no reason.
+            // Three entries stood here and went with the invitation
+            // workflow: /api/auth/register (an account could only be created
+            // by redeeming an invitation) and /api/invitations/* with its
+            // guest-code and guest-session posts. Every entry on this list is
+            // a route the bearer filter deliberately does NOT read a token
+            // for, so a stale one is a path that skips authentication for no
+            // reason.
+            //
+            // The desktop launch exchange IS public, and has to be: the
+            // one-time code in the body is the credential, and the desktop
+            // has no token yet when it presents one.
+            post("/api/desktop/launch"),
             // Reachability only (no sensitive data).
             get("/api/health"),
             // The website, served from this application's own origin (D2).
@@ -161,6 +166,7 @@ public class SecurityConfig {
     @Order(2)
     SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService,
             UserAccountService accounts, AccessTokenDenyList deniedTokens,
+            ObjectProvider<LaunchCodeService> launches,
             LoginRateLimitFilter loginRateLimitFilter,
             DownloadRateLimitFilter downloadRateLimitFilter)
             throws Exception {
@@ -191,14 +197,19 @@ public class SecurityConfig {
             // limiter is: a refusal must cost nothing beyond the count.
             .addFilterBefore(downloadRateLimitFilter,
                     BearerTokenAuthenticationFilter.class)
-            .addFilterAfter(new AuthenticatedRequestFilter(accounts, deniedTokens),
+            .addFilterAfter(new AuthenticatedRequestFilter(accounts, deniedTokens, launches),
                     BearerTokenAuthenticationFilter.class)
             .authorizeHttpRequests(a -> a
                     .requestMatchers(PUBLIC).permitAll()
-                    // The workflow API had its own rule because it admitted
-                    // guest and task sessions as well as accounts. Both are
-                    // gone, so it is an account-only API like the rest and
-                    // needs no exception of its own.
+                    // The workflow API is the one place a desktop task
+                    // session is admitted beside an account: it is what the
+                    // desktop holds after exchanging a launch code, and
+                    // signing is all it is for. AuthenticatedRequestFilter
+                    // then bounds it to its own task; this rule only decides
+                    // that it may be heard at all. (Guest sessions used to be
+                    // listed here too, and went with the invitations.)
+                    .requestMatchers(path("/api/workflows/**"))
+                            .hasAnyAuthority(ROLE_USER, ROLE_TASK)
                     .requestMatchers(path("/api/**")).hasAuthority(ROLE_USER)
                     .anyRequest().denyAll());
         return http.build();

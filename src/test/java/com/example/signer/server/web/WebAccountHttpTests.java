@@ -776,7 +776,7 @@ class WebAccountHttpTests {
         String username = users.findByEmail(address).orElseThrow().getUsername();
         String nowhere = "WF-does-not-exist";
 
-        for (String action : List.of("/claim", "/signatures",
+        for (String action : List.of("/claim", "/signatures", "/launch-codes",
                 "/signers/" + username + "/certificate")) {
             HttpResponse<String> response =
                     postAs("/api/workflows/" + nowhere + action, username);
@@ -801,7 +801,7 @@ class WebAccountHttpTests {
         // Once verified, none of the four is stopped by the gate any more.
         post("/web/api/auth/verify-email", json("token", tokenFromMailbox(address)),
                 csrf(null));
-        for (String action : List.of("/claim", "/signatures",
+        for (String action : List.of("/claim", "/signatures", "/launch-codes",
                 "/signers/" + username + "/certificate")) {
             assertThat(postAs("/api/workflows/" + nowhere + action, username).statusCode())
                     .as("POST " + action + " verified").isNotEqualTo(403);

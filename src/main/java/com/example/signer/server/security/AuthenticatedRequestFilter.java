@@ -1,8 +1,12 @@
 package com.example.signer.server.security;
 
 import com.example.signer.server.auth.AccessTokenDenyList;
+import com.example.signer.server.auth.JwtService;
+import com.example.signer.server.auth.TaskAccessPolicy;
 import com.example.signer.server.auth.SigningActionPolicy;
 import com.example.signer.server.auth.UserAccountService;
+import com.example.signer.server.launch.LaunchCodeService;
+import com.example.signer.server.workflow.RemoteWorkflowService;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -11,6 +15,7 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -50,23 +55,67 @@ public final class AuthenticatedRequestFilter extends OncePerRequestFilter {
 
     private final UserAccountService accounts;
     private final AccessTokenDenyList deniedTokens;
+    private final ObjectProvider<LaunchCodeService> launches;
 
     public AuthenticatedRequestFilter(UserAccountService accounts,
-                                      AccessTokenDenyList deniedTokens) {
+                                      AccessTokenDenyList deniedTokens,
+                                      ObjectProvider<LaunchCodeService> launches) {
         this.accounts = accounts;
         this.deniedTokens = deniedTokens;
+        this.launches = launches;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
-        // One kind of caller reaches here now: an account access token. The
-        // guest-session branch went with the invitation workflow, and the
-        // task-session branch with the launch-code path, so there is no
-        // longer a second identity type to tell apart — and GUEST_ATTR,
-        // which downstream code read to recognise one, is gone with it.
+        // Two kinds of caller reach here: a desktop task session from a
+        // launch code, and an account access token. The guest-session branch
+        // that used to sit beside them went with the invitation workflow, and
+        // GUEST_ATTR with it.
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth instanceof JwtAuthenticationToken user) {
+        if (auth instanceof TaskSessionAuthentication taskSession) {
+            JwtService.TaskAuthentication task = taskSession.task();
+            // Its own allow-list: a task session may do its one signing task
+            // and nothing else — in particular it cannot bind a certificate,
+            // so a stolen launch code cannot attach another card to the slot.
+            if (!TaskAccessPolicy.allows(request.getMethod(), request.getRequestURI(),
+                    task.workflowId())) {
+                log.info("Desktop task session refused {} {} (outside its signing task)",
+                        request.getMethod(), request.getRequestURI());
+                JsonSecurityErrors.forbidden(response, "WORKFLOW_NOT_ACCESSIBLE",
+                        "This signing session only gives access to its own signing task");
+                return;
+            }
+            LaunchCodeService service = launches.getIfAvailable();
+            RemoteWorkflowService.TaskSlotState state = service == null
+                    || !accounts.knowsUser(task.principal())
+                    || !accounts.isRegistered(task.principal())
+                    // Risk D7, and the longer half of it: a task session
+                    // lives 30 minutes, twice an access token, so leaving it
+                    // out would leave a bigger window than the one closed.
+                    || accounts.passwordChangedSince(task.principal(),
+                            taskSession.getToken().getIssuedAt())
+                    ? RemoteWorkflowService.TaskSlotState.INVALID
+                    : service.taskSessionState(task);
+            if (state == RemoteWorkflowService.TaskSlotState.INVALID) {
+                log.info("Desktop task session refused: revoked, or the account can no"
+                        + " longer sign in");
+                SecurityContextHolder.clearContext();
+                JsonSecurityErrors.unauthorized(response);
+                return;
+            }
+            if (state == RemoteWorkflowService.TaskSlotState.FINISHED
+                    && !TaskAccessPolicy.isStatusRead(request.getMethod(),
+                            request.getRequestURI(), task.workflowId())) {
+                log.info("Desktop task session refused {} {} (task finished)",
+                        request.getMethod(), request.getRequestURI());
+                JsonSecurityErrors.forbidden(response, "TASK_SESSION_FINISHED",
+                        "This signing task is finished. Open it from the SignFlow website"
+                                + " to see the result.");
+                return;
+            }
+            request.setAttribute(USER_ATTR, task.principal());
+        } else if (auth instanceof JwtAuthenticationToken user) {
             String userId = user.getName();
             // Phase 2 risk L4, and first, before the account is even looked
             // up: a token that has been signed out of is finished, whatever

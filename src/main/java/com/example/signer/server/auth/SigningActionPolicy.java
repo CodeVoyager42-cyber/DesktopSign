@@ -14,6 +14,7 @@ import java.util.regex.Pattern;
  *   <tr><td>GET</td><td>/api/workflows/{id}/document</td><td>download the revision to sign</td></tr>
  *   <tr><td>POST</td><td>/api/workflows/{id}/signatures</td><td>submit a signature</td></tr>
  *   <tr><td>POST</td><td>/api/workflows/{id}/signers/{user}/certificate</td><td>bind a signing certificate</td></tr>
+ *   <tr><td>POST</td><td>/api/workflows/{id}/launch-codes</td><td>open a desktop signing session</td></tr>
  * </table>
  *
  * <p>The document download is the one <b>read</b> here, and it is here
@@ -42,7 +43,7 @@ public final class SigningActionPolicy {
 
     private static final Pattern PATH = Pattern.compile(
             "^/api/workflows/[^/]+/"
-                    + "(claim|document|signatures|signers/[^/]+/certificate)$");
+                    + "(claim|document|signatures|launch-codes|signers/[^/]+/certificate)$");
 
     private SigningActionPolicy() {
     }

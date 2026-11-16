@@ -152,10 +152,14 @@ class AuthorizationMatrixHttpTests {
         String wf = workflow("bob", fp());
         String charlie = login("charlie");
         String missing = "WF-" + (900_000_000 + RANDOM.nextInt(99_999_999));
+        // GET /invitations was in this list and went with the invitation
+        // routes. POST /launch-codes replaces it: a stranger must get the
+        // same uniform 404 from the hand-off as from everything else, or the
+        // route becomes a way to learn that a workflow exists.
         String[][] probes = {
                 {"GET", ""}, {"GET", "/task"}, {"GET", "/audit"}, {"GET", "/revisions"},
-                {"GET", "/invitations"}, {"GET", "/document"}, {"GET", "/eligible-signers"},
-                {"POST", "/claim"}, {"POST", "/cancel"}};
+                {"GET", "/document"}, {"GET", "/eligible-signers"},
+                {"POST", "/claim"}, {"POST", "/cancel"}, {"POST", "/launch-codes"}};
         for (String[] p : probes) {
             Reply real = call(p[0], "/api/workflows/" + wf + p[1], charlie, null);
             Reply none = call(p[0], "/api/workflows/" + missing + p[1], charlie, null);

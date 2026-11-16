@@ -22,17 +22,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code GET /api/health}: public, and nothing in it is sensitive.
  *
  * <p><b>Why this class exists.</b> These assertions used to live inside
- * {@code LaunchCodeHttpTests}, which scope B deletes. The health endpoint is
- * NOT part of the launch-code path and is retained — as is the
- * {@code minDesktopVersion} it advertises, which {@code HealthController}
- * reads straight from {@code signature.remote-server.desktop.min-version} and
- * which is a client-compatibility floor rather than a launch-code concern.
- * Deleting the launch tests without moving these would have quietly dropped
- * the only coverage of a kept feature, so they moved here first.
+ * {@code LaunchCodeHttpTests}, and they stay here now that the launch-code
+ * path is back, because the health endpoint is NOT part of that path — as
+ * is the {@code minDesktopVersion} it advertises, which
+ * {@code HealthController} reads straight from
+ * {@code signature.remote-server.desktop.min-version} and which is a
+ * client-compatibility floor a client may check before it ever asks for a
+ * launch code.
  *
  * <p>No database: the health endpoint does not touch one, which is the point
  * of it as a reachability probe, and that keeps this class runnable wherever
- * the suite runs.
+ * the suite runs — where {@code LaunchCodeHttpTests} needs PostgreSQL.
  */
 @SpringBootTest(classes = WorkflowServerApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

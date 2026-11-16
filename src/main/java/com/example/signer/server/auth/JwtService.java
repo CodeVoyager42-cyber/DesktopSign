@@ -81,11 +81,19 @@ public class JwtService {
     /** {@link #TYPE_CLAIM} of an account access token. */
     public static final String TYPE_ACCESS = "access";
 
-    // There was a third type here, `task`: the desktop session a website
-    // launch code opened (Phase B). The launch-code path is gone, and so is
-    // the type. Nothing needs to remember the name in order to refuse it —
-    // TokenAuthenticationConverter accepts `guest` and `access` and lets
-    // everything else fail as an invalid token.
+    /**
+     * Desktop task session opened with a website launch code: one account,
+     * one workflow, one signer slot, short-lived, never refreshed.
+     *
+     * <p>This is the hand-off that carries the product's whole signing flow —
+     * sign in on the website, upload, click Sign, finish on the desktop — so
+     * it is the one token type besides {@code access} that exists. The guest
+     * type that used to sit beside it went with the invitation workflow.
+     * {@link #validateAccessJwt} rejects a task token, so it is refused
+     * everywhere by default and accepted only where
+     * {@link #validateTaskJwt} is called explicitly.
+     */
+    public static final String TYPE_TASK = "task";
 
     private final NimbusJwtEncoder encoder;
     private final JwtDecoder decoder;
@@ -122,14 +130,14 @@ public class JwtService {
     public JwtService(
             @Value("${signature.remote-server.jwt-secret:}") String configuredSecret,
             @Value("${signature.remote-server.access-token-minutes:15}") long accessMinutes,
+            @Value("${signature.remote-server.desktop.task-session-minutes:30}") long taskMinutes,
             Environment environment) {
-        // Was max(guestMinutes, taskMinutes), then max(accessMinutes,
-        // guestMinutes). Guest sessions and desktop task sessions were the
-        // two long-lived types, and both are gone, so the access token is
-        // the only token there is and bounds its own lifetime. Note this
-        // TIGHTENS the decoder: a token claiming a longer life than an
-        // access token may have is now refused on lifetime alone.
-        this(configuredSecret, accessMinutes,
+        // The decoder refuses any token claiming a longer life than the
+        // longest type legitimately has. Guest sessions used to be in this
+        // max; they are gone, so it is the access token against the desktop
+        // task session — which is the longer of the two by default (30
+        // minutes against 15), and so sets the bound.
+        this(configuredSecret, accessMinutes, Math.max(accessMinutes, taskMinutes),
                 environment.acceptsProfiles(Profiles.of("server"))
                         && !environment.acceptsProfiles(
                                 Profiles.of("dev")));
@@ -139,7 +147,22 @@ public class JwtService {
      * @param secretRequired whether a configured secret is mandatory (the
      *        coordination server outside the {@code dev} profile)
      */
-    public JwtService(String configuredSecret, long accessMinutes,
+    /** As configured by Spring, with the default 30-minute task sessions. */
+    public JwtService(String configuredSecret, long accessMinutes, Environment environment) {
+        this(configuredSecret, accessMinutes, 30, environment);
+    }
+
+    /**
+     * For a caller that only issues access tokens: the decoder's lifetime
+     * bound is the access-token lifetime, which is the strictest it can be.
+     * A context that hands out desktop task sessions must use the four-
+     * argument form, or its own tokens will be refused on lifetime.
+     */
+    public JwtService(String configuredSecret, long accessMinutes, boolean secretRequired) {
+        this(configuredSecret, accessMinutes, accessMinutes, secretRequired);
+    }
+
+    public JwtService(String configuredSecret, long accessMinutes, long maxTokenMinutes,
                       boolean secretRequired) {
         SecretKey key = resolveKey(configuredSecret, secretRequired);
         this.accessTtl = Duration.ofMinutes(accessMinutes);
@@ -153,7 +176,7 @@ public class JwtService {
                 new JwtIssuerValidator(ISSUER),
                 new JwtClaimValidator<List<String>>(JwtClaimNames.AUD,
                         aud -> aud != null && aud.contains(AUDIENCE)),
-                lifetimeValidator(Duration.ofMinutes(accessMinutes))));
+                lifetimeValidator(Duration.ofMinutes(maxTokenMinutes))));
         this.decoder = nimbus;
         log.info("JWT access tokens: HS256, ttl={}min, secret={}", accessMinutes,
                 configuredSecret == null || configuredSecret.isBlank()
@@ -238,6 +261,49 @@ public class JwtService {
     /** Validates signature, algorithm, expiry, issuer, audience and token type. */
     public JwtAuthentication validateAccessJwt(String token) {
         return toAccess(decode(token));
+    }
+
+    /**
+     * Issues a desktop task token for {@code principal}'s slot
+     * {@code signerOrder} of {@code workflowId}, opened with launch code
+     * {@code launchId}. No refresh token exists for it.
+     */
+    public String issueTaskJwt(String principal, String workflowId, int signerOrder,
+                               long launchId, Duration ttl) {
+        Instant now = Instant.now();
+        return sign(base(principal, now, now.plus(ttl))
+                .claim(TYPE_CLAIM, TYPE_TASK)
+                .claim("wf", workflowId)
+                .claim("slot", signerOrder)
+                .claim("lc", launchId)
+                .build());
+    }
+
+    /** A validated desktop task session. */
+    public record TaskAuthentication(String principal, String workflowId, int signerOrder,
+                                     long launchId, String tokenId, Instant expiresAt) {
+    }
+
+    /** An already-decoded token as a desktop task session, or a rejection. */
+    public static TaskAuthentication toTask(Jwt jwt) {
+        if (!TYPE_TASK.equals(jwt.getClaimAsString(TYPE_CLAIM))) {
+            throw new JwtValidationException(RejectionReason.WRONG_TYPE, "wrong token type");
+        }
+        String subject = jwt.getSubject();
+        String workflowId = jwt.getClaimAsString("wf");
+        Object slot = jwt.getClaim("slot");
+        Object lc = jwt.getClaim("lc");
+        if (subject == null || subject.isBlank() || workflowId == null || workflowId.isBlank()
+                || !(slot instanceof Number s) || !(lc instanceof Number l)) {
+            throw new JwtValidationException(RejectionReason.MISSING_CLAIM, "missing claim");
+        }
+        return new TaskAuthentication(subject, workflowId, s.intValue(), l.longValue(),
+                jwt.getId(), jwt.getExpiresAt());
+    }
+
+    /** Validates a desktop task token (signature, expiry, type, scope claims). */
+    public TaskAuthentication validateTaskJwt(String token) {
+        return toTask(decode(token));
     }
 
     /** An already-decoded token as an account access token, or a rejection. */

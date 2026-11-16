@@ -12,21 +12,24 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 /**
  * Turns a token that already passed signature, algorithm, issuer, audience
  * and expiry checks into a Spring Security identity, by its {@code typ}
- * claim: {@code access} → account ({@code ROLE_USER}). That is the only
- * type there is. Any other is refused with a 401, like an invalid token.
+ * claim: {@code access} → account ({@code ROLE_USER}), {@code task} →
+ * desktop signing session from a launch code ({@code ROLE_TASK}). Any other
+ * type is refused with a 401, like an invalid token.
  */
 final class TokenAuthenticationConverter implements Converter<Jwt, AbstractAuthenticationToken> {
 
     @Override
     public AbstractAuthenticationToken convert(Jwt jwt) {
         try {
-            // One accepted type, and one refusal. `guest` went with the
-            // invitation workflow and `task` with the desktop launch-code
-            // path; a token of either type now fails toAccess and leaves as a
-            // 401. Nothing has to name a retired type for that to hold, which
-            // is the point — the list of things to reject cannot drift out of
-            // step with the list of things accepted, because there is only
-            // one of the latter.
+            // Two accepted types: a desktop task session from a launch code,
+            // and an account access token. `guest` went with the invitation
+            // workflow, and nothing names it here — a guest-typed token
+            // falls through to toAccess, which throws, and leaves as a 401.
+            // That is deliberate: the list of accepted types is the whole
+            // decision, so there is no separate reject-list to drift from it.
+            if (JwtService.TYPE_TASK.equals(jwt.getClaimAsString(JwtService.TYPE_CLAIM))) {
+                return new TaskSessionAuthentication(jwt, JwtService.toTask(jwt));
+            }
             JwtService.JwtAuthentication user = JwtService.toAccess(jwt);
             return new JwtAuthenticationToken(jwt,
                     AuthorityUtils.createAuthorityList(SecurityConfig.ROLE_USER), user.subject());

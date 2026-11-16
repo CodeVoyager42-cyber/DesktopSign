@@ -88,7 +88,11 @@ public interface UserAccountService {
      *       request, for every caller path including the website;</li>
      *   <li>{@code AuthenticatedRequestFilter}, for the account-token
      *       requests in {@link SigningActionPolicy} — claiming a turn,
-     *       submitting a signature, binding a certificate.</li>
+     *       submitting a signature, binding a certificate, issuing a launch
+     *       code;</li>
+     *   <li>{@code LaunchCodeService} — issuing a launch code, exchanging one
+     *       for a task session, and re-checking that session on every
+     *       request.</li>
      * </ul>
      *
      * <p>It does <b>not</b> gate guest signing sessions: a guest has no
