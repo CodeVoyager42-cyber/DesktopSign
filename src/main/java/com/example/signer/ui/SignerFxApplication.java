@@ -48,8 +48,10 @@ public class SignerFxApplication extends Application {
     private ConfigurableApplicationContext context;
     /** Configuration error that prevented Spring from starting, shown in start(). */
     private String startupError;
-    /** The link SignFlow was started with (invitation or website launch), or null. */
+    /** The website launch link SignFlow was started with, or null. */
     private InvitationLinks.LaunchArgument launchArgument;
+    /** Started from a link of the removed invitation workflow: explain in start(). */
+    private boolean removedInvitationLink;
 
     /** Hidden owner of every window; raised as a fallback on activation. */
     private Stage stage;
@@ -66,8 +68,12 @@ public class SignerFxApplication extends Application {
         // forwards it to the running copy instead of opening it itself.
         launchArgument = InvitationLinks.parse(getParameters().getRaw());
         if (launchArgument != null) {
-            log.info("Launched from a {} link", launchArgument.kind() == InvitationLinks
-                    .LaunchArgument.Kind.LAUNCH ? "website launch" : "invitation");
+            log.info("Launched from a website launch link");
+        } else if (InvitationLinks.mentionsRemovedInvitationLink(getParameters().getRaw())) {
+            // An old e-mail invitation link. There is nothing to open, so say
+            // so in start() instead of starting as if the icon was clicked.
+            removedInvitationLink = true;
+            log.info("Launched from an invitation link, which is no longer supported");
         }
         instanceOutcome = instanceGuard.acquire(launchArgument);
         switch (instanceOutcome) {
@@ -118,22 +124,21 @@ public class SignerFxApplication extends Application {
                 : activations.ready(a -> Platform.runLater(() -> raiseForActivation(a)))) {
             Platform.runLater(() -> raiseForActivation(queued));
         }
-        if (launchArgument != null
-                && launchArgument.kind() == InvitationLinks.LaunchArgument.Kind.LAUNCH) {
+        if (launchArgument != null) {
             // Started from the website: the one-time code opens exactly one
             // signing task; no sign-in, the app closes when it is done.
             log.info("Started from a website launch link — opening the signing task");
             String code = launchArgument.value();
             launchArgument = null;
             navigator.openLaunch(stage, code);
-        } else if (launchArgument != null) {
-            // Invited signer: no SignFlow account, so no sign-in. They get the
-            // invitation, a guest session for that one task, and the app
-            // closes when they are done.
-            log.info("Started from an invitation link — guest signing, no sign-in");
-            String token = launchArgument.value();
-            launchArgument = null;
-            navigator.acceptInvitation(stage, token);
+        } else if (removedInvitationLink) {
+            // An old e-mail invitation link. Explain and stop: opening the
+            // home screen instead would look like the click did nothing.
+            Alert gone = new Alert(Alert.AlertType.INFORMATION,
+                    InvitationLinks.INVITATION_LINK_REMOVED_MESSAGE);
+            gone.setTitle("This invitation link no longer works");
+            gone.setHeaderText("This invitation link no longer works");
+            gone.showAndWait();
         } else if (navigator.signIn()) {
             navigator.runHome();
         }
@@ -221,13 +226,8 @@ public class SignerFxApplication extends Application {
             // Next pulse: the flow waits for the user, while the second launch
             // must get its answer now.
             Window owner = target != null ? target : stage;
-            if (forwarded.kind() == InvitationLinks.LaunchArgument.Kind.LAUNCH) {
-                log.info("Second launch forwarded a website launch link");
-                Platform.runLater(() -> navigator.openLaunch(owner, forwarded.value()));
-            } else {
-                log.info("Second launch forwarded an invitation link");
-                Platform.runLater(() -> navigator.acceptInvitation(owner, forwarded.value()));
-            }
+            log.info("Second launch forwarded a website launch link");
+            Platform.runLater(() -> navigator.openLaunch(owner, forwarded.value()));
         }
         return raised;
     }
@@ -242,12 +242,10 @@ public class SignerFxApplication extends Application {
         if (link == null) {
             return state + " Switch to the open SignFlow window.";
         }
-        String again = link.kind() == InvitationLinks.LaunchArgument.Kind.LAUNCH
-                ? " click \"Sign\" again on the SignFlow website (each signing link"
-                        + " works once, for 2 minutes)."
-                : " click the invitation link in your e-mail again.";
         return state + " For your security, the link you clicked was not passed on."
-                + " Finish or close the open SignFlow window, then" + again;
+                + " Finish or close the open SignFlow window, then click \"Sign\" again"
+                + " on the SignFlow website (each signing link works once, for"
+                + " 2 minutes).";
     }
 
     /**

@@ -35,9 +35,9 @@ import javafx.stage.Window;
 import java.util.List;
 
 /**
- * Home screen ("What would you like to do?"), shown after sign-in. Four
+ * Home screen ("What would you like to do?"), shown after sign-in. Three
  * large one-click actions cover the everyday tasks — sign here, send for
- * signature, documents to sign, open an invitation — and the less common
+ * signature, documents to sign — and the less common
  * modes (several signers on one computer, continuing a signing PDF) are
  * small links underneath.
  *
@@ -73,9 +73,6 @@ public final class WorkflowSelectionDialog {
     /** Set when the user pressed Back (as opposed to closing the window). */
     private boolean backRequested;
 
-    /** Set when the user chose “Accept invitation…” on this dialog. */
-    private boolean acceptInvitationRequested;
-
     /** Set when the user chose “Sign out” on this dialog. */
     private boolean signOutRequested;
 
@@ -92,11 +89,6 @@ public final class WorkflowSelectionDialog {
     /** @return true when the user pressed Back on this dialog. */
     public boolean isBackRequested() {
         return backRequested;
-    }
-
-    /** @return true when the user picked “Accept invitation…” on this dialog. */
-    public boolean isAcceptInvitationRequested() {
-        return acceptInvitationRequested;
     }
 
     /** @return true when the user chose “Sign out” on this dialog. */
@@ -139,7 +131,6 @@ public final class WorkflowSelectionDialog {
         sendForSignatureRequested = false;
         signOutRequested = false;
         backRequested = false;
-        acceptInvitationRequested = false;
         selected.set(null);
         Stage dialog = new Stage(StageStyle.DECORATED);
         dialog.initModality(Modality.APPLICATION_MODAL);
@@ -203,21 +194,12 @@ public final class WorkflowSelectionDialog {
                     remoteWorkflowRequested = true;
                     dialog.close();
                 });
-        VBox invitation = actionTile(FontAwesomeSolid.ENVELOPE_OPEN,
-                "Open an invitation",
-                "You received an email asking you to sign? Paste its"
-                        + " link here.",
-                () -> {
-                    acceptInvitationRequested = true;
-                    dialog.close();
-                });
         GridPane tiles = new GridPane();
         tiles.setHgap(16);
         tiles.setVgap(16);
         tiles.add(signHere, 0, 0);
         tiles.add(sendForSignature, 1, 0);
         tiles.add(waiting, 0, 1);
-        tiles.add(invitation, 1, 1);
         for (int c = 0; c < 2; c++) {
             ColumnConstraints cc =
                     new ColumnConstraints();

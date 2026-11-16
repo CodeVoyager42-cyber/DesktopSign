@@ -1,6 +1,5 @@
 package com.example.signer.ui;
 
-import com.example.signer.ui.dialog.InvitationDialog;
 import com.example.signer.ui.dialog.LoginDialog;
 import com.example.signer.ui.dialog.WorkflowSelectionDialog;
 import com.example.signer.ui.remote.RemoteWorkflowDialog;
@@ -66,36 +65,12 @@ final class AppNavigator {
                 remoteWorkflowDialog()
                         .startWithNewWorkflow(home.isSendForSignatureRequested())
                         .showAndWait(owner);
-            } else if (home.isAcceptInvitationRequested()) {
-                acceptInvitation(owner, null);
             } else if (mode == null) {
                 log.info("Home screen closed — exiting");
                 return;
             } else {
                 openSigningWorkspace(mode);
             }
-        }
-    }
-
-    /**
-     * Invitation flow: the invitation screen (pre-filled with {@code token}
-     * when the app was opened from a link), then straight into that one
-     * signing task as a guest — no account, no task lists.
-     */
-    void acceptInvitation(Window parent, String token) {
-        InvitationDialog invitation = new InvitationDialog(services.remoteBaseUrl(), token);
-        invitation.showAndWait(parent);
-        InvitationDialog.Result result = invitation.getResult();
-        if (result == null) {
-            return;
-        }
-        log.info("Guest signing session opened for workflow {}", result.workflowId());
-        try {
-            remoteWorkflowDialog().showGuestAndWait(owner, result.client(), result.signerId(),
-                    result.workflowId(), result.email(), result.documentName());
-        } finally {
-            // Wipes the guest token from memory (nothing to revoke server-side).
-            result.client().close();
         }
     }
 

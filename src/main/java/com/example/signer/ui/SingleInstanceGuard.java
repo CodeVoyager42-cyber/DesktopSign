@@ -109,7 +109,9 @@ final class SingleInstanceGuard {
     static final Duration DEFAULT_PEER_WAIT = Duration.ofSeconds(8);
 
     private static final byte KIND_NONE = 0;
-    private static final byte KIND_INVITATION = 1;
+    // Byte 1 was KIND_INVITATION and is RETIRED, not reused: a sibling copy
+    // from before the invitation workflow was removed may still send it, and
+    // readKind below must refuse it rather than mistake it for something new.
     private static final byte KIND_LAUNCH = 2;
 
     private static final int STATUS_REFUSED = 0;
@@ -332,9 +334,7 @@ final class SingleInstanceGuard {
                     log.warn("The running SignFlow could not prove its identity; nothing forwarded");
                     return Attempt.UNVERIFIED;
                 }
-                byte kind = argument == null ? KIND_NONE
-                        : argument.kind() == LaunchArgument.Kind.LAUNCH ? KIND_LAUNCH
-                        : KIND_INVITATION;
+                byte kind = argument == null ? KIND_NONE : KIND_LAUNCH;
                 byte[] value = argument == null ? new byte[0]
                         : argument.value().getBytes(StandardCharsets.US_ASCII);
                 out.writeByte(kind);
@@ -464,8 +464,6 @@ final class SingleInstanceGuard {
         try {
             argument = switch (kind) {
                 case KIND_NONE -> null;
-                case KIND_INVITATION -> new LaunchArgument(LaunchArgument.Kind.INVITATION,
-                        new String(value, StandardCharsets.US_ASCII));
                 case KIND_LAUNCH -> new LaunchArgument(LaunchArgument.Kind.LAUNCH,
                         new String(value, StandardCharsets.US_ASCII));
                 default -> throw new IllegalArgumentException("unknown kind");

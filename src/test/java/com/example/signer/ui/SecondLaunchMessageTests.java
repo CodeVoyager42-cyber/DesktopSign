@@ -23,17 +23,19 @@ class SecondLaunchMessageTests {
     }
 
     @Test
-    void anInvitationLinkPointsBackToTheEmailAndABusyCopyIsNotCalledDead() {
+    void aBusyCopyIsNotCalledDeadAndNoLinkJustPointsAtTheWindow() {
         String text = SignerFxApplication.alreadyRunningMessage(Outcome.OTHER_UNRESPONSIVE,
-                new LaunchArgument(LaunchArgument.Kind.INVITATION, "t".repeat(40)));
-        assertThat(text).contains("busy").contains("invitation link in your e-mail")
-                .doesNotContain("stuck").doesNotContain("Restart");
+                new LaunchArgument(LaunchArgument.Kind.LAUNCH, CODE));
+        assertThat(text).contains("busy").contains("website")
+                .doesNotContain("stuck").doesNotContain("Restart").doesNotContain(CODE);
         assertThat(SignerFxApplication.alreadyRunningMessage(Outcome.ALREADY_RUNNING_UNVERIFIED,
                 null)).contains("Switch to the open SignFlow window");
     }
 
     @Test
     void launchLinksNeverReachSpring() {
+        // An invitation link is no longer honoured, but it must still be kept
+        // away from Spring: it is somebody's old one-time token.
         String[] args = SignerFxApplication.springArguments(List.of(
                 "signflow://launch?v=1&c=" + CODE, "--spring.profiles.active=dev",
                 "signflow://invitation/" + "t".repeat(40), CODE));

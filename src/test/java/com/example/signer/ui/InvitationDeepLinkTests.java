@@ -7,73 +7,88 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 /**
- * Clicking the emailed link launches the app with
- * {@code signflow://invitation/<token>}; the token must be extracted so the
- * dialog skips the manual paste step.
+ * Reading the {@code signflow://} link the app was started with.
+ *
+ * <p>The launch link is the product's way into the desktop and its parsing
+ * is pinned here, unchanged. The invitation link is the removed workflow's:
+ * it must be refused, and refused visibly, so somebody clicking an old
+ * e-mail is told why nothing happened.
  */
 class InvitationDeepLinkTests {
 
-    @Test
-    void extractsTheTokenFromTheDeepLink() {
-        String token = "YRVKvELD1AlB94FtZnHo5B-Ydam4b43URdsizGjgnms";
-        assertThat(InvitationLinks.extractInvitationToken(
-                List.of("signflow://invitation/" + token))).isEqualTo(token);
-    }
-
-    @Test
-    void extractsABareTokenArgument() {
-        assertThat(InvitationLinks.extractInvitationToken(
-                List.of("YRVKvELD1AlB94FtZnHo5B-Ydam4b43URdsizGjgnms")))
-                .isEqualTo("YRVKvELD1AlB94FtZnHo5B-Ydam4b43URdsizGjgnms");
-    }
-
-    @Test
-    void returnsNullForANormalLaunch() {
-        assertThat(InvitationLinks.extractInvitationToken(List.of())).isNull();
-        assertThat(InvitationLinks.extractInvitationToken(
-                List.of("-Dfoo=bar", "--profile", "desktop"))).isNull();
-    }
-
-    @Test
-    void ignoresArgumentsThatAreNotInvitationLinks() {
-        assertThat(InvitationLinks.extractInvitationToken(
-                List.of("signflow://invitation/short"))).isNull();
-        assertThat(InvitationLinks.extractInvitationToken(
-                List.of("https://example.com/signflow"))).isNull();
-    }
+    private static final String CODE = "YRVKvELD1AlB94FtZnHo5B-Ydam4b43URdsizGjgnms"; // 43
 
     @Test
     void parsesAVersionOneLaunchLinkStrictly() {
-        String code = "YRVKvELD1AlB94FtZnHo5B-Ydam4b43URdsizGjgnms";   // 43 chars
         InvitationLinks.LaunchArgument a = InvitationLinks.parse(
-                List.of("signflow://launch?v=1&c=" + code));
+                List.of("signflow://launch?v=1&c=" + CODE));
         assertThat(a.kind()).isEqualTo(InvitationLinks.LaunchArgument.Kind.LAUNCH);
-        assertThat(a.value()).isEqualTo(code);
-        assertThat(a.toString()).doesNotContain(code);
+        assertThat(a.value()).isEqualTo(CODE);
+        assertThat(a.toString()).doesNotContain(CODE);
         // Browsers sometimes add a slash before the query.
-        assertThat(InvitationLinks.parse(List.of("signflow://launch/?v=1&c=" + code)).value())
-                .isEqualTo(code);
+        assertThat(InvitationLinks.parse(List.of("signflow://launch/?v=1&c=" + CODE)).value())
+                .isEqualTo(CODE);
         // Anything else is not a launch link.
         for (String bad : new String[] {
-                "signflow://launch?v=2&c=" + code,
-                "signflow://launch?c=" + code,
-                "signflow://launch?v=1&c=" + code + "&x=1",
-                "signflow://launch?v=1&c=" + code.substring(1),
-                "signflow://launch?v=1&c=" + code.replace('Y', '%'),
-                "xsignflow://launch?v=1&c=" + code,
-                "signflow://launch?v=1&c=" + code + "/"}) {
+                "signflow://launch?v=2&c=" + CODE,
+                "signflow://launch?c=" + CODE,
+                "signflow://launch?v=1&c=" + CODE + "&x=1",
+                "signflow://launch?v=1&c=" + CODE.substring(1),
+                "signflow://launch?v=1&c=" + CODE.replace('Y', '%'),
+                "xsignflow://launch?v=1&c=" + CODE,
+                "signflow://launch?v=1&c=" + CODE + "/"}) {
             assertThat(InvitationLinks.launchCode(bad)).as(bad).isNull();
         }
     }
 
     @Test
-    void aLaunchLinkWinsAndIsNeverMistakenForAnInvitation() {
-        String code = "YRVKvELD1AlB94FtZnHo5B-Ydam4b43URdsizGjgnms";
-        assertThat(InvitationLinks.extractInvitationToken(
-                List.of("signflow://launch?v=1&c=" + code))).isNull();
-        InvitationLinks.LaunchArgument a = InvitationLinks.parse(List.of(
-                "signflow://invitation/" + code, "signflow://launch?v=1&c=" + code));
-        assertThat(a.kind()).isEqualTo(InvitationLinks.LaunchArgument.Kind.LAUNCH);
+    void anOrdinaryLaunchCarriesNoLink() {
+        assertThat(InvitationLinks.parse(List.of())).isNull();
         assertThat(InvitationLinks.parse(List.of("--spring.profiles.active=dev"))).isNull();
+        assertThat(InvitationLinks.parse(List.of("-Dfoo=bar", "--profile", "desktop"))).isNull();
+    }
+
+    @Test
+    void anInvitationLinkIsRefusedAndNeverOpened() {
+        List<String> args = List.of("signflow://invitation/" + CODE);
+        assertThat(InvitationLinks.parse(args)).isNull();
+        assertThat(InvitationLinks.mentionsRemovedInvitationLink(args)).isTrue();
+    }
+
+    @Test
+    void aBareTokenIsNoLongerAccepted() {
+        // It used to be read as an invitation token. There is nothing left to
+        // redeem, so it is neither parsed nor reported as an invitation link.
+        List<String> args = List.of(CODE);
+        assertThat(InvitationLinks.parse(args)).isNull();
+        assertThat(InvitationLinks.mentionsRemovedInvitationLink(args)).isFalse();
+    }
+
+    @Test
+    void theRefusalIsReportedOnlyForARealInvitationLink() {
+        assertThat(InvitationLinks.mentionsRemovedInvitationLink(List.of())).isFalse();
+        assertThat(InvitationLinks.mentionsRemovedInvitationLink(
+                List.of("signflow://invitation/short"))).isFalse();
+        assertThat(InvitationLinks.mentionsRemovedInvitationLink(
+                List.of("https://example.com/signflow"))).isFalse();
+        assertThat(InvitationLinks.mentionsRemovedInvitationLink(
+                List.of("signflow://launch?v=1&c=" + CODE))).isFalse();
+    }
+
+    @Test
+    void aLaunchLinkWinsOverAnInvitationLinkInTheSameArguments() {
+        InvitationLinks.LaunchArgument a = InvitationLinks.parse(List.of(
+                "signflow://invitation/" + CODE, "signflow://launch?v=1&c=" + CODE));
+        assertThat(a.kind()).isEqualTo(InvitationLinks.LaunchArgument.Kind.LAUNCH);
+        assertThat(a.value()).isEqualTo(CODE);
+    }
+
+    @Test
+    void theRefusalMessageSendsTheUserToTheWebsiteAndNamesNoToken() {
+        assertThat(InvitationLinks.INVITATION_LINK_REMOVED_MESSAGE)
+                .contains("no longer works")
+                .contains("website")
+                .contains("Sign")
+                .doesNotContain(CODE);
     }
 }
