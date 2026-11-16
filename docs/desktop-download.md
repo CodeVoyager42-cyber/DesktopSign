@@ -6,7 +6,8 @@ and what each of those steps deliberately does not do.
 The website cannot sign anything: the certificate lives on a smart card and
 the desktop application is what reaches it. So the download is not a
 convenience, it is the second half of the product, and finding it must not
-require an account — somebody invited to sign has no account yet.
+require an account — the signing happens in the application, so nobody
+can be asked to sign in to something they have not installed yet.
 
 ---
 

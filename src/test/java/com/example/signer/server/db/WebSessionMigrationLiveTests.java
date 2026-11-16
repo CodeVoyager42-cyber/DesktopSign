@@ -142,7 +142,11 @@ class WebSessionMigrationLiveTests {
         String before = one("SELECT string_agg(table_name, ',' ORDER BY table_name)"
                 + " FROM information_schema.tables WHERE table_schema = 'public'");
 
-        flyway(null).migrate();
+        // TO V9, not to latest. "Only additions" is a claim about V9; the
+        // chain as a whole now ends in V17, which drops `invitations` on
+        // purpose, so migrating to latest here would assert the opposite of
+        // what this test is named after.
+        flyway("9").migrate();
 
         assertThat(one("SELECT count(*) FROM users WHERE username = 'keepme'"))
                 .as("V9 must not touch existing rows").isEqualTo("1");

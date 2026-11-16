@@ -190,7 +190,11 @@ class AccountTokenMigrationLiveTests {
         String before = one("SELECT string_agg(table_name, ',' ORDER BY table_name)"
                 + " FROM information_schema.tables WHERE table_schema = 'public'");
 
-        flyway(null).migrate();
+        // TO V10, not to latest. "Only additions" is a claim about V10; the
+        // chain as a whole now ends in V17, which drops `invitations` on
+        // purpose, so migrating to latest here would assert the opposite of
+        // what this test is named after.
+        flyway("10").migrate();
 
         assertThat(one("SELECT count(*) FROM users WHERE username = 'keepme'"))
                 .as("V10 must not touch existing rows").isEqualTo("1");

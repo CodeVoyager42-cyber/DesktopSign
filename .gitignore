@@ -46,3 +46,7 @@ DesktopSign/
 
 # Snapshots taken locally before discarding a scratch copy. Never published.
 .backup/
+
+# Invitation export (scope A, PR-5): personal data, belongs in the audit
+# retention store and never in the working copy.
+invitation-export/

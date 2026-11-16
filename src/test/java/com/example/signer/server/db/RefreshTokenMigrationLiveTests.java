@@ -120,7 +120,9 @@ class RefreshTokenMigrationLiveTests {
     @Test
     void v7AddsGuestCodeColumnsWithSafeDefaults() throws SQLException {
         flyway("6").migrate();
-        flyway(null).migrate();
+        // TO V7, not to latest: V17 drops `invitations`, so the end of the
+        // chain can no longer show what V7 did to it. This test is about V7.
+        flyway("7").migrate();
         assertThat(one("SELECT count(*) FROM flyway_schema_history WHERE version = '7' AND success"))
                 .isEqualTo("1");
         assertThat(one("SELECT count(*) FROM information_schema.columns WHERE table_name = 'invitations'"

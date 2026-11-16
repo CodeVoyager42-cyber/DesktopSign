@@ -112,6 +112,56 @@ ids are skipped — and the legacy state.json files are left untouched as the
 read-only source. PDF bytes are shared, not copied (both stores use the
 same revision layout).
 
+## Dropping the invitation data (V16 -> export -> V17)
+
+The invitation workflow is gone from the code. Its table is removed in three
+steps, because the third cannot be undone with `git revert`.
+
+1. **V16** marks `invitations`, its 17 columns and
+   `workflow_signers.invited_at` deprecated. Comments only, no DDL.
+   Already applied.
+
+2. **Export**, which is the step that makes the drop reversible:
+
+   ```bash
+   scripts/export-invitations.sh signer ./invitation-export
+   ```
+
+   It writes a CSV of every row, a manifest (row count, the CSV's SHA-256,
+   the status breakdown, and the restore command with its column list) and a
+   marker row in the database. **The CSV holds the e-mail address of
+   everybody ever invited.** Move both files to wherever the audit trail is
+   retained; `invitation-export/` is git-ignored so a stray copy cannot
+   be committed by accident.
+
+   The manifest also records the `audit_events` counts taken before the
+   drop, which is how the drop is later shown not to have touched them.
+
+3. **V17** drops the table, its four indexes and `invited_at`. It **refuses
+   to run** against a non-empty table that has no export marker, so the export
+   cannot be skipped: a server pointed at such a database fails to start
+   rather than silently deleting rows. An empty table drops without a marker,
+   which is what lets a fresh or test database migrate straight through.
+
+`audit_events` is not touched by any of it. No migration in this removal
+contains a `DELETE` or a `TRUNCATE`.
+
+### Rolling V17 back
+
+```bash
+psql -U postgres -h localhost -d signer -f scripts/db/V17_down.sql
+# then the restore line from the export manifest. It NAMES THE COLUMNS,
+# because \copy maps them positionally and ignores the header, and an export
+# taken before V2/V7 holds 11 columns, not the 17 the rollback recreates.
+psql -U postgres -h localhost -d signer \
+  -c "select setval('invitations_id_seq', (select max(id) from invitations))"
+flyway repair   # or: delete from flyway_schema_history where version = '17'
+```
+
+Rehearsed end to end on a copy of a real database holding 18 rows: the drop
+left `audit_events` at 257 rows with all 39 `INVITATION_*` rows present, and
+the rollback restored all 18 invitation rows byte for byte.
+
 ## Tests
 
 - `PostgresWorkflowStoreLiveTests` — live-PostgreSQL: dev seed accounts and

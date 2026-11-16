@@ -25,7 +25,6 @@ if "%~1"=="" (
     echo Handy commands and queries:
     echo   \dt                            list the tables
     echo   \di                            list the indexes
-    echo   SELECT * FROM invitations;    invitations and their status
     echo   SELECT username, email, status FROM users;
     echo   SELECT workflow_id, document_name, status FROM workflows;
     echo   SELECT event_type, actor, created_at FROM audit_events
