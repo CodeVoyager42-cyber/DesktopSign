@@ -8,12 +8,9 @@ import {
   Download,
   History,
   PenLine,
-  Send,
-  Users,
 } from "lucide-react";
 import {
   ConfirmDialog,
-  Initials,
   PageHeader,
   SectionCard,
   TextLink,
@@ -26,20 +23,14 @@ import {
   useNote,
   useSession,
 } from "@/components/session";
-import { SignerBadge, StatusBadge } from "@/components/status";
+import { StatusBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  api,
-  type AuditEntry,
-  type InvitationStatus,
-  type Workflow,
-} from "@/lib/api";
+import { api, type AuditEntry, type Workflow } from "@/lib/api";
 import { FINISHED } from "@/lib/dashboard";
-import { canResend, canWithdraw, slotNeedsAttention, slotStory } from "@/lib/send";
-import { at, buildTimeline, type TimelineRow } from "@/lib/timeline";
+import { buildTimeline, type TimelineRow } from "@/lib/timeline";
 import { cn } from "@/lib/utils";
 
 /**
@@ -51,11 +42,12 @@ import { cn } from "@/lib/utils";
  * and the catch-all forward that would make a path segment work is the one
  * `FrontendRoutingConfiguration` refuses.
  *
- * Nothing about what it reads has changed — the same three calls, the same
- * `buildTimeline`, the same sender-only invitation panel, the same
- * `detail`-free timeline rows. The history is behind a disclosure because
- * somebody opening this screen wants to know whether their document is
- * signed, and twenty rows of audit trail is not that answer.
+ * Three calls: the document, its audit trail, and the reader's own list of
+ * documents they sent — the last only to know whether this reader is the
+ * sender, which decides whether Cancel is offered. The history is behind a
+ * disclosure because somebody opening this screen wants to know whether
+ * their document is signed, and twenty rows of audit trail is not that
+ * answer.
  */
 function HistoryRow({ row }: { row: TimelineRow }) {
   return (
@@ -89,11 +81,10 @@ export default function Document() {
   const [id, setId] = useState<string | null | undefined>(undefined);
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [audit, setAudit] = useState<AuditEntry[] | null>(null);
-  const [slots, setSlots] = useState<InvitationStatus[] | null>(null);
+  const [sender, setSender] = useState(false);
   const [refused, setRefused] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [withdrawing, setWithdrawing] = useState<number | null>(null);
   const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
@@ -110,8 +101,8 @@ export default function Document() {
       Promise.all([
         api.workflow(workflowId),
         api.audit(workflowId),
-        api.invitations(workflowId),
-      ]).then(([one, trail, invited]) => {
+        api.owned(),
+      ]).then(([one, trail, mine]) => {
         if (!mounted.current) return;
         if (!one.ok || !one.body) {
           setRefused(true);
@@ -124,16 +115,13 @@ export default function Document() {
           setAudit([]);
           say("The history of this document could not be loaded.", "bad");
         }
-        if (invited.ok) {
-          setSlots(invited.body ?? []);
-        } else if (invited.code === "WORKFLOW_NOT_ACCESSIBLE") {
-          // Not a failure: managing invitations is the sender's, and a signer
-          // reading their own document is told so by this exact code.
-          setSlots(null);
-        } else {
-          setSlots(null);
-          say("Who was invited could not be loaded.", "bad");
-        }
+        // Whether this reader sent the document. Asked of the list the
+        // server already keeps for exactly that question; a reader who is
+        // only a signer gets a list without this id in it, which is an
+        // answer and not a failure.
+        setSender(
+          (mine.body ?? []).some((w) => w.workflowId === workflowId),
+        );
       }),
     [say],
   );
@@ -156,7 +144,6 @@ export default function Document() {
     if (!id) return;
     setBusy(true);
     setConfirming(false);
-    setWithdrawing(null);
     action().then((result) => {
       if (!mounted.current) return;
       say(
@@ -216,18 +203,7 @@ export default function Document() {
   const recorded = rows.filter((row) => row.recorded);
   const finished = workflow.status === "COMPLETED";
   const yourTurn = workflow.currentSignerUserId === me.username;
-  // A successful read of the invitations is what tells this page the viewer
-  // sent the document: the server grants that read to the sender alone.
-  const sender = slots !== null;
   const live = !FINISHED.includes(workflow.status);
-  // Which slot is being waited for. Only inferable for a sequential
-  // document, where the server asks the slots in order — so the first
-  // unsigned one is the current one. A flexible document has no "current"
-  // slot until somebody claims the turn, and this says nothing about it.
-  const currentOrder =
-    workflow.signingPolicy === "SEQUENTIAL" && workflow.status === "WAITING_FOR_SIGNER"
-      ? (slots ?? []).find((slot) => !slot.slotSigned)?.signerOrder
-      : undefined;
 
   return (
     <AppShell me={me}>
@@ -277,108 +253,6 @@ export default function Document() {
               </p>
             </CardContent>
           </Card>
-        ) : null}
-
-        {/* The sender's panel. A signer sees none of it: the server refuses
-            them this read, which is what `sender` is. */}
-        {sender && slots ? (
-          <SectionCard
-            title="Signers"
-            icon={Users}
-            description={
-              slots.length
-                ? "Sending an invitation again replaces the previous link, which stops working at once."
-                : undefined
-            }
-          >
-            {slots.length === 0 ? (
-              <p className="text-base text-muted-foreground">
-                Nobody was invited by email — the signer opens the app and
-                signs with their own account.
-              </p>
-            ) : (
-              <ol className="space-y-3">
-                {slots.map((slot) => {
-                  const expires =
-                    slot.status === "PENDING" && !slot.slotSigned && slot.expiresAt
-                      ? at(slot.expiresAt)
-                      : null;
-                  const who = slot.email ?? `Signer ${slot.signerOrder}`;
-                  return (
-                    <li
-                      key={slot.signerOrder}
-                      className="flex flex-col gap-3 rounded-xl border border-border p-4 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <Initials of={who} />
-                        <div className="min-w-0 space-y-1">
-                          <p className="break-all font-medium">{who}</p>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <SignerBadge
-                              state={
-                                slot.slotSigned
-                                  ? "signed"
-                                  : slot.signerOrder === currentOrder
-                                    ? "current"
-                                    : "waiting"
-                              }
-                              words={
-                                slot.slotSigned
-                                  ? "Signed"
-                                  : slot.signerOrder === currentOrder
-                                    ? "Their turn now"
-                                    : "Waiting"
-                              }
-                            />
-                            <span
-                              className={cn(
-                                "text-sm",
-                                slotNeedsAttention(slot)
-                                  ? "font-medium text-warning-strong"
-                                  : "text-muted-foreground",
-                              )}
-                            >
-                              {slotStory(slot)}
-                              {expires ? ` · link expires ${expires}` : ""}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex shrink-0 gap-2">
-                        {canResend(slot) && slot.invitationId !== null ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() =>
-                              run(
-                                () => api.resendInvitation(slot.invitationId as number),
-                                "A new invitation is on its way.",
-                                "The invitation could not be sent again.",
-                              )
-                            }
-                          >
-                            <Send aria-hidden="true" />
-                            Send again
-                          </Button>
-                        ) : null}
-                        {canWithdraw(slot) && slot.invitationId !== null ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            disabled={busy}
-                            onClick={() => setWithdrawing(slot.invitationId)}
-                          >
-                            Withdraw
-                          </Button>
-                        ) : null}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-          </SectionCard>
         ) : null}
 
         <NoteAlert note={note} />
@@ -461,22 +335,6 @@ export default function Document() {
             () => api.cancel(workflow.workflowId),
             "The document is cancelled.",
             "It could not be cancelled.",
-          )
-        }
-      />
-
-      <ConfirmDialog
-        open={withdrawing !== null}
-        onOpenChange={(open) => setWithdrawing(open ? withdrawing : null)}
-        title="Withdraw this invitation?"
-        description="Their link stops working at once. The signer stays on the document, with nobody invited to that place."
-        confirmLabel="Withdraw it"
-        busy={busy}
-        onConfirm={() =>
-          run(
-            () => api.revokeInvitation(withdrawing as number),
-            "The invitation is withdrawn.",
-            "The invitation could not be withdrawn.",
           )
         }
       />

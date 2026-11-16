@@ -32,11 +32,11 @@ import { fileSize, groupedChecksum, versionLabel } from "@/lib/download";
  * Where somebody gets the desktop application (Phase F, finding F2).
  *
  * <b>Public, and the only page of this website that is both public and
- * useful to a signed-in reader.</b> An invited signer has no account yet and
- * still needs the application before they can sign anything; telling them to
- * create an account first would be a circle. It reveals nothing — a version,
- * a size, a checksum — and the file it links to is public for the same
- * reason, bounded by a rate limit rather than a token.
+ * useful to a signed-in reader.</b> The signing happens in the application,
+ * so a reader needs it before they can sign anything at all, and the page
+ * has to work before they have it. It reveals nothing — a version, a size, a
+ * checksum — and the file it links to is public for the same reason, bounded
+ * by a rate limit rather than a token.
  *
  * Everything on it comes from `GET /web/api/download-info`, which reads the
  * folder a release was published into. `available: false` is a normal state,

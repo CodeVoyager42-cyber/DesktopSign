@@ -92,9 +92,8 @@ export default function Send() {
     }
     setBusy(true);
     say("Preparing…");
-    // One signer: the account reading this screen. A signer named by
-    // username (no `@`) is a direct slot on the server — no invitation
-    // row, no e-mail, nothing in an outbox.
+    // One signer: the account reading this screen. A username slot is a
+    // direct slot on the server — nothing is sent to anybody.
     api
       .createWorkflow(documentName.trim(), "SEQUENTIAL",
         [{ order: 1, userId: me.username, certificateSha256: null }], file)
@@ -231,8 +230,8 @@ export default function Send() {
           <div className="min-w-0">
             <p className="font-medium">{me.displayName}</p>
             <p className="text-sm text-muted-foreground">
-              You are the signer. No invitation is sent — the next step opens
-              the app for your signature.
+              You are the signer. The next step opens the app for your
+              signature.
             </p>
           </div>
         </div>

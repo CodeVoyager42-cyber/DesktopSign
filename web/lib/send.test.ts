@@ -1,43 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { InvitationStatus } from "./api.ts";
 import {
-  canResend,
-  canWithdraw,
   documentNameFor,
   isEmail,
   problemWith,
   readableSize,
   signersFrom,
-  slotNeedsAttention,
-  slotStory,
 } from "./send.ts";
 
 /**
  * The sending side, tested without a browser.
  *
- * Two things are worth testing here. The slots: blank rows dropped and the
+ * What is worth testing here is the slots: blank rows dropped and the
  * numbering closed up after them, because an order with a hole in it is a
- * workflow the server will refuse for a reason the reader cannot see. And the
- * reading back: which words a slot's row gets, and which actions it offers —
- * a *Withdraw* button beside a signature would be the worst of the mistakes
- * available here.
+ * workflow the server will refuse for a reason the reader cannot see.
  */
-
-function slot(over: Partial<InvitationStatus> = {}): InvitationStatus {
-  return {
-    invitationId: 7,
-    signerOrder: 1,
-    email: "bob@example.com",
-    status: "PENDING",
-    emailStatus: "SENT",
-    createdAt: "2026-10-24T09:15:00Z",
-    expiresAt: "2026-10-31T09:15:00Z",
-    acceptedAt: null,
-    slotSigned: false,
-    ...over,
-  };
-}
 
 /** A File without a browser: Node has had the class since 20. */
 function pdf(name = "contract.pdf"): File {
@@ -65,7 +42,7 @@ test("no certificate is ever named from the browser", () => {
   }
 });
 
-test("an address is read as an invitation, a plain name as an account", () => {
+test("an address is the shape the server refuses, a plain name an account", () => {
   assert.equal(isEmail("bob@example.com"), true);
   assert.equal(isEmail("bob"), false);
 });
@@ -90,54 +67,6 @@ test("the form says the one thing that is missing, in order", () => {
     "Name at least one person to sign it.",
   );
   assert.equal(problemWith(pdf(), "contract.pdf", ["alice"]), null);
-});
-
-test("a signed slot reads as signed, whatever its invitation still says", () => {
-  // The invitation row stays PENDING after signing; saying "Invited" against
-  // a signature would be wrong in the way that matters.
-  assert.equal(slotStory(slot({ slotSigned: true, status: "PENDING" })), "Signed");
-  assert.equal(slotNeedsAttention(slot({ slotSigned: true, emailStatus: "FAILED" })), false);
-});
-
-test("an undelivered invitation says so rather than claiming it was sent", () => {
-  const failed = slot({ emailStatus: "FAILED" });
-  assert.equal(slotStory(failed), "Invited, but the e-mail could not be delivered");
-  assert.equal(slotNeedsAttention(failed), true);
-  // Resending is the way out of it.
-  assert.equal(canResend(failed), true);
-});
-
-test("the ordinary states get their own words", () => {
-  assert.equal(slotStory(slot()), "Invited");
-  assert.equal(slotStory(slot({ emailStatus: "PENDING" })), "Invited, e-mail on its way");
-  assert.equal(slotStory(slot({ status: "ACCEPTED", acceptedAt: "x" })), "Opened");
-  assert.equal(slotStory(slot({ status: "REVOKED" })), "Withdrawn");
-  assert.equal(slotStory(slot({ status: "EXPIRED" })), "The invitation expired");
-  // An unrecognised state is shown as it came rather than hidden.
-  assert.equal(slotStory(slot({ status: "SOMETHING_NEW" })), "SOMETHING_NEW");
-});
-
-test("nothing is offered against a signature", () => {
-  const signed = slot({ slotSigned: true });
-  assert.equal(canResend(signed), false);
-  assert.equal(canWithdraw(signed), false);
-});
-
-test("a dead token can be replaced but not withdrawn again", () => {
-  const expired = slot({ status: "EXPIRED" });
-  assert.equal(canResend(expired), true);
-  assert.equal(canWithdraw(expired), false);
-
-  const revoked = slot({ status: "REVOKED" });
-  assert.equal(canResend(revoked), false);
-  assert.equal(canWithdraw(revoked), false);
-});
-
-test("a slot that was never invited offers neither", () => {
-  // A slot named by username has no invitation row at all.
-  const direct = slot({ invitationId: null, email: null, status: "UNKNOWN" });
-  assert.equal(canResend(direct), false);
-  assert.equal(canWithdraw(direct), false);
 });
 
 test("a file size reads the way a reader glances at it", () => {

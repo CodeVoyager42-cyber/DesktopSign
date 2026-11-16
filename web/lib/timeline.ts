@@ -44,6 +44,11 @@ export const EVENT_WORDS: Record<string, string> = {
   WORKFLOW_CREATED: "Created",
   CERTIFICATES_PENDING: "Every signer must register a certificate before this is prepared",
   WORKFLOW_PREPARED: "Prepared for signing",
+  // The five INVITATION_* events and EMAIL_DELIVERY_FAILED are HISTORICAL.
+  // The invitation workflow is gone and nothing emits them any more, but the
+  // audit rows that bear them are kept for ever (the product's dispute story
+  // rests on that trail), so a document from before the removal must still
+  // read as prose rather than as a raw enum name. Do not delete these.
   INVITATION_CREATED: "A signer was invited",
   INVITATION_SENT: "The invitation went out",
   INVITATION_ACCEPTED: "The invitation was opened",

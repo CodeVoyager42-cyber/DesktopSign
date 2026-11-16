@@ -57,9 +57,9 @@ function task(over: Partial<Task> = {}): Task {
 }
 
 test("a draft is waiting for certificates, not unsent", () => {
-  // Invitations go out when the workflow is created; DRAFT only means a slot
-  // still has no certificate bound. "Not sent yet" against a document whose
-  // invitations have gone would invite a pointless resend.
+  // A workflow is live from the moment it is created; DRAFT only means a slot
+  // still has no certificate bound. "Not sent yet" against a live document
+  // would suggest something was still waiting to be sent.
   assert.equal(STATE_WORDS.DRAFT, "Waiting for certificates");
 });
 

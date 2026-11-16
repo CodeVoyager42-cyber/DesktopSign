@@ -1,8 +1,7 @@
-import type { InvitationStatus, SignerSpec } from "./api";
+import type { SignerSpec } from "./api";
 
 /**
- * The sending side: preparing what the create call needs, and reading back
- * where each invitation stands.
+ * The sending side: preparing what the create call needs.
  *
  * In its own module for the reasons `dashboard.ts` and `timeline.ts` are — a
  * page module may only export the names Next.js knows about, and this is the
@@ -60,11 +59,14 @@ export function documentNameFor(fileName: string): string {
   return bare.trim();
 }
 
-/** Whether the server will read this slot as an address to invite. */
+/**
+ * Whether the server will refuse this slot for looking like an address.
+ *
+ * The server's own test is exactly this: an `@` is refused, anything else is
+ * read as an account that must already exist. The shape of the address is
+ * then nobody's business, because it is never used.
+ */
 export function isEmail(who: string): boolean {
-  // The server's own test is exactly this: an `@` means invite, anything
-  // else means an account that must already exist. The shape of the address
-  // is then its business, not ours.
   return who.includes("@");
 }
 
@@ -108,72 +110,4 @@ export function problemWith(
   return null;
 }
 
-/* ---------------------- reading the invitations back ---------------------- */
 
-/** Invitation states, in the reader's language. */
-export const INVITATION_WORDS: Record<string, string> = {
-  PENDING: "Invited",
-  ACCEPTED: "Opened",
-  EXPIRED: "The invitation expired",
-  REVOKED: "Withdrawn",
-  DECLINED: "Declined",
-  COMPLETED: "Signed",
-};
-
-/**
- * What one slot's row says: where the invitation stands, and what became of
- * the e-mail.
- *
- * Signed wins over everything: once a slot is signed, whether its invitation
- * is still pending is bookkeeping, and reading "Invited" against a signature
- * would be wrong in the way that matters.
- */
-export function slotStory(slot: InvitationStatus): string {
-  if (slot.slotSigned) {
-    return "Signed";
-  }
-  const state = INVITATION_WORDS[slot.status] ?? slot.status;
-  if (slot.status === "PENDING" && slot.emailStatus === "FAILED") {
-    // The invitation is live but nobody received it — the one combination
-    // where the e-mail's fate matters more than the invitation's state.
-    return "Invited, but the e-mail could not be delivered";
-  }
-  if (slot.status === "PENDING" && slot.emailStatus === "PENDING") {
-    return "Invited, e-mail on its way";
-  }
-  return state;
-}
-
-/** Whether this row is worth drawing attention to. */
-export function slotNeedsAttention(slot: InvitationStatus): boolean {
-  if (slot.slotSigned) {
-    return false;
-  }
-  return (
-    slot.emailStatus === "FAILED" ||
-    slot.status === "EXPIRED" ||
-    slot.status === "DECLINED"
-  );
-}
-
-/**
- * A slot can be invited again while it is unsigned and there is an invitation
- * to replace. Resending revokes the old token and issues a new one, so it is
- * also the way out of a failed delivery or an expiry.
- */
-export function canResend(slot: InvitationStatus): boolean {
-  return !slot.slotSigned && slot.invitationId !== null && slot.status !== "REVOKED";
-}
-
-/**
- * Withdrawing only makes sense while the invitation could still be used. A
- * signed slot cannot be un-signed, and a revoked or expired token is already
- * dead.
- */
-export function canWithdraw(slot: InvitationStatus): boolean {
-  return (
-    !slot.slotSigned &&
-    slot.invitationId !== null &&
-    (slot.status === "PENDING" || slot.status === "ACCEPTED")
-  );
-}

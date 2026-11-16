@@ -323,8 +323,8 @@ export default function Open() {
             <p className="text-base text-muted-foreground">Nothing happened?</p>
             {/* The download page, always — it explains the install, the
                 SmartScreen warning and the card reader, which a bare link to a
-                file does not. It is public, so it works even for somebody who
-                arrived here from an invitation and has no account. */}
+                file does not. It is public, so it works before the reader has
+                the application that the signing itself happens in. */}
             <Button asChild variant="outline" className="mt-3">
               <Link href="/download">
                 <Download aria-hidden="true" />

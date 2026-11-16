@@ -99,8 +99,8 @@ export function clock(seconds: number): string {
  * `TOO_MANY_REQUESTS` is: five codes a minute is the limit (Phase B), and a
  * reader who pressed the button too often only has to wait. Everything else
  * is a state that a retry cannot change — an unregistered card, somebody
- * else's turn, a workflow that is finished — so offering Retry would be
- * inviting the reader to press a button that cannot work.
+ * else's turn, a workflow that is finished — so offering Retry would ask the
+ * reader to press a button that cannot work.
  */
 export function worthRetrying(code: string | null): boolean {
   return code === "TOO_MANY_REQUESTS" || code === "UNREACHABLE";

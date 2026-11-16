@@ -56,9 +56,6 @@ const nextConfig: NextConfig = {
           return [
             // Everything the website calls: the session chain.
             { source: "/web/api/:path*", destination: `${api}/web/api/:path*` },
-            // The invitation pages the server renders itself, so a link out
-            // of a dev mailbox opens the real thing rather than a 404.
-            { source: "/sign/:path*", destination: `${api}/sign/:path*` },
           ];
         },
       }

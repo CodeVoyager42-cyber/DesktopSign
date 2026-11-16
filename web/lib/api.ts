@@ -105,11 +105,10 @@ export interface Workflow {
 /**
  * One signer slot as the website sends it.
  *
- * `userId` is an e-mail address *or* an existing username — the server reads
- * an `@` as "invite this address", which creates or reuses an identity that
- * can only ever become an account through its invitation, and anything else
- * as "this account already exists". `order` is 1-based, as every slot number
- * is on both sides.
+ * `userId` must be an existing username. The server refuses a slot that
+ * looks like an e-mail address: there is no invitation left to turn an
+ * address into an account. `order` is 1-based, as every slot number is on
+ * both sides.
  *
  * `certificateSha256` is always null from here: a certificate lives on the
  * signer's own smart card, and the browser has no business naming one. The
@@ -122,35 +121,9 @@ export interface SignerSpec {
   certificateSha256: null;
 }
 
-/**
- * One invitation link, returned by the call that sent it and never again:
- * the database keeps the token's hash, so no later read can reproduce it.
- * The website does not display these — see `app/send/page.tsx`.
- */
-export interface InvitationLink {
-  signerOrder: number;
-  email: string;
-  invitationUrl: string;
-}
-
 /** POST /web/api/workflows */
 export interface CreateWorkflowResponse {
   workflow: Workflow;
-  invitations: InvitationLink[];
-}
-
-/** GET /web/api/workflows/{id}/invitations — owner only; status, never tokens. */
-export interface InvitationStatus {
-  invitationId: number | null;
-  signerOrder: number;
-  email: string | null;
-  status: string;
-  /** PENDING | SENT | FAILED, or null for a row older than delivery tracking. */
-  emailStatus: string | null;
-  createdAt: string | null;
-  expiresAt: string | null;
-  acceptedAt: string | null;
-  slotSigned: boolean;
 }
 
 /**
@@ -175,8 +148,9 @@ export interface AppInfo {
 /**
  * GET /web/api/download-info — what there is to download, if anything.
  *
- * Public, so the page works for somebody who was invited to sign and has no
- * account yet. `available` is the only thing to branch on: `url` may be this
+ * Public, so the page works before anyone signs in — the application has to
+ * be installed before it can open a launch link. `available` is the only
+ * thing to branch on: `url` may be this
  * server's own `/downloads/<file>` or an external link configured for the
  * deployment, and `sizeBytes`/`sha256` are absent for the latter because the
  * server cannot know them about a file it does not hold.
@@ -386,8 +360,7 @@ export const api = {
 
   /**
    * Starts a workflow: the signers and policy as one part, the PDF as the
-   * other. The answer carries the invitation links that just went out, which
-   * this website deliberately does not show.
+   * other. Every signer slot must name an account that already exists.
    */
   createWorkflow: (
     documentName: string,
@@ -406,28 +379,9 @@ export const api = {
     return postForm<CreateWorkflowResponse>("/web/api/workflows", form);
   },
 
-  /** Where each slot's invitation stands. 403 to anyone but the owner. */
-  invitations: (id: string) =>
-    get<InvitationStatus[]>(`/web/api/workflows/${encodeURIComponent(id)}/invitations`),
-
-  /** Invites one slot of an existing workflow, by address. */
-  invite: (id: string, signerOrder: number, email: string) =>
-    post<InvitationLink>(
-      `/web/api/workflows/${encodeURIComponent(id)}/invitations`,
-      { signerOrder, email },
-    ),
-
   /** The creator or the current signer, and only before it completes. */
   cancel: (id: string) =>
     post<Workflow>(`/web/api/workflows/${encodeURIComponent(id)}/cancel`),
-
-  /** A new link for a slot; the old one stops working. */
-  resendInvitation: (invitationId: number) =>
-    post<InvitationLink>(`/web/api/invitations/${invitationId}/resend`),
-
-  /** Ends the invitation. The slot stays, unsigned and uninvited. */
-  revokeInvitation: (invitationId: number) =>
-    post<void>(`/web/api/invitations/${invitationId}/revoke`),
 
   /* The hand-off to the desktop (Phase F). */
 

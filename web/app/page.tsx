@@ -30,7 +30,7 @@ const STEPS = [
   {
     Icon: PenLine,
     title: "Sign with your card",
-    detail: "No invitations, no waiting — your signature goes on right away.",
+    detail: "No waiting and nothing to send — your signature goes on right away.",
   },
 ];
 
