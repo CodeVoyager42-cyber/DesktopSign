@@ -10,14 +10,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.List;
 
 /**
  * The three workflow operations that are more than one service call, in the
  * one place both chains reach them from.
  *
- * <p>Creating a workflow, inviting a slot and reading invitation status each
- * need several steps in a particular order — and each of those orders carries
+ * <p>Creating a workflow and reading it back each need several steps in a particular order — and each of those orders carries
  * a rule. Starting a workflow has to prepare the e-mail-addressed slots
  * before the workflow exists and send their invitations only after it does.
  * Inviting a slot has to check the caller may see the workflow at all
@@ -76,14 +74,11 @@ public class WorkflowOperations {
      * workflow whose signer can never be found, which is the kind of silent
      * failure this removal exists to end.
      *
-     * <p>The response's invitation-link list is always empty now. It stays in
-     * the contract because both clients still read the field; it is emptied
-     * here rather than removed under them.
      */
     public CreateWorkflowResponse create(CreateWorkflowRequest request, byte[] pdf,
                                          String caller) {
         return new CreateWorkflowResponse(
-                this.workflows.createWorkflow(request, pdf, caller), List.of());
+                this.workflows.createWorkflow(request, pdf, caller));
     }
 
     /**

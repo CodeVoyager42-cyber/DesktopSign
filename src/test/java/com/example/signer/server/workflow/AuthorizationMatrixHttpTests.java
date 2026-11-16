@@ -2,7 +2,6 @@ package com.example.signer.server.workflow;
 
 import com.example.signer.server.WorkflowServerApplication;
 import com.example.signer.server.api.ApiContracts.CreateWorkflowRequest;
-import com.example.signer.server.api.ApiContracts.InvitationLinkView;
 import com.example.signer.server.api.ApiContracts.WorkflowView;
 import com.example.signer.server.api.ApiErrorType.ApiErrorCode;
 import com.example.signer.server.api.ApiErrorType.ApiException;

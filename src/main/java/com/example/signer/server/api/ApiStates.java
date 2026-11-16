@@ -20,7 +20,12 @@ public final class ApiStates {
         SIGNED,
         /** The participant must register their signing certificate first. */
         CERTIFICATE_PENDING,
-        /** Invited; the recipient has no account yet. */
+        /**
+         * The slot names an account that does not exist. Still produced:
+         * {@code RemoteWorkflowService} reports it for a slot whose user is
+         * not registered. Nobody is invited any more, so it means "cannot
+         * sign yet", not "an invitation is outstanding".
+         */
         INVITED,
         /** The requester cancelled the workflow. */
         CANCELLED,
@@ -32,7 +37,7 @@ public final class ApiStates {
         WAITING_FOR_CLAIM,
         WAITING_FOR_OTHERS,
         IN_PROGRESS,
-        /** The slot's invitation was withdrawn or replaced. */
+        /** The slot was withdrawn or replaced. */
         REVOKED,
         DECLINED,
         EXPIRED,
@@ -53,35 +58,6 @@ public final class ApiStates {
 
         public static SlotState parse(String raw) {
             return ApiStates.parse(SlotState.class, raw, UNKNOWN);
-        }
-    }
-
-    /** An invitation's own lifecycle (not the signature: see {@code slotSigned}). */
-    public enum InvitationStatus {
-        PENDING,
-        /** Opened by the recipient; not necessarily signed. */
-        ACCEPTED,
-        EXPIRED,
-        REVOKED,
-        DECLINED,
-        /** Preview only: the slot is already signed. */
-        COMPLETED,
-        UNKNOWN;
-
-        public static InvitationStatus parse(String raw) {
-            return ApiStates.parse(InvitationStatus.class, raw, UNKNOWN);
-        }
-    }
-
-    /** Delivery of the invitation email. */
-    public enum EmailStatus {
-        PENDING,
-        SENT,
-        FAILED,
-        UNKNOWN;
-
-        public static EmailStatus parse(String raw) {
-            return ApiStates.parse(EmailStatus.class, raw, UNKNOWN);
         }
     }
 

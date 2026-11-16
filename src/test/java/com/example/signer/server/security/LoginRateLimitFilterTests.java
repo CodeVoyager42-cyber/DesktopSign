@@ -71,8 +71,17 @@ class LoginRateLimitFilterTests {
     @Test
     void registrationIsLimitedButOtherRequestsAreNot() throws Exception {
         LoginRateLimitFilter filter = new LoginRateLimitFilter(1, 60, clock);
-        send(filter, "POST", "/api/auth/register", "10.0.0.9");
-        assertThat(send(filter, "POST", "/api/auth/register", "10.0.0.9").getStatus()).isEqualTo(429);
+        // The website's sign-up, which is the only registration endpoint there
+        // is. /api/auth/register used to be limited beside it and is NOT any
+        // more: registration existed only to redeem an invitation, so its
+        // handler went with the invitation workflow and the path now 404s.
+        send(filter, "POST", "/web/api/auth/register", "10.0.0.9");
+        assertThat(send(filter, "POST", "/web/api/auth/register", "10.0.0.9").getStatus())
+                .isEqualTo(429);
+        // The retired path is no longer one of the limited ones: a bucket for
+        // a route that cannot be reached protects nothing and only hides that
+        // the route is gone.
+        assertThat(LoginRateLimitFilter.LIMITED_PATHS).doesNotContain("/api/auth/register");
         for (int i = 0; i < 5; i++) {
             assertThat(send(filter, "POST", "/api/auth/refresh", "10.0.0.9").getStatus()).isEqualTo(200);
             assertThat(send(filter, "GET", "/api/auth/login", "10.0.0.9").getStatus()).isEqualTo(200);

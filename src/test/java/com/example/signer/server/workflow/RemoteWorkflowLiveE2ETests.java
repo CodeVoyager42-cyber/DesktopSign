@@ -111,11 +111,9 @@ class RemoteWorkflowLiveE2ETests {
         assertThat(created.signingPolicy()).isEqualTo("FLEXIBLE");
         assertThat(created.status()).isEqualTo("DRAFT");
         assertThat(created.awaitingYourCertificate()).isTrue();
-        // alice and bob are existing accounts, not email invitees, so this
-        // flow emails nobody — and the response must not invent links for
-        // them. (The emailed-link contract is covered where invitations are
-        // actually sent: PostgresWorkflowStoreLiveTests.)
-        assertThat(createResponse.invitations()).isEmpty();
+        // The create response carries the workflow and nothing else: the
+        // emailed-link list it used to return went with the invitation
+        // workflow, and every signer slot now names an existing account.
 
         // ── C: bob sees the DRAFT task and binds HIS certificate ────────
         assertThat(bob.myTasks()).anyMatch(w -> w.workflowId().equals(id));

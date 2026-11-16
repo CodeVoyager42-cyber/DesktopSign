@@ -41,7 +41,11 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
     /** Credential endpoints: each request checks a password. */
     static final String LAUNCH_PATH = "/api/desktop/launch";
 
-    static final Set<String> LIMITED_PATHS = Set.of("/api/auth/login", "/api/auth/register",
+    // /api/auth/register stood here too. Registration existed only to redeem
+    // an invitation, so its handler went with the invitation workflow in
+    // 02eb12b: a bucket for a route that answers 404 limits nothing. The
+    // website's own sign-up is /web/api/auth/register, in ACCOUNT_PATHS.
+    static final Set<String> LIMITED_PATHS = Set.of("/api/auth/login",
             // Phase C: the website checks the same passwords against the same
             // accounts, so it shares this address's sign-in budget rather than
             // getting a second one. The filter is a shared singleton bean for

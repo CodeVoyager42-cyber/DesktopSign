@@ -155,116 +155,18 @@ public final class ApiContracts {
     public record MeResponse(String userId) {
     }
 
-    /* ------------------------------------------------------------------
-     * Invitations (brief Phase 4/6)
-     * ------------------------------------------------------------------ */
-
-    /** Request body of POST /api/workflows/{id}/invitations. */
-    public record CreateInvitationRequest(int signerOrder, String email) {
-    }
-
-    /** View of an invitation. Never contains the raw token. */
-    public record InvitationView(
-            Long invitationId,
-            String workflowId,
-            String documentName,
-            int signerOrder,
-            String email,
-            String invitedBy,
-            String status,
-            String expiresAt,
-            /**
-             * The exact link that was just emailed, returned ONCE at send
-             * time so the sender can see what went out. It is never stored
-             * and never comes back from a read endpoint — the database keeps
-             * only the token hash.
-             */
-            String invitationUrl) {
-    }
-
     /**
-     * One emailed invitation link, as surfaced to the sender. Mirrors
-     * {@link InvitationView#invitationUrl()} for the workflow-create flow,
-     * where several slots are invited at once.
-     */
-    public record InvitationLinkView(
-            int signerOrder,
-            String email,
-            String invitationUrl) {
-    }
-
-    /**
-     * Response of POST /api/workflows: the created workflow plus the links
-     * that were emailed to its email-addressed signer slots. The links are
-     * present only in this response — a later read cannot reproduce them.
-     */
-    public record CreateWorkflowResponse(
-            WorkflowView workflow,
-            List<InvitationLinkView> invitations) {
-    }
-
-    /**
-     * Response of GET /api/server-info/invitation-link: the base URL that
-     * emailed links use, so the sender can see where recipients are sent.
+     * Response of POST /api/workflows: the created workflow.
      *
-     * @param localOnly true when the base URL resolves only on this machine
-     *                  (a loopback address), i.e. remote signers cannot open
-     *                  the link until the server is given a public address
+     * <p>It used to carry the invitation links that had just been e-mailed to
+     * the workflow's address-shaped signer slots, present only here because a
+     * later read could not reproduce them. There are no invitations and no
+     * address-shaped slots any more — every slot names an account that
+     * already exists — so the list is gone rather than left empty.
      */
-    public record InvitationLinkInfo(
-            String baseUrl,
-            boolean localOnly,
-            String source) {
+    public record CreateWorkflowResponse(WorkflowView workflow) {
     }
 
-    /** Request body of POST /api/auth/register (invitation-bound). */
-    public record RegisterRequest(
-            String invitationToken,
-            String displayName,
-            String password) {
-    }
-
-    /**
-     * Owner-facing status of one signer slot's invitation (workflow tracking).
-     * Dates are ISO-8601 instant strings; {@code slotSigned} mirrors the
-     * workflow signer slot so completed signatures stay visible even after
-     * the invitation row was superseded. Never contains the raw token.
-     */
-    public record InvitationStatusView(
-            Long invitationId,
-            int signerOrder,
-            String email,
-            String status,
-            /** PENDING | SENT | FAILED | null (row predates tracking). */
-            String emailStatus,
-            String createdAt,
-            String expiresAt,
-            String acceptedAt,
-            boolean slotSigned) {
-
-        /** {@link #status()} as an enum (UNKNOWN when unrecognised). */
-        public ApiStates.InvitationStatus invitationStatus() {
-            return ApiStates.InvitationStatus.parse(status);
-        }
-
-        /** {@link #emailStatus()} as an enum; null when the row predates tracking. */
-        public ApiStates.EmailStatus emailState() {
-            return emailStatus == null ? null : ApiStates.EmailStatus.parse(emailStatus);
-        }
-    }
-
-    /**
-     * Result of claiming an invitation (POST /api/invitations/{token}/claim):
-     * the participant-scoped context the desktop opens the signing workflow
-     * with. Deliberately narrow — one workflow, one participant slot, one
-     * document; never a general application session (brief §21/§46).
-     */
-    /**
-     * A guest signing session opened from an invitation link (no account).
-     * {@code accessToken} authorizes ONLY this signer slot's signing task;
-     * it is not a login and expires with the invitation at the latest.
-     * {@code signerId} is the slot's signer id as it appears in the task.
-     */
     /* ---------------- Phase B: website → desktop launch codes ---------------- */
 
     /**
@@ -304,52 +206,6 @@ public final class ApiContracts {
 
     /** GET /api/health: reachability only, nothing sensitive. */
     public record HealthView(String status, int apiVersion, String minDesktopVersion) {
-    }
-
-    /** Body of POST /api/invitations/{token}/guest-session (security Phase 3). */
-    public record GuestSessionRequest(String code) {
-    }
-
-    /**
-     * Answer of POST /api/invitations/{token}/guest-code: where the code went
-     * (masked) and when it expires / when a new one may be requested.
-     */
-    public record GuestCodeView(String sentTo, long expiresInSeconds,
-                                long resendAfterSeconds) {
-    }
-
-    public record GuestSessionView(
-            String accessToken,
-            String tokenType,
-            long expiresIn,
-            String workflowId,
-            String documentName,
-            String requestedBy,
-            int signerOrder,
-            String signerId,
-            String email,
-            String invitationExpiresAt) {
-    }
-
-    public record SigningSessionView(
-            String workflowId,
-            String documentName,
-            int participantOrder,
-            String recipientEmail,
-            /** When this signing authorization expires (= invitation expiry). */
-            String expiresAt,
-            boolean alreadyClaimed) {
-    }
-
-    /** Public preview of an invitation (GET /api/invitations/{token}). */
-    public record InvitationPreviewView(
-            String workflowId,
-            String documentName,
-            String invitedBy,
-            String invitedEmail,
-            String status,
-            String expiresAt,
-            boolean accountExists) {
     }
 
     /* ------------------------------------------------------------------
