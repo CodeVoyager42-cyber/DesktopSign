@@ -61,9 +61,10 @@ public class WorkflowRestController {
             @RequestPart("file") MultipartFile file,
             HttpServletRequest servletRequest) throws IOException {
         String user = AuthController.requireUser(servletRequest);
-        // Database mode: email-shaped signer slots become invited accounts
-        // and receive an email invitation (brief §53). File mode: unchanged.
-        // Both steps, in that order, are in WorkflowOperations.
+        // Every signer slot has to name an account that already exists: a
+        // slot carrying an e-mail address is refused rather than turned
+        // into a passwordless placeholder. The check is in
+        // WorkflowOperations.
         return ResponseEntity.status(HttpStatus.CREATED).body(operations.create(
                 request, operations.requirePdf(file), user));
     }
@@ -81,7 +82,7 @@ public class WorkflowRestController {
         return service.myTasks(user);
     }
 
-    /** Workflows created by the authenticated user (the inviter's picker). */
+    /** Workflows created by the authenticated user (the sender's picker). */
     @GetMapping("/owned")
     public List<WorkflowView> owned(HttpServletRequest request) {
         String user = AuthController.requireUser(request);
@@ -91,9 +92,7 @@ public class WorkflowRestController {
     /**
      * The Signing Tasks workspace: every workflow the authenticated user
      * participates in as a signer, across all lifecycle states (unlike
-     * {@code my-tasks}, which lists only actionable items). Participant
-     * states are overlaid with invitation outcomes (revoked/declined/
-     * expired) in database mode.
+     * {@code my-tasks}, which lists only actionable items).
      */
     @GetMapping("/signing-tasks")
     public ApiContracts.SigningTasksView

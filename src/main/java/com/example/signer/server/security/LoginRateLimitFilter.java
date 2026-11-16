@@ -15,8 +15,7 @@ import java.time.Duration;
 import java.util.Set;
 
 /**
- * Limits password and guest-code attempts per client address (security
- * Phases 2 and 3): at most
+ * Limits password attempts per client address (security Phase 2): at most
  * {@code max} requests to the credential endpoints per address within a
  * sliding {@code window}; beyond that the server answers {@code 429} with
  * {@code Retry-After}, before any password is checked.
@@ -50,13 +49,6 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
             "/web/api/auth/login",
             // Phase B: each exchange tests a launch code (own bucket).
             LAUNCH_PATH);
-
-    /**
-     * Guest verification endpoints (security Phase 3): each request sends or
-     * checks an e-mailed code, so they share the same per-address limit.
-     */
-    static final java.util.regex.Pattern GUEST_PATHS = java.util.regex.Pattern.compile(
-            "^/api/invitations/[^/]+/(guest-code|guest-session)$");
 
     /**
      * Account self-service (security Phase D). Own bucket, so a flood of
@@ -126,8 +118,7 @@ public class LoginRateLimitFilter extends OncePerRequestFilter {
             return !CSRF_PATH.equals(uri);
         }
         return !"POST".equals(request.getMethod())
-                || !(LIMITED_PATHS.contains(uri) || ACCOUNT_PATHS.contains(uri)
-                        || GUEST_PATHS.matcher(uri).matches());
+                || !(LIMITED_PATHS.contains(uri) || ACCOUNT_PATHS.contains(uri));
     }
 
     @Override

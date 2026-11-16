@@ -4,7 +4,6 @@ import com.example.signer.server.RemoteServerProperties;
 import com.example.signer.server.api.ApiContracts;
 import com.example.signer.server.auth.UserAccountService;
 import org.springframework.beans.factory.ObjectProvider;
-import com.example.signer.server.api.ApiStates.InvitationStatus;
 import com.example.signer.server.api.ApiStates.ParticipantState;
 import com.example.signer.server.api.ApiStates.SlotState;
 
@@ -635,9 +634,9 @@ public class RemoteWorkflowService {
     }
 
     /**
-     * Workflows created by {@code userId} (the inviter's picker — the owner
-     * invites signers into workflows they created). Cancelled workflows are
-     * hidden; DRAFT workflows appear so their unbound slots can be invited.
+     * Workflows created by {@code userId} (the sender's picker — the owner
+     * names signers in workflows they created). Cancelled workflows are
+     * hidden; DRAFT workflows appear so their unbound slots can be filled.
      */
     public List<WorkflowView> ownedBy(String userId) {
         List<WorkflowView> result = new ArrayList<>();

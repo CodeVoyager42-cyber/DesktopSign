@@ -35,8 +35,9 @@ import java.time.Duration;
  *
  * <p>Default: every request needs an account access token
  * ({@code ROLE_USER}). The exceptions are listed in {@link #PUBLIC} and
- * the workflow API, which also admits guest signing sessions (limited
- * further by {@link AuthenticatedRequestFilter}). Anything not matched is
+ * the workflow API, which also admits a desktop task session from a
+ * launch code (limited further by {@link AuthenticatedRequestFilter}).
+ * Anything not matched is
  * refused, so a new endpoint is protected until someone opens it here.
  *
  * <p>Stateless: no HTTP session, no cookies, so no CSRF token is needed;
@@ -86,10 +87,6 @@ public class SecurityConfig {
             // website to denyAll(), which answers 401 — and browsers,
             // proxies, link checkers and uptime monitors all use HEAD. A
             // HEAD of a public page reveals exactly what a GET of it does.
-            // The invitation pages above are deliberately left GET-only:
-            // Spring answers a HEAD by running the GET handler and dropping
-            // the body, and those handlers read an invitation and log it, so
-            // widening their method surface is a separate decision.
             getOrHead("/"),
             getOrHead("/index.html"),
             getOrHead("/favicon.ico"),
@@ -110,9 +107,9 @@ public class SecurityConfig {
             getOrHead("/404.html"),
             websitePages(),
             // The desktop installer (Phase F). Public with no sign-in, and
-            // deliberately: somebody invited to sign has no account yet, and
-            // cannot be asked to make one before installing the application
-            // that does the signing. There is nothing here to protect — it
+            // deliberately: the application has to be installed before it
+            // can open a launch link, so it cannot sit behind the sign-in
+            // that happens inside it. There is nothing here to protect — it
             // is the same file for everyone — so what bounds it is a per
             // address rate limit (DownloadRateLimitFilter), not a token.
             // Every path decision is DownloadCatalog's, which admits only

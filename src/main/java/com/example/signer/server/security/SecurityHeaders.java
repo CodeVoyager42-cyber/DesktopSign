@@ -9,12 +9,12 @@ import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWrite
  *
  * <h2>Referrer-Policy — risk L9</h2>
  *
- * <p>{@code no-referrer}, on every response. The pages behind an e-mailed
- * link carry a one-time token <b>in the URL</b>
- * ({@code /invitations/{token}}), so the default browser behaviour — send the
- * current URL in the {@code Referer} header of anything the page fetches, and
- * of any link the reader follows — would hand that token to a third party.
- * The invitation page links to a download site, so this is not hypothetical.
+ * <p>{@code no-referrer}, on every response. The account pages behind an
+ * e-mailed link — confirm an address, set a new password — carry a one-time
+ * token <b>in the URL</b>, so the default browser behaviour: send the current
+ * URL in the {@code Referer} header of anything the page fetches, and of any
+ * link the reader follows, would hand that token to a third party. Those
+ * pages link on to the download page, so this is not hypothetical.
  *
  * <p>Applied everywhere rather than only to those pages: a header that is
  * only correct on the routes someone remembered to list is a header that will

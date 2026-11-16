@@ -266,7 +266,7 @@ public class ProductionSafetyValidator {
             String mode = env.getProperty("signature.remote-server.email.mode", "console");
             if (!"smtp".equalsIgnoreCase(mode.trim())) {
                 problems.add("SIGNER_EMAIL_MODE must be smtp: the console mailbox is a"
-                        + " development tool and never delivers invitations.");
+                        + " development tool and never delivers account e-mail.");
             }
             // The website chain is active exactly when the database is, since
             // its session store is PostgreSQL (security Phase C).
