@@ -29,11 +29,22 @@ if errorlevel 1 (
 set SIGNER_SERVER_STORAGE=%USERPROFILE%\signer-server-data
 rem Database: these are defaults. Set SIGNER_DB_* before starting this
 rem script (e.g. a test database) and they are kept as they are.
+rem
+rem NOT "Signflow". That database was migrated by the single-signer line of
+rem development (origin/single-signer-on-feature), whose V14..V17 are
+rem different scripts from this branch's: V14__remove_invitations_single_signer
+rem against V14__deprecate_launch_codes, and so on. Flyway validates before it
+rem migrates, so pointing this branch at it aborts at V14 and the server never
+rem starts. One database per line of development is the only thing that works.
 if not defined SIGNER_DB_ENABLED set SIGNER_DB_ENABLED=true
-if not defined SIGNER_DB_URL set SIGNER_DB_URL=jdbc:postgresql://localhost:5432/Signflow
+if not defined SIGNER_DB_URL set SIGNER_DB_URL=jdbc:postgresql://localhost:5432/signflow_scopea
 if not defined SIGNER_DB_USERNAME set SIGNER_DB_USERNAME=postgres
 if not defined SIGNER_DB_PASSWORD set SIGNER_DB_PASSWORD=
 if not defined APP_BASE_URL set APP_BASE_URL=http://localhost:8080
+rem Where the installer is served from, OUTSIDE the jar and the repository
+rem (see docs\desktop-download.md). Unset it and /download honestly says the
+rem download is not available yet instead of offering a dead link.
+if not defined SIGNER_DOWNLOAD_DIR set SIGNER_DOWNLOAD_DIR=%USERPROFILE%\signflow-downloads
 
 rem Load optional secrets/overrides from OUTSIDE the project folder:
 rem %SIGNFLOW_SECRETS_FILE% when set, else
