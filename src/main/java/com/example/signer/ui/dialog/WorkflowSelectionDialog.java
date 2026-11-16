@@ -35,9 +35,9 @@ import javafx.stage.Window;
 import java.util.List;
 
 /**
- * Home screen ("What would you like to do?"), shown after sign-in. Three
- * large one-click actions cover the everyday tasks — sign here, send for
- * signature, documents to sign — and the less common
+ * Home screen ("What would you like to do?"), shown after sign-in. Two
+ * large one-click actions cover the everyday tasks — sign here, documents to
+ * sign — and the less common
  * modes (several signers on one computer, continuing a signing PDF) are
  * small links underneath.
  *
@@ -128,7 +128,6 @@ public final class WorkflowSelectionDialog {
         cancelled = true;
         openWorkflowRequested = false;
         remoteWorkflowRequested = false;
-        sendForSignatureRequested = false;
         signOutRequested = false;
         backRequested = false;
         selected.set(null);
@@ -177,15 +176,6 @@ public final class WorkflowSelectionDialog {
                     cancelled = false;
                     dialog.close();
                 });
-        VBox sendForSignature = actionTile(FontAwesomeSolid.PAPER_PLANE,
-                "Send for signature",
-                "Choose a PDF and the people who must sign it. Each one"
-                        + " needs a SignFlow account.",
-                () -> {
-                    remoteWorkflowRequested = true;
-                    sendForSignatureRequested = true;
-                    dialog.close();
-                });
         VBox waiting = actionTile(FontAwesomeSolid.INBOX,
                 "Documents to sign",
                 "See the documents other people sent you, and the ones"
@@ -198,8 +188,7 @@ public final class WorkflowSelectionDialog {
         tiles.setHgap(16);
         tiles.setVgap(16);
         tiles.add(signHere, 0, 0);
-        tiles.add(sendForSignature, 1, 0);
-        tiles.add(waiting, 0, 1);
+        tiles.add(waiting, 1, 0);
         for (int c = 0; c < 2; c++) {
             ColumnConstraints cc =
                     new ColumnConstraints();
@@ -303,14 +292,6 @@ public final class WorkflowSelectionDialog {
             return null;
         }
         return cancelled ? null : selected.get();
-    }
-
-    /** Set when the user chose "Send for signature" (opens the new-workflow wizard). */
-    private boolean sendForSignatureRequested;
-
-    /** @return true when the user picked "Send for signature" on this dialog. */
-    public boolean isSendForSignatureRequested() {
-        return sendForSignatureRequested;
     }
 
     /**

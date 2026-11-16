@@ -81,9 +81,6 @@ public final class SigningTasksView {
             openTask(workflowId);
         }
 
-        /** Starts the new-workflow wizard. */
-        void newWorkflow();
-
         /** Opens the owner tracking view. */
         void manageWorkflows();
 
@@ -292,12 +289,6 @@ public final class SigningTasksView {
         Node sentNav = navItem(FontAwesomeSolid.PAPER_PLANE, "Sent for signature", null, false,
                 host::manageWorkflows);
 
-        Button send = new Button("Send a document", new FontIcon(FontAwesomeSolid.PLUS));
-        send.getStyleClass().addAll("btn-primary", "st-send");
-        send.setMaxWidth(Double.MAX_VALUE);
-        send.setTooltip(new Tooltip("Pick a PDF and choose who signs it"));
-        send.setOnAction(e -> host.newWorkflow());
-
         Label avatar = new Label(username == null || username.isBlank()
                 ? "?" : username.substring(0, 1).toUpperCase());
         avatar.getStyleClass().add("st-avatar");
@@ -317,7 +308,7 @@ public final class SigningTasksView {
         Region grow = new Region();
         VBox.setVgrow(grow, Priority.ALWAYS);
         VBox side = new VBox(6, brand, spacer(14), tasksNav, completedNav, sentNav,
-                spacer(14), send, grow, profile);
+                grow, profile);
         side.getStyleClass().add("st-sidebar");
         side.setPrefWidth(220);
         side.setMinWidth(200);
@@ -740,12 +731,6 @@ public final class SigningTasksView {
                 filter.set(TaskFilter.ALL);
             });
             empty.getChildren().add(all);
-        } else if (nothingAtAll) {
-            Button send = new Button("Send a document for signature",
-                    new FontIcon(FontAwesomeSolid.PAPER_PLANE));
-            send.getStyleClass().add("btn-secondary");
-            send.setOnAction(e -> host.newWorkflow());
-            empty.getChildren().add(send);
         }
         return empty;
     }

@@ -72,7 +72,6 @@ public final class RemoteWorkflowDialog {
     private final TokenService tokenService;
     private final WorkflowSigningService signingService;
     /** Largest document the coordination server accepts (config-derived). */
-    private final long maxUploadBytes;
 
     private Stage dialog;
     /** Column of the task page. */
@@ -120,13 +119,11 @@ public final class RemoteWorkflowDialog {
     public RemoteWorkflowDialog(LoginProperties login, String baseUrl,
                                 TokenService tokenService,
                                 WorkflowSigningService signingService,
-                                PdfRenderService renderService,
-                                long maxUploadBytes) {
+                                PdfRenderService renderService) {
         this.login = login;
         this.baseUrl = baseUrl;
         this.tokenService = tokenService;
         this.signingService = signingService;
-        this.maxUploadBytes = maxUploadBytes;
         this.journey = new RemoteSigningJourney(new JourneyHost(), tokenService,
                 signingService, renderService);
     }
@@ -324,13 +321,8 @@ public final class RemoteWorkflowDialog {
         return signedInUser;
     }
 
-    /** Opens the wizard once, if the home screen asked for it. */
     private void afterSignedIn() {
         showTasks();
-        if (startWithNewWorkflow) {
-            startWithNewWorkflow = false;
-            showCreateWorkflow();
-        }
     }
 
     /** Shows the dialog; returns when it is closed. */
@@ -523,11 +515,6 @@ public final class RemoteWorkflowDialog {
                         }
 
                         @Override
-                        public void newWorkflow() {
-                            showCreateWorkflow();
-                        }
-
-                        @Override
                         public void manageWorkflows() {
                             showManaged();
                         }
@@ -663,17 +650,12 @@ public final class RemoteWorkflowDialog {
                     icon.getStyleClass().add("empty-state-icon");
                     Label title = new Label("No workflows yet");
                     title.getStyleClass().add("empty-state-title");
-                    Label hint = new Label("Create a signing workflow and choose"
-                            + " who signs it — everything lands here for"
+                    Label hint = new Label("Documents you send for signature"
+                            + " from the SignFlow website land here for"
                             + " tracking.");
                     hint.getStyleClass().add("empty-state-hint");
                     hint.setWrapText(true);
                     empty.getChildren().addAll(icon, title, hint);
-                    Button create = new Button("New signing workflow…",
-                            new FontIcon(FontAwesomeSolid.PLUS));
-                    create.getStyleClass().add("btn-primary");
-                    create.setOnAction(e -> showCreateWorkflow());
-                    empty.getChildren().add(create);
                     list.getChildren().add(empty);
                 } else {
                     for (WorkflowView wf : owned) {
@@ -957,23 +939,6 @@ public final class RemoteWorkflowDialog {
     /* ------------------------------------------------------------------
      * 3b. create workflow (file picker + signer rows + token capture)
      * ------------------------------------------------------------------ */
-
-    /**
-     * The New-Workflow screen: pick the document, add one signer row per
-     * participant (user id + certificate fingerprint), optionally capture
-     * the fingerprint of the currently connected token, and submit.
-     */
-    /**
-     * New-workflow entry point: the guided wizard now owns the whole flow
-     * (document → signers & order → review & send → success), rendering into
-     * this dialog's content area so Back navigation keeps working.
-     */
-    private void showCreateWorkflow() {
-        navigateTo(this::showCreateWorkflow);
-        new NewWorkflowWizard(client, tokenService, dialog, content,
-                statusLabel::setText, signedInUser,
-                this::showTasks, maxUploadBytes).start();
-    }
 
     /* ------------------------------------------------------------------
      * connectivity helpers

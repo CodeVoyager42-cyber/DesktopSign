@@ -62,9 +62,7 @@ final class AppNavigator {
             } else if (home.isOpenWorkflowRequested()) {
                 openWorkflowContinuation();
             } else if (home.isRemoteWorkflowRequested()) {
-                remoteWorkflowDialog()
-                        .startWithNewWorkflow(home.isSendForSignatureRequested())
-                        .showAndWait(owner);
+                remoteWorkflowDialog().showAndWait(owner);
             } else if (mode == null) {
                 log.info("Home screen closed — exiting");
                 return;
@@ -127,8 +125,7 @@ final class AppNavigator {
 
     private RemoteWorkflowDialog remoteWorkflowDialog() {
         return new RemoteWorkflowDialog(services.login(), services.remoteBaseUrl(),
-                services.tokens(), services.workflowSigning(), services.pdfRender(),
-                services.uploadLimit());
+                services.tokens(), services.workflowSigning(), services.pdfRender());
     }
 
     /** @return the chosen PDF, or null when the user cancelled */
