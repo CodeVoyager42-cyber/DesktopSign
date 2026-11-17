@@ -503,7 +503,11 @@ export default function Open() {
 
         <NoteAlert note={note} />
 
-        {phase !== "missing" ? (
+        {/* Only when a launch was actually attempted. On a refusal the
+            server never issued a code and the app was never invoked, so
+            offering to install it answers a question nobody asked and buries
+            the real reason. */}
+        {phase === "opening" || phase === "expired" ? (
           <div className="border-t border-border pt-4">
             <p className="text-base text-muted-foreground">Nothing happened?</p>
             {/* The download page, always — it explains the install, the
