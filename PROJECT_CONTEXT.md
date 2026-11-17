@@ -49,7 +49,7 @@ src/main/java/com/example/signer/
   SignerApplication.java          desktop entry (launches JavaFX first)
   server/WorkflowServerApplication.java    server entry (profiles: server)
   ui/        JavaFX: SignerFxApplication, AppNavigator, SingleInstanceGuard (UDS hand-off),
-             ActivationQueue, InvitationLinks (signflow:// parser), dialog/, workspace/
+             ActivationQueue, LaunchLinks (signflow:// parser), dialog/, workspace/
              (MultiSignerWorkspaceFlow…), remote/ (RemoteWorkflowDialog, NewWorkflowWizard,
              SigningTasksView, RemoteSigningJourney), kit/, support/
   client/    WorkflowApiClient (JDK HttpClient, JWT+refresh, endpoint list), RemoteSigningService

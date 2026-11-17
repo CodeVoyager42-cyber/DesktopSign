@@ -1,4 +1,4 @@
-package com.example.signer.server.invites;
+package com.example.signer.server.mail;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;

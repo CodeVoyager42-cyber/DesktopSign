@@ -25,7 +25,14 @@ public enum AuditEventType {
     /** @deprecated Historical only; see {@link #INVITATION_CREATED}. */
     @Deprecated
     INVITATION_EXPIRED,
-    /** The invitation exists but the email transport reported failure (§37). */
+    /**
+     * The mail transport refused or failed to deliver a message (§37). Not
+     * deprecated and not historical: the invitation mail it was written for
+     * is gone, but the account mail — address confirmation, password reset
+     * and the two notices — still raises it, and its {@code detail} still
+     * carries the transport's own error text, which is why it is in
+     * {@code RemoteWorkflowService.CREATOR_ONLY_DETAIL}.
+     */
     EMAIL_DELIVERY_FAILED,
     /** A scoped signing session was created from a claimed invitation (§46). */
     SIGNING_SESSION_CREATED,

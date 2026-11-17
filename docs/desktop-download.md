@@ -272,16 +272,25 @@ if they differ. Our file is that base plus 87 lines and minus nothing.
 
 ### What a `signflow://` link may contain
 
-`signflow://invitation/<token>` — **the token is the entire payload**, and it
-is validated in `InvitationLinks` against `[A-Za-z0-9_-]{32,}` before
-anything else looks at it; a link that does not match is treated as absent
-rather than partially parsed. The token is opaque, single-use, server-issued
-and time-limited. It is never a file path, never a credential, and never
-something that grants access by itself: the app redeems it against the
-coordination server (`GET /api/invitations/{token}`, which is where expiry,
-revocation and already-used are decided). A link is never trusted because of
-the scheme it arrived on. Malformed, expired, revoked and already-used tokens
-all end at a readable notice, never a raw exception.
+`signflow://launch?v=1&c=<code>` — and nothing else. **The code is the entire
+payload**, and it is validated in `LaunchLinks` against an anchored pattern
+that admits one shape only: version `1`, then a 43-character base64url code,
+with nothing before or after it. A link that does not match is treated as
+absent rather than partially parsed, so there is no half-read link to reason
+about.
+
+The code is opaque, single-use, server-issued and short-lived (two minutes).
+It is never a file path, never a credential, and never something that grants
+access by itself: the app redeems it against the coordination server (`POST
+/api/desktop/launch`, which is where expiry, reuse and revocation are
+decided). A link is never trusted because of the scheme it arrived on, and
+every refusal ends at a readable notice rather than a raw exception.
+
+`signflow://invitation/<token>` was the only form this section used to
+describe. The invitation workflow is gone, and so is the code that matched
+such a link in order to refuse it with an explanation: an unrecognised
+`signflow://` argument now simply carries no launch, and the app opens the
+way it does from its icon.
 
 ### When a copy is already running
 

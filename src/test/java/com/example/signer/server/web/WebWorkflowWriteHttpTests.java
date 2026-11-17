@@ -5,7 +5,7 @@ import com.example.signer.server.auth.PasswordHashing;
 import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.EmailService;
+import com.example.signer.server.mail.EmailService;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

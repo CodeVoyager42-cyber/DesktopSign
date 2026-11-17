@@ -1,6 +1,6 @@
 package com.example.signer.ui;
 
-import com.example.signer.ui.InvitationLinks.LaunchArgument;
+import com.example.signer.ui.LaunchLinks.LaunchArgument;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -14,35 +14,20 @@ import java.util.regex.Pattern;
  * is how the product's signing flow reaches the desktop: sign in on the
  * website, upload a PDF, click Sign, confirm "Open SignFlow".
  *
- * <p>{@code signflow://invitation/<token>} is <b>no longer understood</b>.
- * The e-mail invitation workflow was removed, so such a link can only come
- * from an old e-mail. It is refused rather than ignored: {@link #parse}
- * returns {@code null} for it, and {@link #mentionsRemovedInvitationLink}
- * reports it so the caller can say plainly that invitations are gone instead
- * of starting up as though the user had clicked the icon. A bare token
- * argument is no longer accepted either — there is nothing left to redeem.
+ * <p>Anything else is not a launch link and {@link #parse} answers
+ * {@code null}. {@code signflow://invitation/<token>} was matched here for a
+ * while so it could be refused with an explanation, two steps after the
+ * invitation workflow itself was removed. That explanation is gone too now:
+ * an unrecognised link opens the app the way clicking its icon does.
  *
- * <p>Neither a code nor a token is ever logged.
+ * <p>The code is never logged.
  */
-public final class InvitationLinks {
+public final class LaunchLinks {
 
     /** Exactly one launch link, version 1, nothing before or after it. */
     private static final Pattern LAUNCH_LINK =
             Pattern.compile("^signflow://launch/?\\?v=1&c=([A-Za-z0-9_-]{43})$");
     private static final Pattern LAUNCH_CODE = Pattern.compile("^[A-Za-z0-9_-]{43}$");
-
-    /**
-     * A link from the removed invitation workflow. Matched only so it can be
-     * refused with an explanation; the token is never read or logged.
-     */
-    private static final Pattern REMOVED_INVITATION_LINK =
-            Pattern.compile("^signflow://invitation/[A-Za-z0-9_-]{32,}$");
-
-    /** What the user is told when they click a link that no longer works. */
-    static final String INVITATION_LINK_REMOVED_MESSAGE =
-            "This invitation link no longer works. SignFlow does not send e-mail"
-                    + " invitations any more. To sign a document, sign in on the SignFlow"
-                    + " website, open the document and click \"Sign\" — that opens it here.";
 
     /** What a launch argument asks the app to open. */
     public record LaunchArgument(Kind kind, String value) {
@@ -68,14 +53,12 @@ public final class InvitationLinks {
         }
     }
 
-    private InvitationLinks() {
+    private LaunchLinks() {
     }
 
     /**
      * The first launch link in the launch arguments, or {@code null} when
-     * there is none — including when the only {@code signflow://} argument is
-     * an invitation link, which is no longer honoured. Callers that want to
-     * explain that case ask {@link #mentionsRemovedInvitationLink}.
+     * there is none.
      */
     public static LaunchArgument parse(List<String> rawArgs) {
         for (String arg : rawArgs) {
@@ -94,18 +77,5 @@ public final class InvitationLinks {
         }
         Matcher m = LAUNCH_LINK.matcher(arg.trim());
         return m.matches() ? m.group(1) : null;
-    }
-
-    /**
-     * True when one of the arguments is a link from the removed invitation
-     * workflow. Pure, so the refusal is unit-tested without a UI.
-     */
-    static boolean mentionsRemovedInvitationLink(List<String> rawArgs) {
-        for (String arg : rawArgs) {
-            if (arg != null && REMOVED_INVITATION_LINK.matcher(arg.trim()).matches()) {
-                return true;
-            }
-        }
-        return false;
     }
 }

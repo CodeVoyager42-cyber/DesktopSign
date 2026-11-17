@@ -50,9 +50,9 @@ public class SignerFxApplication extends Application {
     /** Configuration error that prevented Spring from starting, shown in start(). */
     private String startupError;
     /** The website launch link SignFlow was started with, or null. */
-    private InvitationLinks.LaunchArgument launchArgument;
+    private LaunchLinks.LaunchArgument launchArgument;
     /** Started from a link of the removed invitation workflow: explain in start(). */
-    private boolean removedInvitationLink;
+    
 
     /** Hidden owner of every window; raised as a fallback on activation. */
     private Stage stage;
@@ -67,14 +67,9 @@ public class SignerFxApplication extends Application {
 
         // Read the link BEFORE the single-instance check: a second launch
         // forwards it to the running copy instead of opening it itself.
-        launchArgument = InvitationLinks.parse(getParameters().getRaw());
+        launchArgument = LaunchLinks.parse(getParameters().getRaw());
         if (launchArgument != null) {
             log.info("Launched from a website launch link");
-        } else if (InvitationLinks.mentionsRemovedInvitationLink(getParameters().getRaw())) {
-            // An old e-mail invitation link. There is nothing to open, so say
-            // so in start() instead of starting as if the icon was clicked.
-            removedInvitationLink = true;
-            log.info("Launched from an invitation link, which is no longer supported");
         }
         instanceOutcome = instanceGuard.acquire(launchArgument);
         switch (instanceOutcome) {
@@ -121,7 +116,7 @@ public class SignerFxApplication extends Application {
         navigator = new AppNavigator(DesktopServices.from(context), stage);
         // From now on second launches reach the window; queued ones open
         // after the current step (each on its own FX pulse).
-        for (InvitationLinks.LaunchArgument queued
+        for (LaunchLinks.LaunchArgument queued
                 : activations.ready(a -> Platform.runLater(() -> raiseForActivation(a)))) {
             Platform.runLater(() -> raiseForActivation(queued));
         }
@@ -132,14 +127,6 @@ public class SignerFxApplication extends Application {
             String code = launchArgument.value();
             launchArgument = null;
             navigator.openLaunch(stage, code);
-        } else if (removedInvitationLink) {
-            // An old e-mail invitation link. Explain and stop: opening the
-            // home screen instead would look like the click did nothing.
-            Alert gone = new Alert(Alert.AlertType.INFORMATION,
-                    InvitationLinks.INVITATION_LINK_REMOVED_MESSAGE);
-            gone.setTitle("This invitation link no longer works");
-            gone.setHeaderText("This invitation link no longer works");
-            gone.showAndWait();
         } else if (navigator.signIn()) {
             navigator.runHome();
         }
@@ -195,7 +182,7 @@ public class SignerFxApplication extends Application {
      *
      * @return true when a window was raised (or the link will open)
      */
-    private boolean raiseForActivation(InvitationLinks.LaunchArgument forwarded) {
+    private boolean raiseForActivation(LaunchLinks.LaunchArgument forwarded) {
         // Dialogs are created after their owners, so the LAST showing stage
         // is the screen the user is looking at.
         Stage target = null;
@@ -235,7 +222,7 @@ public class SignerFxApplication extends Application {
 
     /** What a second launch tells the user when it could not hand over (nothing was sent). */
     static String alreadyRunningMessage(SingleInstanceGuard.Outcome outcome,
-                                        InvitationLinks.LaunchArgument link) {
+                                        LaunchLinks.LaunchArgument link) {
         String state = outcome == SingleInstanceGuard.Outcome.OTHER_UNRESPONSIVE
                 ? "SignFlow is already open but is busy and did not respond."
                 : "SignFlow is already open, but this window could not safely pass"

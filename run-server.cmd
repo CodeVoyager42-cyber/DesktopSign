@@ -10,8 +10,12 @@ rem    %SIGNFLOW_SECRETS_FILE%  when that variable is set, otherwise
 rem    %USERPROFILE%\signflow-secrets\mail-secrets.env
 rem  A mail-secrets.env inside the project folder is ignored (warning).
 rem
-rem  Without mail configuration the server starts in console mode:
-rem  invitation links are printed in this window (dev mailbox).
+rem  Without mail configuration the server starts in console mode: the
+rem  account e-mails are printed in this window instead of being sent
+rem  (dev mailbox) - confirm your address, reset your password, and the
+rem  password-changed and account-locked notices. Those four are the only
+rem  mail this server sends; the invitation and guest-code messages went
+rem  with the invitation workflow.
 rem
 rem  The server must stay open while using Remote workflow in the
 rem  desktop app. Stop with Ctrl+C or close the window.
@@ -139,7 +143,7 @@ exit /b 0
 
 if /i "%SIGNER_EMAIL_MODE%"=="smtp" goto smtpMode
 set SIGNER_EMAIL_MODE=console
-echo Mode: DATABASE + CONSOLE email - invitation links are printed in this window.
+echo Mode: DATABASE + CONSOLE email - account e-mails are printed in this window.
 goto modeDone
 :smtpMode
 if not defined SPRING_MAIL_HOST goto smtpIncomplete
@@ -169,10 +173,10 @@ echo Server: %APP_BASE_URL%   Dev users: alice / bob / charlie
 echo %APP_BASE_URL% | findstr /i /c:"localhost" /c:"127.0.0.1" >nul
 if errorlevel 1 goto baseUrlDone
 echo.
-echo NOTE: APP_BASE_URL is a local address, so invitation emails will use a
-echo       LAN address of THIS PC detected at startup instead, e.g.
-echo       http://192.168.x.x:8080 - those links open for signers on the
-echo       same network only. For a signer anywhere else set
+echo NOTE: APP_BASE_URL is a local address, so the links in account e-mails
+echo       will use a LAN address of THIS PC detected at startup instead,
+echo       e.g. http://192.168.x.x:8080 - those links open on this network
+echo       only. To reach somebody off it, set
 echo       SIGNER_PUBLIC_BASE_URL to a public URL or a tunnel to this port
 echo       (see .env.example). The server prints the address it uses below.
 echo.

@@ -4,7 +4,7 @@ import com.example.signer.server.db.entity.LoginFailureEntity;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.LoginFailureRepository;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.EmailService;
+import com.example.signer.server.mail.EmailService;
 import com.example.signer.server.security.IdentityRateLimiter;
 import com.example.signer.server.security.InMemoryRateLimitStore;
 import com.example.signer.server.security.RateLimitStore;

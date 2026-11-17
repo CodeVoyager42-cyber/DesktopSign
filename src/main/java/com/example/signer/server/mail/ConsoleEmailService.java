@@ -1,4 +1,4 @@
-package com.example.signer.server.invites;
+package com.example.signer.server.mail;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

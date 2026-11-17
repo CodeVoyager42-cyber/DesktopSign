@@ -4,8 +4,8 @@ import com.example.signer.server.db.entity.AccountStatus;
 import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.LoginFailureRepository;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.AccountEmailTemplate;
-import com.example.signer.server.invites.EmailService;
+import com.example.signer.server.mail.AccountEmailTemplate;
+import com.example.signer.server.mail.EmailService;
 import com.example.signer.server.security.InMemoryRateLimitStore;
 import com.example.signer.server.security.RateLimitStore;
 

@@ -1,6 +1,6 @@
 package com.example.signer.ui;
 
-import com.example.signer.ui.InvitationLinks.LaunchArgument;
+import com.example.signer.ui.LaunchLinks.LaunchArgument;
 import com.example.signer.ui.SingleInstanceGuard.Outcome;
 import com.example.signer.ui.SingleInstanceGuard.Reply;
 

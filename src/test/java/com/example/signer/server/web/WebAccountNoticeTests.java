@@ -7,7 +7,7 @@ import com.example.signer.server.db.entity.UserEntity;
 import com.example.signer.server.db.repository.EmailVerificationTokenRepository;
 import com.example.signer.server.db.repository.PasswordResetTokenRepository;
 import com.example.signer.server.db.repository.UserRepository;
-import com.example.signer.server.invites.EmailService;
+import com.example.signer.server.mail.EmailService;
 import com.example.signer.server.web.PublicBaseUrlResolver;
 
 import org.junit.jupiter.api.Test;
