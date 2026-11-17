@@ -29,8 +29,23 @@ if errorlevel 1 (
 set SIGNER_SERVER_STORAGE=%USERPROFILE%\signer-server-data
 rem Database: these are defaults. Set SIGNER_DB_* before starting this
 rem script (e.g. a test database) and they are kept as they are.
+rem The default has to be a database whose Flyway history matches the
+rem migrations in src\main\resources\db\migration on THIS branch, which end
+rem at V13 and keep the invitation path alive. signflow_local is on that
+rem timeline. Several other databases on this machine are NOT, and two are
+rem worth naming because their names invite the mistake:
+rem   Signflow         V17 of the abandoned single-signer line - it carries
+rem                    sign_sessions and has already dropped invitations.
+rem   signflow_scopea  V17 of the signing-home line - launch_codes restored,
+rem                    invitations dropped.
+rem Either one starts this server and then fails at runtime instead: Flyway
+rem treats V14-V17 as future versions rather than an error, and Hibernate
+rem runs with ddl-auto=none, so the missing invitations table only surfaces
+rem on the first query that needs it. Never flyway-repair a database onto
+rem this branch either: repair only rewrites the recorded checksums, so
+rem those migrations would count as applied without ever having run.
 if not defined SIGNER_DB_ENABLED set SIGNER_DB_ENABLED=true
-if not defined SIGNER_DB_URL set SIGNER_DB_URL=jdbc:postgresql://localhost:5432/Signflow
+if not defined SIGNER_DB_URL set SIGNER_DB_URL=jdbc:postgresql://localhost:5432/signflow_local
 if not defined SIGNER_DB_USERNAME set SIGNER_DB_USERNAME=postgres
 if not defined SIGNER_DB_PASSWORD set SIGNER_DB_PASSWORD=
 if not defined APP_BASE_URL set APP_BASE_URL=http://localhost:8080
