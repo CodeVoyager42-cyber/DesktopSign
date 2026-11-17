@@ -258,23 +258,37 @@ export function SiteHeader() {
     <Bar>
       <Brand />
       <div className="ml-auto flex items-center gap-1 sm:gap-2" aria-busy={!asked}>
+        {/* Download app does not depend on who is reading. The same link is
+            in this header and in AppHeader, so there is nothing to wait for.
+            It used to sit inside the `asked` gate below, which meant the one
+            link most readers arrive for was absent from the markup the server
+            sends and appeared only once /web/api/me had answered — late on a
+            slow network, and again on every navigation. */}
+        <Button asChild variant="ghost" className="hidden sm:inline-flex">
+          <Link href="/download">
+            <Download aria-hidden="true" />
+            Download app
+          </Link>
+        </Button>
+        {/* Only these two depend on the answer: offering "Sign in" to
+            somebody who turns out to be signed in is the flash this gate
+            exists to prevent. */}
         {asked ? (
           <>
-            <Button asChild variant="ghost" className="hidden sm:inline-flex">
-              <Link href="/download">
-                <Download aria-hidden="true" />
-                Download app
-              </Link>
-            </Button>
             <Button asChild variant="ghost" className="hidden sm:inline-flex">
               <Link href="/sign-in">Sign in</Link>
             </Button>
             <Button asChild className="hidden sm:inline-flex">
               <Link href="/sign-up">Create account</Link>
             </Button>
-            <MobileMenu me={null} />
           </>
         ) : null}
+        {/* The menu trigger is `sm:hidden`, so below that width it is the ONLY
+            way to reach any of these links — it cannot wait either, or a phone
+            has no navigation at all until the probe lands. What it opens is
+            keyed on `me`, and a reader who turns out to be signed in gets
+            AppHeader as soon as the answer arrives. */}
+        <MobileMenu me={null} />
       </div>
     </Bar>
   );

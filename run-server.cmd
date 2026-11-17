@@ -27,6 +27,25 @@ if errorlevel 1 (
     exit /b 1
 )
 set SIGNER_SERVER_STORAGE=%USERPROFILE%\signer-server-data
+
+rem The folder this server hands the installer out of. Unset, there is
+rem nothing to download and /download says so honestly ("The download isn't
+rem available yet") -- which is what happened here every time the server was
+rem restarted from a shell that did not export it: the artefacts were sitting
+rem in %USERPROFILE%\signflow-downloads the whole time and nothing told the
+rem server where to look. The GitHub mirror cannot cover for it either; that
+rem needs GITHUB_API_TOKEN and logs "mirror is not configured" without one.
+rem
+rem Only set when the folder really exists: naming a folder that does not is
+rem a deliberate start-up failure (see .env.example), so a machine without
+rem one must be left alone rather than made to crash. %USERPROFILE% keeps it
+rem per-user -- no absolute path belongs in a committed launcher.
+if defined SIGNER_DOWNLOAD_DIR goto downloadDirDone
+if not exist "%USERPROFILE%\signflow-downloads\" goto downloadDirDone
+set SIGNER_DOWNLOAD_DIR=%USERPROFILE%\signflow-downloads
+echo Downloads: serving installers from %USERPROFILE%\signflow-downloads
+:downloadDirDone
+
 rem Database: these are defaults. Set SIGNER_DB_* before starting this
 rem script (e.g. a test database) and they are kept as they are.
 rem The default has to be a database whose Flyway history matches the
