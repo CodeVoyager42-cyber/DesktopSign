@@ -124,6 +124,21 @@ under `/_next/static/media`. All seven subsets are kept, because the
 dashboard shows the names of the people you sign with and those are not
 always Latin.
 
+**Two axes, not one.** The import is `@fontsource-variable/inter/opsz.css`
+rather than the package root, because the root exposes only the weight axis
+and Inter also carries an optical-size axis (`opsz` 14–32). Nothing in CSS
+drives it: `font-optical-sizing: auto` is the initial value, so the browser
+matches `opsz` to each element's font size by itself — the 48 px headline gets
+Inter's tighter display drawing and 16 px body text its more open one. Same
+family name, same licence, same seven subsets, still shipped in the package,
+so the build stays offline.
+
+The cost was measured before it was taken: the file a Latin reader actually
+downloads goes from **48,444 to 73,080 bytes (+24.6 KB, +51 %)**, and the
+seven subsets together from 207,924 to 324,040. Subsets are selected by
+`unicode-range`, so nobody downloads all seven. If that trade stops being
+worth it, the one-line change back is the package root.
+
 | Step | Size | Weight | Used for |
 |---|---|---|---|
 | display | 30→48 px (`text-3xl sm:text-5xl`) | 600 | the home headline only |

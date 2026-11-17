@@ -11,7 +11,21 @@ import type { Metadata } from "next";
 // removed again for exactly that reason: the generator cannot know that this
 // deployment forbids a build-time fetch. Inter is wired to Tailwind's
 // `--font-sans` in globals.css instead, so `font-sans` means Inter.
-import "@fontsource-variable/inter";
+//
+// `opsz.css`, not the package root. Inter carries an optical-size axis
+// (opsz 14–32) and the root stylesheet exposes only the weight axis, so the
+// axis was there and unreachable. These files carry both, under the same
+// family name, the same OFL-1.1 licence and the same seven subsets, and they
+// are shipped in the package exactly as before — the build stays offline.
+//
+// Nothing else is needed to use it: `font-optical-sizing: auto` is the CSS
+// initial value, so the browser matches opsz to each element's font size on
+// its own. Large text gets Inter's tighter display drawing and 14–16 px text
+// its more open one, which is the whole point of the axis.
+//
+// It is not free: the font a Latin reader downloads goes from 48,444 to
+// 73,080 bytes, +24.6 KB. Measured, and accepted deliberately.
+import "@fontsource-variable/inter/opsz.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
