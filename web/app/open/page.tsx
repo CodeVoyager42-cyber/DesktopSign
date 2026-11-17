@@ -244,6 +244,15 @@ export default function Open() {
     document.title = workflow ? `Signing ${workflow.documentName}` : "SignFlow";
   }, [workflow]);
 
+  // An outcome screen replaces everything above it, including whatever had
+  // the focus. Without this the ref and the `tabIndex={-1}` were decoration:
+  // the page quietly became a different page while a keyboard reader was
+  // left on a button that no longer exists.
+  useEffect(() => {
+    if (outcome === "waiting") return;
+    successHeading.current?.focus();
+  }, [outcome]);
+
   if (state !== "in" || !me) {
     return <SessionPending />;
   }
@@ -357,6 +366,44 @@ export default function Open() {
     );
   }
 
+  // The signature has been submitted and the server is checking it.
+  //
+  // This state was mapped (`outcomeFor` answers "working" for
+  // SIGNATURE_SUBMITTED and VALIDATING) and then never drawn, so the reader
+  // fell through to the phase screens below — and by the time a card has
+  // been used the two-minute code has almost always run out, which meant the
+  // page said "The signing link timed out" and offered "Get a new link" at
+  // the exact moment the signature was safely in and being validated. The
+  // worst possible reading of the best possible news. A new link is also not
+  // what anybody wants here: the document is past the hand-off.
+  if (outcome === "working" && workflow) {
+    return (
+      <AppShell me={me} narrow>
+        <SectionCard className="text-center">
+          <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-accent">
+            <Loader2 aria-hidden="true" className="size-7 animate-spin text-primary" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl" tabIndex={-1} ref={successHeading}>
+              Checking your signature
+            </h1>
+            <p className="break-words text-base font-medium">
+              {workflow.documentName}
+            </p>
+          </div>
+          <p role="status" aria-live="polite" className="text-base text-muted-foreground">
+            The {appName} app has sent your signature and the server is
+            checking it. This takes a moment; the signed document appears here
+            on its own.
+          </p>
+          <Links>
+            <TextLink href="/documents">My documents</TextLink>
+          </Links>
+        </SectionCard>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell me={me} narrow>
       <SectionCard className="text-center">
@@ -424,10 +471,11 @@ export default function Open() {
               <AlertTitle>Install the app first</AlertTitle>
               <AlertDescription className="text-base">
                 Nothing opened, so the {appName} app is probably not installed
-                on this computer yet. Install it below, then come back and
-                press <span className="font-medium">Sign now</span> again.
-                If a browser popup did ask to open the app, approve it and
-                press Try again.
+                on this computer yet. Install it below, then press{" "}
+                <span className="font-medium">Try again</span> — this document
+                is still waiting, so there is nothing to start over. If a
+                browser popup did ask to open the app, approve it and press
+                Try again.
               </AlertDescription>
             </Alert>
             <Button asChild size="lg" className="w-full">

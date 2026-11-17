@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileText, PenLine, Upload } from "lucide-react";
 import { PageHeader } from "@/components/blocks";
 import { AppShell } from "@/components/chrome";
@@ -52,6 +52,17 @@ export default function Send() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // Why the chosen file cannot be signed, or null. One gate for both checks
+  // — the synchronous name-and-size one and the asynchronous first-five-bytes
+  // one — so the button can never contradict the message above it. Before
+  // this, the bytes check only *said* the file was not a PDF: the button
+  // stayed enabled and sent it anyway, and the server's 400 was the first
+  // thing that actually stopped it.
+  const [blocked, setBlocked] = useState<string | null>(null);
+  // Which choice the asynchronous check belongs to. Choosing a second file
+  // while the first one's bytes are still being read must not let the first
+  // file's verdict land on the second.
+  const choice = useRef(0);
   // The ceiling the server actually enforces. Read from the server rather
   // than hard-coded here, so a deployment that raises SIGNER_UPLOAD_MAX_BYTES
   // does not leave this screen refusing files the server would accept
@@ -70,7 +81,9 @@ export default function Send() {
   }, []);
 
   function chooseFile(chosen: File | null) {
+    const mine = ++choice.current;
     setFile(chosen);
+    setBlocked(null);
     clear();
     setPreviewUrl((old) => {
       if (old) URL.revokeObjectURL(old);
@@ -83,6 +96,7 @@ export default function Send() {
       const problem = uploadProblem(chosen, maxBytes);
       if (problem) {
         say(problem, "bad");
+        setBlocked(problem);
         return;
       }
       // And read just the first five bytes: a text file renamed .pdf is the
@@ -92,11 +106,14 @@ export default function Send() {
         .slice(0, 5)
         .arrayBuffer()
         .then((head) => {
+          // A later choice has already replaced this one: its verdict is the
+          // only one that may speak.
+          if (choice.current !== mine) return;
           if (!looksLikePdf(new Uint8Array(head))) {
-            say(
-              "That file is named .pdf but is not a PDF document. Choose the PDF you want signed.",
-              "bad",
-            );
+            const problem =
+              "That file is named .pdf but is not a PDF document. Choose the PDF you want signed.";
+            say(problem, "bad");
+            setBlocked(problem);
           }
         })
         .catch(() => {
@@ -121,9 +138,17 @@ export default function Send() {
     if (!me) {
       return;
     }
+    // Whatever either check found stands. The button is disabled in this
+    // state, so reaching here means something raced; refusing is still the
+    // honest answer.
+    if (blocked) {
+      say(blocked, "bad");
+      return;
+    }
     const problem = uploadProblem(file, maxBytes);
     if (problem) {
       say(problem, "bad");
+      setBlocked(problem);
       return;
     }
     const documentName = documentNameFor(file!.name);
@@ -175,6 +200,7 @@ export default function Send() {
         <label
           htmlFor="pdf"
           onDragOver={(event) => {
+            if (busy) return;
             event.preventDefault();
             setDragging(true);
           }}
@@ -182,10 +208,19 @@ export default function Send() {
           onDrop={(event) => {
             event.preventDefault();
             setDragging(false);
+            // The file input is disabled while the document is being
+            // prepared, but a drop does not go through it: without this, a
+            // second PDF could replace the one already on its way up.
+            if (busy) return;
             chooseFile(event.dataTransfer.files?.[0] ?? null);
           }}
           className={cn(
-            "flex cursor-pointer flex-col items-center gap-3 rounded-xl border-2 border-dashed p-10 text-center transition-colors",
+            "flex flex-col items-center gap-3 rounded-xl border-2 border-dashed p-10 text-center transition-colors",
+            // The input inside is `sr-only`, so its own focus ring is
+            // invisible and a keyboard reader was landing here with nothing
+            // to see. The ring belongs on what is actually on the screen.
+            "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-background",
+            busy ? "cursor-not-allowed opacity-60" : "cursor-pointer",
             dragging ? "border-primary bg-accent" : "border-border bg-muted",
           )}
         >
@@ -237,7 +272,7 @@ export default function Send() {
           type="button"
           size="lg"
           className="w-full"
-          disabled={busy || !file}
+          disabled={busy || !file || blocked !== null}
           onClick={signIt}
         >
           {busy ? (
