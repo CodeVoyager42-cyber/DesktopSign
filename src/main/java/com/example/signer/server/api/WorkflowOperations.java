@@ -45,6 +45,20 @@ public class WorkflowOperations {
     /**
      * The uploaded part has to be a PDF, and has to be there. Both chains
      * take the document as multipart, so both ask this.
+     *
+     * <p><b>The bytes decide, not the name</b> (security finding S-03). The
+     * check used to be {@code name.endsWith(".pdf")} alone, which a file
+     * named {@code invoice.pdf} passes whatever is inside it. Everything
+     * downstream — PDFBox, the incremental-save signing path, the signature
+     * chain verifier — then works on something that is not a PDF, and the
+     * first honest error arrives from deep inside a library.
+     *
+     * <p>The extension check stays as well. It is not redundant: it catches
+     * the ordinary mistake of picking the wrong file and gives a message
+     * about the file the reader chose, while the prefix catches the renamed
+     * one. A PDF must begin with {@code %PDF-} (ISO 32000-1 §7.5.2); nothing
+     * here parses further, because this method's job is to refuse the
+     * obviously-wrong, not to validate the document.
      */
     public byte[] requirePdf(MultipartFile file) throws IOException {
         if (file == null || file.isEmpty()) {
@@ -56,8 +70,31 @@ public class WorkflowOperations {
             throw new ApiException(ApiErrorCode.BAD_REQUEST,
                     "Only PDF documents can start a signing workflow");
         }
-        return file.getBytes();
+        byte[] bytes = file.getBytes();
+        if (!isPdf(bytes)) {
+            throw new ApiException(ApiErrorCode.BAD_REQUEST,
+                    "That file is named .pdf but is not a PDF document."
+                            + " Choose the PDF you want signed.");
+        }
+        return bytes;
     }
+
+    /** The five bytes every PDF starts with. Nothing is logged about the file. */
+    private static boolean isPdf(byte[] bytes) {
+        byte[] prefix = PDF_PREFIX;
+        if (bytes == null || bytes.length < prefix.length) {
+            return false;
+        }
+        for (int i = 0; i < prefix.length; i++) {
+            if (bytes[i] != prefix[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static final byte[] PDF_PREFIX =
+            "%PDF-".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
 
     /**
      * Starts a workflow. Every signer slot names an account that already

@@ -125,6 +125,34 @@ class UploadLimitHttpTests {
                 .contains("PDF file is required");
     }
 
+    @Test
+    void aFileNamedPdfThatIsNotAPdfIsRejectedOnItsBytes() throws Exception {
+        // Security finding S-03: the check used to be the extension alone, so
+        // anything renamed .pdf went through and failed much later, inside
+        // PDFBox. A PDF begins with %PDF- and this one does not.
+        byte[] notAPdf = "This is a text file, whatever it is called."
+                .getBytes(StandardCharsets.UTF_8);
+
+        HttpResponse<String> rejected = createWorkflow("invoice.pdf", notAPdf);
+
+        assertThat(rejected.statusCode()).isEqualTo(400);
+        assertThat(rejected.body())
+                .contains("BAD_REQUEST")
+                .contains("is not a PDF document");
+        // The refusal says nothing about the file beyond that.
+        assertThat(rejected.body())
+                .doesNotContain("Exception")
+                .doesNotContain("com.example")
+                .doesNotContain("text file");
+    }
+
+    @Test
+    void aRealPdfIsAcceptedSoTheCheckIsNotJustRefusingEverything() throws Exception {
+        HttpResponse<String> created = createWorkflow("ordinary.pdf", pdfOfSize(20_000));
+
+        assertThat(created.statusCode()).as(created.body()).isEqualTo(201);
+    }
+
     /* ------------------------------------------------------------------ */
 
     /** Multipart create call, exactly as {@code WorkflowApiClient} sends it. */

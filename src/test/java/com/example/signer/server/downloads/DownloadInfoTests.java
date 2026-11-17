@@ -42,7 +42,8 @@ class DownloadInfoTests {
     Path published;
 
     private static WebAppInfoController controller(String dir, String url) {
-        return new WebAppInfoController(new DownloadCatalog(dir, url, "SignFlow"));
+        return new WebAppInfoController(new DownloadCatalog(dir, url, "SignFlow"),
+                org.springframework.util.unit.DataSize.ofBytes(104857600L));
     }
 
     private static final byte[] INSTALLER = withSignature(MSI_SIGNATURE, "installer bytes");

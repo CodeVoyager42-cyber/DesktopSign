@@ -478,7 +478,11 @@ class WebAccountHttpTests {
                 + "--" + boundary + "\r\n"
                 + "Content-Disposition: form-data; name=\"file\"; filename=\"x.pdf\"\r\n"
                 + "Content-Type: application/pdf\r\n\r\n"
-                + "not-a-pdf\r\n"
+                // A real PDF prefix, so the thing that refuses this request is
+                // the e-mail-verification gate and not the upload's
+                // magic-byte check (S-03), which runs first and would answer
+                // 400 where this test is asking about 403.
+                + "%PDF-1.7\r\n"
                 + "--" + boundary + "--\r\n";
         HttpResponse<String> response = http.send(HttpRequest.newBuilder(uri("/api/workflows"))
                         .header("Authorization", "Bearer " + bearer)

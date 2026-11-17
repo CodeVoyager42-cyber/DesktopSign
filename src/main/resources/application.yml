@@ -83,9 +83,15 @@ signature:
     # Base URL of the coordination server used by the desktop in REMOTE mode.
     base-url: ${SIGNER_SERVER_URL:http://localhost:8080}
     # Largest document that may be sent to / accepted by the coordination
-    # server, in bytes (100 MB). Enforced twice from this one value: the
-    # desktop refuses the file before uploading, and the server's multipart
-    # limits (below, server profile) reject anything larger.
+    # server, in bytes (100 MB).
+    #
+    # This value is the DESKTOP's copy and currently has no reader: the
+    # desktop's upload screen was removed with its send flow, so nothing on
+    # that side pre-checks a file any more (security finding S-07, whose old
+    # wording claimed the opposite). What enforces the ceiling is the server's
+    # multipart limits (below, server profile), and the WEBSITE pre-checks
+    # against the same number by reading maxUploadBytes from
+    # GET /web/api/app-info rather than hard-coding one here.
     upload:
       max-bytes: ${SIGNER_UPLOAD_MAX_BYTES:104857600}
 

@@ -2,6 +2,7 @@ package com.example.signer.server.web;
 
 import com.example.signer.server.downloads.DownloadCatalog;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
@@ -38,8 +39,17 @@ import java.util.Optional;
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class WebAppInfoController {
 
-    /** What the website may know about the application it hands off to. */
-    public record AppInfoView(String appName, String downloadUrl) {
+    /**
+     * What the website may know about the application it hands off to.
+     *
+     * <p>{@code maxUploadBytes} is here so the upload screen can refuse an
+     * oversized file before sending it, from the SAME number the server
+     * enforces, rather than a constant in the front-end that drifts the first
+     * time a deployment sets SIGNER_UPLOAD_MAX_BYTES. It is not a secret: the
+     * multipart limit announces itself with a 413 anyway, and a reader who
+     * learns the ceiling learns nothing they could not learn by trying.
+     */
+    public record AppInfoView(String appName, String downloadUrl, long maxUploadBytes) {
     }
 
     /**
@@ -66,14 +76,24 @@ public class WebAppInfoController {
 
     private final DownloadCatalog catalog;
 
-    public WebAppInfoController(DownloadCatalog catalog) {
+    /**
+     * The ceiling the server's own multipart limits enforce, handed to the
+     * upload screen so its pre-check cannot disagree with them.
+     */
+    private final long maxUploadBytes;
+
+    public WebAppInfoController(
+            DownloadCatalog catalog,
+            @Value("${spring.servlet.multipart.max-file-size:104857600}")
+            org.springframework.util.unit.DataSize maxUpload) {
         this.catalog = catalog;
+        this.maxUploadBytes = maxUpload.toBytes();
     }
 
     @GetMapping("/app-info")
     public ResponseEntity<AppInfoView> appInfo() {
         return ResponseEntity.ok(new AppInfoView(
-                this.catalog.appName(), primaryUrl().orElse(null)));
+                this.catalog.appName(), primaryUrl().orElse(null), this.maxUploadBytes));
     }
 
     @GetMapping("/download-info")
