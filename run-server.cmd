@@ -29,8 +29,17 @@ if errorlevel 1 (
 set SIGNER_SERVER_STORAGE=%USERPROFILE%\signer-server-data
 rem Database: these are defaults. Set SIGNER_DB_* before starting this
 rem script (e.g. a test database) and they are kept as they are.
+rem The default has to be a database whose Flyway history matches the
+rem migrations in src\main\resources\db\migration on THIS branch, or the
+rem server refuses to start with a checksum mismatch. signflow_scopea is on
+rem that timeline (V14 deprecate launch codes .. V17 drop invitation
+rem tables). The older Signflow database is NOT - it was migrated along the
+rem abandoned single-signer line, so it carries sign_sessions and has no
+rem launch_codes. Never flyway-repair that one onto this branch: repair
+rem only rewrites the recorded checksums, so these migrations would count
+rem as applied without ever having run.
 if not defined SIGNER_DB_ENABLED set SIGNER_DB_ENABLED=true
-if not defined SIGNER_DB_URL set SIGNER_DB_URL=jdbc:postgresql://localhost:5432/Signflow
+if not defined SIGNER_DB_URL set SIGNER_DB_URL=jdbc:postgresql://localhost:5432/signflow_scopea
 if not defined SIGNER_DB_USERNAME set SIGNER_DB_USERNAME=postgres
 if not defined SIGNER_DB_PASSWORD set SIGNER_DB_PASSWORD=
 if not defined APP_BASE_URL set APP_BASE_URL=http://localhost:8080
