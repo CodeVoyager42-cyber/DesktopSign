@@ -96,16 +96,6 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String DOCUMENT_PAGE = "/document";
 
     /**
-     * Sending a document out: the file, the signers, the order.
-     *
-     * <p>The one page that uploads anything, and the only website route that
-     * is multipart. It needs no id of its own — what it creates is identified
-     * by the answer, which is why it ends by going to {@link #DOCUMENT_PAGE}
-     * for the workflow it just started.
-     */
-    public static final String SEND_PAGE = "/send";
-
-    /**
      * The hand-off: the screen that opens the desktop application at one
      * signing task (Phase F).
      *
@@ -142,7 +132,15 @@ public class FrontendRoutingConfiguration implements WebMvcConfigurer {
     public static final String[] PAGES = {
         VERIFY_EMAIL_PAGE, RESET_PASSWORD_PAGE,
         SIGN_IN_PAGE, SIGN_UP_PAGE, FORGOT_PASSWORD_PAGE, CHANGE_PASSWORD_PAGE,
-        ACCOUNT_PAGE, DOCUMENTS_PAGE, SEND_PAGE, OPEN_PAGE, DOWNLOAD_PAGE,
+        // /send is gone: it and /documents were the same upload screen, and
+        // /documents is the one that was kept. A path removed from here stops
+        // being forwarded AND stops being public, because SecurityConfig
+        // reads this array — so /send is refused rather than served, and
+        // measured: 401 without a session, because the chain ends in
+        // denyAll() and never reaches a handler. Not a 404; the refusal comes
+        // first. Either way nothing serves a page that is no longer in the
+        // export.
+        ACCOUNT_PAGE, DOCUMENTS_PAGE, OPEN_PAGE, DOWNLOAD_PAGE,
     };
 
     /**

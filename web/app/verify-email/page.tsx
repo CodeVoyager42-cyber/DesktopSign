@@ -65,7 +65,7 @@ export default function VerifyEmail() {
           Your email address is confirmed.
         </p>
         <Button asChild size="lg" className="w-full">
-          <Link href="/documents">Go to my documents</Link>
+          <Link href="/documents">Sign a document</Link>
         </Button>
       </AuthShell>
     );

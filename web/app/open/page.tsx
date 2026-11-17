@@ -266,7 +266,7 @@ export default function Open() {
         />
         <SectionCard>
           <Button asChild size="lg" className="w-full">
-            <Link href="/documents">My documents</Link>
+            <Link href="/documents">Sign a document</Link>
           </Button>
         </SectionCard>
       </AppShell>
@@ -334,8 +334,7 @@ export default function Open() {
             </a>
           </Button>
           <Links>
-            <TextLink href="/send">Sign another document</TextLink>
-            <TextLink href="/documents">My documents</TextLink>
+            <TextLink href="/documents">Sign another document</TextLink>
           </Links>
         </SectionCard>
       </AppShell>
@@ -362,8 +361,7 @@ export default function Open() {
             ) : null}
           </div>
           <Links>
-            <TextLink href="/send">Sign another document</TextLink>
-            <TextLink href="/documents">My documents</TextLink>
+            <TextLink href="/documents">Sign another document</TextLink>
           </Links>
         </SectionCard>
       </AppShell>
@@ -401,7 +399,7 @@ export default function Open() {
             on its own.
           </p>
           <Links>
-            <TextLink href="/documents">My documents</TextLink>
+            <TextLink href="/documents">Sign another document</TextLink>
           </Links>
         </SectionCard>
       </AppShell>
@@ -547,8 +545,10 @@ export default function Open() {
             <AlertTitle>Still nothing after ten minutes</AlertTitle>
             <AlertDescription>
               This page has stopped checking. If you signed in the {appName}
-              app the document is safe — open it from My documents to see
-              where it stands.
+              app the signature reached the server and the document is safe —
+              this page simply stopped waiting for it. Nothing lists your
+              documents any more, so the way back to a signed PDF is this
+              page: keep its address, or sign the document again.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -589,7 +589,7 @@ export default function Open() {
 
       <div className="mt-6">
         <Links>
-          <TextLink href="/documents">Back to my documents</TextLink>
+          <TextLink href="/documents">Sign a document</TextLink>
         </Links>
       </div>
     </AppShell>

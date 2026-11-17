@@ -6,7 +6,6 @@ import {
   ChevronDown,
   Download,
   FileSignature,
-  FileText,
   KeyRound,
   LogOut,
   Menu,
@@ -127,14 +126,11 @@ function MobileMenu({ me }: { me: Profile | null }) {
         <nav className="mt-6 flex flex-col gap-2 px-4" aria-label="Menu">
           {me ? (
             <>
-              <SheetClose asChild>
-                <Button asChild variant="ghost" className="justify-start">
-                  <Link href="/documents">
-                    <FileText aria-hidden="true" />
-                    Documents
-                  </Link>
-                </Button>
-              </SheetClose>
+              {/* A "Documents" entry stood here beside "Sign a document"
+                  below. They are now the same page — /documents is the
+                  upload, and nothing lists documents — so one of the two had
+                  to go, and the one that names the action is the one worth
+                  keeping. */}
               <SheetClose asChild>
                 <Button asChild variant="ghost" className="justify-start">
                   <Link href="/download">
@@ -145,7 +141,7 @@ function MobileMenu({ me }: { me: Profile | null }) {
               </SheetClose>
               <SheetClose asChild>
                 <Button asChild className="justify-start">
-                  <Link href="/send">
+                  <Link href="/documents">
                     <Send aria-hidden="true" />
                     Sign a document
                   </Link>
@@ -204,11 +200,11 @@ export function AppHeader({ me }: { me: Profile | null }) {
             Download app
           </Link>
         </Button>
-        <Button asChild variant="ghost" className="hidden sm:inline-flex">
-          <Link href="/documents">Documents</Link>
-        </Button>
+        {/* One link, not two: /send and /documents were the same upload
+            screen and /documents is the one that was kept, so a "Documents"
+            link beside this one pointed at the very same page. */}
         <Button asChild className="hidden sm:inline-flex">
-          <Link href="/send">
+          <Link href="/documents">
             <Send aria-hidden="true" />
             Sign a document
           </Link>

@@ -7,10 +7,12 @@
  * That file was imported from the `shadcn` package, which put a CLI — and a
  * second copy of its `cn` helper — into this project's dependencies for the
  * sake of 637 lines of CSS. The components generated into
- * `components/ui/*` use exactly these seven custom variants, counted:
- * `data-open` (32 uses), `data-closed` (30), `data-checked` (12),
- * `data-active` (11), `data-disabled` (8), `data-horizontal` (3),
- * `data-vertical` (2). Nothing here uses the rest of that file — the
+ * `components/ui/*` use exactly these six custom variants, counted:
+ * `data-open` (33 uses), `data-closed` (31), `data-checked` (12),
+ * `data-disabled` (8), `data-horizontal` (2), `data-vertical` (2).
+ * `data-active` was a seventh and is gone with `components/ui/tabs.tsx`,
+ * which was the only thing that used it — see the note below before adding a
+ * component that needs it back. Nothing here uses the rest of that file — the
  * `no-scrollbar`, `scroll-fade` and `shimmer` utilities and the accordion
  * keyframes are all 0 uses — so they are not copied.
  *
@@ -19,10 +21,12 @@
  * why the components can be written once against either.
  *
  * If you add a component with `npx shadcn@latest add` and it uses a variant
- * that is not here — `data-unchecked` and `data-selected` are the two that
- * were left out — Tailwind will not error. It will quietly emit nothing for
- * that class and the component will look subtly wrong. Copy the missing
- * variant from the package's `dist/tailwind.css` into this block.
+ * that is not here — `data-unchecked`, `data-selected` and now `data-active`
+ * are the three that are absent — Tailwind will not error. It will quietly
+ * emit nothing for that class and the component will look subtly wrong. Copy
+ * the missing variant from the package's `dist/tailwind.css` into this block.
+ * `data-active` is the one to watch: `tabs` is the component that wants it,
+ * and re-adding tabs is exactly the plausible next move here.
  */
 /*
  * The accordion's keyframes, also from `shadcn@4.22.1`'s `tailwind.css`.
@@ -76,13 +80,6 @@
 @custom-variant data-checked {
   &:where([data-state="checked"]),
   &:where([data-checked]:not([data-checked="false"])) {
-    @slot;
-  }
-}
-
-@custom-variant data-active {
-  &:where([data-state="active"]),
-  &:where([data-active]:not([data-active="false"])) {
     @slot;
   }
 }

@@ -68,25 +68,14 @@ export interface MySlot {
   waitingForClaim: boolean;
 }
 
-/** GET /web/api/workflows/participating */
-export interface Task {
-  workflowId: string;
-  documentName: string;
-  senderId: string | null;
-  senderDisplayName: string | null;
-  status: string;
-  createdAt: string | null;
-  completedAt: string | null;
-  myState: MySlot | null;
-  totalSignatures: number;
-  completedSignatures: number;
-  signingPolicy: string;
-  participants: Participant[] | null;
-  expiresAt: string | null;
-  updatedAt: string | null;
-}
-
-/** GET /web/api/workflows/owned */
+/**
+ * GET /web/api/workflows/owned
+ *
+ * <p>A `Task` interface stood above this one, the shape of
+ * /web/api/workflows/participating, and went with that call: it was read only
+ * by the dashboard's row merging, and no screen lists documents now. The
+ * endpoint still answers, so the type comes back with the screen if one does.
+ */
 export interface Workflow {
   workflowId: string;
   documentName: string;
@@ -348,11 +337,14 @@ export const api = {
   changePassword: (currentPassword: string, newPassword: string) =>
     post<void>("/web/api/me/password", { currentPassword, newPassword }),
 
-  /* Workflows (Phase E). Two lists, because which group a document belongs in
-     depends on the viewer's own slot and not on the document's state:
-     `participating` knows whose turn it is, `owned` knows what you sent. */
-  participating: () => get<{ tasks: Task[] }>("/web/api/workflows/participating"),
-  owned: () => get<Workflow[]>("/web/api/workflows/owned"),
+  /* Workflows (Phase E).
+
+     `participating` and `owned` — the two lists — stood here, because which
+     group a document belongs in depends on the viewer's own slot and not on
+     the document's state. They went with the dashboard that read them: no
+     screen lists documents any more. Both endpoints still exist and still
+     answer on the server, so putting a list back is a screen and these two
+     lines, not a feature. */
   workflow: (id: string) =>
     get<Workflow>(`/web/api/workflows/${encodeURIComponent(id)}`),
   audit: (id: string) =>
@@ -381,9 +373,9 @@ export const api = {
     return postForm<CreateWorkflowResponse>("/web/api/workflows", form);
   },
 
-  /** The creator or the current signer, and only before it completes. */
-  cancel: (id: string) =>
-    post<Workflow>(`/web/api/workflows/${encodeURIComponent(id)}/cancel`),
+  /* `cancel` stood here — the creator or the current signer, before the
+     document completed. It was reachable from the document screen that was
+     removed, and nothing has offered it since. The endpoint is untouched. */
 
   /* The hand-off to the desktop (Phase F). */
 

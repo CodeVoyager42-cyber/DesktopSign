@@ -54,12 +54,15 @@ are ours to edit, and four of them are edited (§3).
   this site is light only, so the answer is pinned and the dependency is not
   installed to answer a question with one possible answer.
 
-`@import "shadcn/tailwind.css"` is **vendored** into `globals.css`: 7 of its 9
-custom variants, by count of real uses (`data-open` 32, `data-closed` 30,
-`data-checked` 12, `data-active` 11, `data-disabled` 8, `data-horizontal` 3,
-`data-vertical` 2). Its `no-scrollbar`, `scroll-fade` and `shimmer` utilities
-and accordion keyframes are 0 uses and are not copied. If a newly added
-component uses `data-unchecked` or `data-selected`, Tailwind emits nothing and
+`@import "shadcn/tailwind.css"` is **vendored** into `globals.css`: 6 of its 9
+custom variants, by count of real uses (`data-open` 33, `data-closed` 31,
+`data-checked` 12, `data-disabled` 8, `data-horizontal` 2,
+`data-vertical` 2). `data-active` was a seventh until `components/ui/tabs.tsx`
+was deleted with the dashboard that used it — it was that component's alone,
+so it fell to 0 uses and went the same way. Its `no-scrollbar`,
+`scroll-fade` and `shimmer` utilities and accordion keyframes are 0 uses and
+are not copied. If a newly added
+component uses `data-unchecked`, `data-selected` or `data-active`, Tailwind emits nothing and
 fails silently — copy that variant across.
 
 Under the Content-Security-Policy this website is served with — `default-src
@@ -254,12 +257,20 @@ helpful here would undo the server's work.
 - Icons are `aria-hidden`; nothing depends on one to be understood.
 ## 5. Screens that exist
 
+Three rows left this table rather than being corrected, and the absences are
+the point. `/document?id=…` (one document: state, signers, history) went with
+the invitation-era workflow views. `/send` was the upload, and `/documents`
+is now that same upload — one of the two had to go and `/documents` was
+kept, so its row below describes the drop zone and not the dashboard of
+tabs it used to be. **Nothing lists documents any more**: a signed PDF is
+reachable from `/open` while that page still holds the workflow, and the two
+list endpoints on the server are untouched, so a list is a screen away if it
+is wanted back.
+
 | Screen | Path | Notes |
 |---|---|---|
 | **The public page** | `/` | headline, three steps, two buttons |
-| **Documents** | `/documents` | tabs: To sign (count) · Sent by me · Shared with me |
-| **One document** | `/document?id=…` | state, signers, the main action, and the history behind a disclosure |
-| **Send a document** | `/send` | a three-step wizard; the only page that uploads |
+| **Sign a document** | `/documents` | the drop zone and one button; the only page that uploads |
 | **Open in the app** | `/open?id=…` | the hand-off, with the two-minute clock |
 | Sign in | `/sign-in` | one message for every kind of refusal |
 | Create an account | `/sign-up` | 202 either way; the confirmation page is worded for both |
@@ -409,6 +420,16 @@ e-mails do (*24 October 2026 at 21:51*) and answers null for a timestamp it
 cannot read, so a row appears without one instead of showing *Invalid Date*.
 
 ## 5c. Sending a document, as built
+
+**This section describes a screen that no longer exists**, and is kept as the
+record of it. The three-step wizard below was replaced by the one-screen
+upload — choose a PDF, press *Sign it with your smart card* — which lived at
+`/send` and is now the whole of `/documents` (§5). The questions the wizard
+asked about co-signers and signing order had one answer in a product where
+somebody signs their own document, which is why they went. What survives
+unchanged is `lib/send.ts`: the size gate, the `%PDF-` magic-byte check and
+the name handling are the same functions, now called from
+`components/upload-sign.tsx`.
 
 > **Redesigned into three steps** — *Choose the PDF* (with a drag-and-drop
 > area), *Who needs to sign?*, *Review and send* — with a progress bar and a
