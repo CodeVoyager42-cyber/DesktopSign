@@ -119,3 +119,106 @@ export function worthRetrying(code: string | null): boolean {
 export function refusalWords(message: string | null): string {
   return message ?? "This document cannot be opened for signing right now.";
 }
+
+/* ------------------------------------------------------------------------ *
+ * Waiting for the signature                                                 *
+ * ------------------------------------------------------------------------ */
+
+/**
+ * How often to ask the server what became of the document, and for how long.
+ *
+ * Polling rather than a socket: the answer changes a handful of times in a
+ * couple of minutes, the question is one indexed read, and a socket would be
+ * a second transport to secure, authorise and keep alive for no gain at this
+ * size. Ten minutes is the ceiling because that is far longer than inserting
+ * a card and typing a PIN; past it the page stops asking and offers the
+ * question back to the reader rather than hammering a server that is plainly
+ * not going to answer differently.
+ */
+export const POLL_MS = 2000;
+export const POLL_LIMIT_MS = 10 * 60 * 1000;
+
+/**
+ * Back-off after consecutive network failures: 2s, 4s, 8s, 16s, then 30s for
+ * ever. A dropped connection is the common case (a laptop lid, a tunnel),
+ * and retrying every two seconds through it is how a page becomes the reason
+ * the network looks busy. The first success resets the count.
+ */
+export function pollDelay(consecutiveFailures: number): number {
+  const ladder = [POLL_MS, 4000, 8000, 16000, 30000];
+  if (consecutiveFailures <= 0) {
+    return ladder[0];
+  }
+  return ladder[Math.min(consecutiveFailures, ladder.length - 1)];
+}
+
+/** True once the page has been asking for longer than the ceiling. */
+export function pollExhausted(startedAt: number, now: number): boolean {
+  return now - startedAt >= POLL_LIMIT_MS;
+}
+
+/**
+ * What a workflow status means to somebody waiting on this screen.
+ *
+ *  - `signed`  — done, and the signed PDF can be downloaded.
+ *  - `stopped` — terminal and not a signature: cancelled, or failed.
+ *  - `working` — the desktop has it and the server is checking a signature.
+ *  - `waiting` — nothing has happened yet.
+ *
+ * An unrecognised status reads as `waiting` rather than throwing: a server
+ * that adds a state should not blank this screen, and "nothing yet" is the
+ * honest reading of a word we do not know.
+ */
+export type Outcome = "waiting" | "working" | "signed" | "stopped";
+
+export function outcomeFor(status: string | null | undefined): Outcome {
+  switch (status) {
+    case "COMPLETED":
+      return "signed";
+    case "CANCELLED":
+    case "FAILED":
+      return "stopped";
+    case "SIGNATURE_SUBMITTED":
+    case "VALIDATING":
+      return "working";
+    default:
+      return "waiting";
+  }
+}
+
+/** Terminal outcomes: the page stops polling on these and only these. */
+export function settled(outcome: Outcome): boolean {
+  return outcome === "signed" || outcome === "stopped";
+}
+
+/**
+ * When the document was finished, out of its audit trail, or null.
+ *
+ * The trail is the only place the website can learn this: the workflow view
+ * carries counts and whose turn it is, not a timestamp. Reads the LAST
+ * completion event, because the trail is append-only and a re-read should not
+ * depend on how many rows arrived.
+ */
+export function signedAt(
+  audit: { eventType: string; occurredAt: string }[] | null,
+): string | null {
+  if (!audit) {
+    return null;
+  }
+  const completions = audit.filter((row) => row.eventType === "WORKFLOW_COMPLETED");
+  return completions.length === 0
+    ? null
+    : completions[completions.length - 1].occurredAt;
+}
+
+/**
+ * What the success screen is allowed to claim about the signature.
+ *
+ * <b>Not "verified".</b> Finding F-01 is open: the server checks that the
+ * signature is intact over the bytes and that the certificate matches the
+ * one bound to the slot, but it does not validate that certificate against
+ * any trust anchor — and it does not send a trust verdict to the website at
+ * all. So this says what is true and stops. Changing it to claim trust needs
+ * trust anchors first, and a field to carry the verdict.
+ */
+export const TRUST_WORDS = "Signature intact — signer certificate not verified";

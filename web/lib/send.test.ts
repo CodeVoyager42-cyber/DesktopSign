@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  MAX_UPLOAD_FALLBACK_BYTES,
   documentNameFor,
   isEmail,
+  looksLikePdf,
   problemWith,
   readableSize,
   signersFrom,
+  uploadProblem,
 } from "./send.ts";
 
 /**
@@ -77,3 +80,51 @@ test("a file size reads the way a reader glances at it", () => {
   assert.equal(readableSize(12 * 1024 * 1024), "12.0 MB");
 });
 
+function bytes(text: string): Uint8Array {
+  return new Uint8Array([...text].map((c) => c.charCodeAt(0)));
+}
+
+test("the bytes decide whether it is a PDF, not the name", () => {
+  assert.equal(looksLikePdf(bytes("%PDF-1.7")), true);
+  assert.equal(looksLikePdf(bytes("This is a text file")), false);
+  // Case matters: %pdf- is not the magic.
+  assert.equal(looksLikePdf(bytes("%pdf-1.7")), false);
+});
+
+test("a file shorter than the magic is not a PDF, and does not throw", () => {
+  assert.equal(looksLikePdf(bytes("%PD")), false);
+  assert.equal(looksLikePdf(new Uint8Array()), false);
+});
+
+test("the size pre-check speaks in the reader's units and names both numbers", () => {
+  const problem = uploadProblem({ name: "big.pdf", size: 150 * 1024 * 1024 },
+    MAX_UPLOAD_FALLBACK_BYTES);
+  assert.match(String(problem), /150\.0 MB/);
+  assert.match(String(problem), /100\.0 MB/);
+});
+
+test("a file at exactly the ceiling is allowed through", () => {
+  assert.equal(
+    uploadProblem({ name: "ok.pdf", size: MAX_UPLOAD_FALLBACK_BYTES },
+      MAX_UPLOAD_FALLBACK_BYTES),
+    null,
+  );
+});
+
+test("no file, the wrong extension and an empty file each say so", () => {
+  assert.match(String(uploadProblem(null, MAX_UPLOAD_FALLBACK_BYTES)), /Choose the PDF/);
+  assert.match(
+    String(uploadProblem({ name: "notes.txt", size: 10 }, MAX_UPLOAD_FALLBACK_BYTES)),
+    /Only PDF/,
+  );
+  assert.match(
+    String(uploadProblem({ name: "empty.pdf", size: 0 }, MAX_UPLOAD_FALLBACK_BYTES)),
+    /empty/,
+  );
+});
+
+test("the fallback ceiling matches the shipped default", () => {
+  // It is only used before GET /web/api/app-info answers; if it disagreed
+  // with the server the screen would refuse files the server would accept.
+  assert.equal(MAX_UPLOAD_FALLBACK_BYTES, 104857600);
+});

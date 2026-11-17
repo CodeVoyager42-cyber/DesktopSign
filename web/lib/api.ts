@@ -143,6 +143,8 @@ export interface AppInfo {
   appName: string;
   /** Where to get the desktop application, or null when none is configured. */
   downloadUrl: string | null;
+  /** The ceiling the server enforces, so the upload screen cannot disagree. */
+  maxUploadBytes: number;
 }
 
 /**

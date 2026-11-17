@@ -111,3 +111,66 @@ export function problemWith(
 }
 
 
+
+/* ------------------------------------------------------------------------ *
+ * What the upload screen can check before sending anything                  *
+ * ------------------------------------------------------------------------ */
+
+/** A PDF begins with these five bytes (ISO 32000-1 7.5.2). */
+export const PDF_MAGIC = "%PDF-";
+
+/**
+ * The ceiling to assume when the server has not said yet.
+ *
+ * The real number comes from GET /web/api/app-info (`maxUploadBytes`), which
+ * reads the server's own multipart limit, so the two cannot disagree. This
+ * constant exists only for the moment before that answer arrives, and it
+ * matches the shipped default (100 MiB).
+ */
+export const MAX_UPLOAD_FALLBACK_BYTES = 104857600;
+
+/**
+ * True when these bytes start a PDF.
+ *
+ * Defence in depth, not security: the server checks the same thing and its
+ * answer is the one that counts (finding S-03). The point here is to tell
+ * somebody who picked the wrong file straight away, instead of after a
+ * hundred megabytes have gone up the wire.
+ */
+export function looksLikePdf(firstBytes: Uint8Array): boolean {
+  if (firstBytes.length < PDF_MAGIC.length) {
+    return false;
+  }
+  for (let i = 0; i < PDF_MAGIC.length; i++) {
+    if (firstBytes[i] !== PDF_MAGIC.charCodeAt(i)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * What is wrong with the chosen file before it is read, or null.
+ *
+ * Size and name only — the bytes are checked separately, because reading
+ * them is asynchronous and this has to answer while the reader is still
+ * looking at the form.
+ */
+export function uploadProblem(
+  file: { name: string; size: number } | null,
+  maxBytes: number,
+): string | null {
+  if (!file) {
+    return "Choose the PDF you want to sign.";
+  }
+  if (!file.name.toLowerCase().endsWith(".pdf")) {
+    return "Only PDF documents can be signed.";
+  }
+  if (file.size === 0) {
+    return "That file is empty.";
+  }
+  if (file.size > maxBytes) {
+    return `That file is ${readableSize(file.size)}. The largest this server accepts is ${readableSize(maxBytes)}.`;
+  }
+  return null;
+}

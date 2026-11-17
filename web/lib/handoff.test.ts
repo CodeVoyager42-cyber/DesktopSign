@@ -3,10 +3,18 @@ import { test } from "node:test";
 import {
   CODE_SECONDS,
   FOCUS_GRACE_MS,
+  POLL_LIMIT_MS,
+  POLL_MS,
+  TRUST_WORDS,
   appNotDetected,
   clock,
+  outcomeFor,
+  pollDelay,
+  pollExhausted,
   refusalWords,
   secondsLeft,
+  settled,
+  signedAt,
   worthRetrying,
 } from "./handoff.ts";
 
@@ -98,4 +106,81 @@ test("a page that lost focus means the application opened", () => {
 test("a custom grace window is honoured, for slow machines and tests", () => {
   assert.equal(appNotDetected(false, 700, 700), true);
   assert.equal(appNotDetected(false, 699, 700), false);
+});
+
+test("the poll asks every two seconds and gives up after ten minutes", () => {
+  assert.equal(POLL_MS, 2000);
+  assert.equal(POLL_LIMIT_MS, 600000);
+  assert.equal(pollExhausted(1000, 1000 + POLL_LIMIT_MS - 1), false);
+  assert.equal(pollExhausted(1000, 1000 + POLL_LIMIT_MS), true);
+});
+
+test("a dropped connection backs off, and one success resets it", () => {
+  assert.equal(pollDelay(0), 2000);
+  assert.equal(pollDelay(1), 4000);
+  assert.equal(pollDelay(2), 8000);
+  assert.equal(pollDelay(3), 16000);
+  assert.equal(pollDelay(4), 30000);
+  // It stops climbing rather than growing without bound.
+  assert.equal(pollDelay(40), 30000);
+  // Negative or zero is the fresh state.
+  assert.equal(pollDelay(-1), 2000);
+});
+
+test("every workflow status the server sends maps to an outcome", () => {
+  assert.equal(outcomeFor("COMPLETED"), "signed");
+  assert.equal(outcomeFor("CANCELLED"), "stopped");
+  assert.equal(outcomeFor("FAILED"), "stopped");
+  assert.equal(outcomeFor("SIGNATURE_SUBMITTED"), "working");
+  assert.equal(outcomeFor("VALIDATING"), "working");
+  assert.equal(outcomeFor("WAITING_FOR_SIGNER"), "waiting");
+  assert.equal(outcomeFor("READY_FOR_SIGNING"), "waiting");
+  assert.equal(outcomeFor("DRAFT"), "waiting");
+});
+
+test("a status this version has never heard of reads as waiting, not a blank screen", () => {
+  assert.equal(outcomeFor("SOMETHING_NEW"), "waiting");
+  assert.equal(outcomeFor(null), "waiting");
+  assert.equal(outcomeFor(undefined), "waiting");
+});
+
+test("polling stops on a signature or a stop, and only then", () => {
+  assert.equal(settled("signed"), true);
+  assert.equal(settled("stopped"), true);
+  assert.equal(settled("working"), false);
+  assert.equal(settled("waiting"), false);
+});
+
+test("when it was signed comes out of the audit trail", () => {
+  const audit = [
+    { eventType: "WORKFLOW_CREATED", occurredAt: "2026-11-17T09:00:00Z" },
+    { eventType: "SIGNATURE_SUBMITTED", occurredAt: "2026-11-17T09:02:00Z" },
+    { eventType: "WORKFLOW_COMPLETED", occurredAt: "2026-11-17T09:03:00Z" },
+  ];
+  assert.equal(signedAt(audit), "2026-11-17T09:03:00Z");
+});
+
+test("no completion event, or no trail at all, is null rather than a guess", () => {
+  assert.equal(signedAt([{ eventType: "WORKFLOW_CREATED", occurredAt: "x" }]), null);
+  assert.equal(signedAt([]), null);
+  assert.equal(signedAt(null), null);
+});
+
+test("the last completion wins, so a re-read does not depend on row count", () => {
+  const audit = [
+    { eventType: "WORKFLOW_COMPLETED", occurredAt: "2026-11-17T09:03:00Z" },
+    { eventType: "WORKFLOW_COMPLETED", occurredAt: "2026-11-17T09:09:00Z" },
+  ];
+  assert.equal(signedAt(audit), "2026-11-17T09:09:00Z");
+});
+
+test("the success screen does not claim trust while F-01 is open", () => {
+  // The server verifies the signature over the bytes and the bound
+  // certificate; it does NOT check that certificate against a trust anchor,
+  // and sends the website no verdict at all. So the wording must not say
+  // "verified", "valid" or "trusted".
+  assert.match(TRUST_WORDS, /intact/);
+  assert.match(TRUST_WORDS, /not verified/);
+  assert.doesNotMatch(TRUST_WORDS, /\btrusted\b/i);
+  assert.doesNotMatch(TRUST_WORDS, /\bvalid\b/i);
 });

@@ -13,8 +13,14 @@ import {
   useSession,
 } from "@/components/session";
 import { Button } from "@/components/ui/button";
-import { api } from "@/lib/api";
-import { documentNameFor, readableSize } from "@/lib/send";
+import { api, type AppInfo } from "@/lib/api";
+import {
+  MAX_UPLOAD_FALLBACK_BYTES,
+  documentNameFor,
+  looksLikePdf,
+  readableSize,
+  uploadProblem,
+} from "@/lib/send";
 import { cn } from "@/lib/utils";
 
 /**
@@ -46,6 +52,22 @@ export default function Send() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // The ceiling the server actually enforces. Read from the server rather
+  // than hard-coded here, so a deployment that raises SIGNER_UPLOAD_MAX_BYTES
+  // does not leave this screen refusing files the server would accept
+  // (finding S-07). The fallback covers the moment before the answer lands.
+  const [app, setApp] = useState<AppInfo | null>(null);
+  const maxBytes = app?.maxUploadBytes ?? MAX_UPLOAD_FALLBACK_BYTES;
+
+  useEffect(() => {
+    let alive = true;
+    api.appInfo().then((result) => {
+      if (alive && result.ok && result.body) setApp(result.body);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   function chooseFile(chosen: File | null) {
     setFile(chosen);
@@ -54,6 +76,33 @@ export default function Send() {
       if (old) URL.revokeObjectURL(old);
       return chosen ? URL.createObjectURL(chosen) : null;
     });
+    // Say what is wrong with the choice now, while the reader is still
+    // looking at the file they picked — not after a hundred megabytes have
+    // gone up the wire and come back as a 413.
+    if (chosen) {
+      const problem = uploadProblem(chosen, maxBytes);
+      if (problem) {
+        say(problem, "bad");
+        return;
+      }
+      // And read just the first five bytes: a text file renamed .pdf is the
+      // one mistake the name cannot catch. The server checks this too, and
+      // its answer is the one that counts (finding S-03).
+      chosen
+        .slice(0, 5)
+        .arrayBuffer()
+        .then((head) => {
+          if (!looksLikePdf(new Uint8Array(head))) {
+            say(
+              "That file is named .pdf but is not a PDF document. Choose the PDF you want signed.",
+              "bad",
+            );
+          }
+        })
+        .catch(() => {
+          // Unreadable here is not a verdict: let the server decide.
+        });
+    }
   }
 
   // The blob URL is this screen's own resource: released when the screen goes
@@ -69,15 +118,15 @@ export default function Send() {
   );
 
   function signIt() {
-    if (!file || !me) {
-      say("Choose the PDF you want to sign.", "bad");
+    if (!me) {
       return;
     }
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
-      say("Only PDF documents can be signed.", "bad");
+    const problem = uploadProblem(file, maxBytes);
+    if (problem) {
+      say(problem, "bad");
       return;
     }
-    const documentName = documentNameFor(file.name);
+    const documentName = documentNameFor(file!.name);
     if (!documentName) {
       say("That file has no name the signed PDF could keep.", "bad");
       return;
@@ -86,7 +135,7 @@ export default function Send() {
     say("Preparing…");
     api
       .createWorkflow(documentName, "SEQUENTIAL",
-        [{ order: 1, userId: me.username, certificateSha256: null }], file)
+        [{ order: 1, userId: me.username, certificateSha256: null }], file!)
       .then((result) => {
         if (!result.ok || !result.body) {
           say(
@@ -145,7 +194,7 @@ export default function Send() {
             {file ? "Choose a different PDF" : "Drop a PDF here, or click to choose one"}
           </span>
           <span className="text-sm text-muted-foreground">
-            Only PDF documents can be signed.
+            PDF only, up to {readableSize(maxBytes)}.
           </span>
           <input
             id="pdf"

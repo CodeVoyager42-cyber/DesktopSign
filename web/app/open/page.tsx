@@ -2,7 +2,17 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CreditCard, Download, ExternalLink, Loader2, MonitorX, TimerOff } from "lucide-react";
+import {
+  CheckCircle2,
+  CircleSlash,
+  CreditCard,
+  Download,
+  ExternalLink,
+  FileCheck2,
+  Loader2,
+  MonitorX,
+  TimerOff,
+} from "lucide-react";
 import { Links, PageHeader, SectionCard, TextLink } from "@/components/blocks";
 import { AppShell } from "@/components/chrome";
 import {
@@ -13,14 +23,21 @@ import {
 } from "@/components/session";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { api, type AppInfo, type Workflow } from "@/lib/api";
+import { api, type AppInfo, type AuditEntry, type Workflow } from "@/lib/api";
 import {
   FOCUS_GRACE_MS,
+  TRUST_WORDS,
   appNotDetected,
   clock,
+  outcomeFor,
+  pollDelay,
+  pollExhausted,
   refusalWords,
   secondsLeft,
+  settled,
+  signedAt,
   worthRetrying,
+  type Outcome,
   type Phase,
 } from "@/lib/handoff";
 import { cn } from "@/lib/utils";
@@ -50,10 +67,20 @@ export default function Open() {
   const [refusal, setRefusal] = useState<{ code: string | null; message: string | null }>(
     { code: null, message: null },
   );
+  // What became of the document, as the server reports it. This is what the
+  // page is really waiting for: the code only opens the app, the SIGNATURE
+  // is what finishes.
+  const [outcome, setOutcome] = useState<Outcome>("waiting");
+  const [audit, setAudit] = useState<AuditEntry[] | null>(null);
+  const [gaveUp, setGaveUp] = useState(false);
 
   // The code itself lives here and nowhere else: not in state that renders,
   // not in the DOM, not in a log line.
   const issued = useRef<{ at: number; lifetime: number } | null>(null);
+  // Focus moves to the heading when the page reaches a terminal state, so
+  // a screen reader lands on the outcome rather than staying where the
+  // spinner used to be.
+  const successHeading = useRef<HTMLHeadingElement>(null);
   const mounted = useRef(true);
   useEffect(() => () => {
     mounted.current = false;
@@ -156,6 +183,63 @@ export default function Open() {
     return () => clearInterval(tick);
   }, [phase]);
 
+  // ── Waiting for the signature ───────────────────────────────────────
+  // The desktop signs and submits; this page finds out by asking. One timer,
+  // rescheduled after each answer rather than a fixed interval, so a slow or
+  // failing reply cannot pile requests on top of each other. It keeps asking
+  // through "expired" and "missing" on purpose: a code that was already
+  // consumed is still being signed with, and the workflow moving on is the
+  // better evidence than either of those guesses.
+  useEffect(() => {
+    if (!me || !id || settled(outcome) || gaveUp) return;
+
+    let alive = true;
+    let timer = 0;
+    const startedAt = Date.now();
+    let failures = 0;
+
+    const ask = () => {
+      api.workflow(id).then((result) => {
+        if (!alive) return;
+        if (!result.ok || !result.body) {
+          // A refusal is an answer: stop. A network failure is not, so back
+          // off and keep asking.
+          if (result.status === 0 || result.status >= 500) {
+            failures += 1;
+          } else {
+            setGaveUp(true);
+            return;
+          }
+        } else {
+          failures = 0;
+          setWorkflow(result.body);
+          const next = outcomeFor(result.body.status);
+          setOutcome(next);
+          if (next === "signed") {
+            // Only now, and only once: the trail is read for the time the
+            // signature was accepted, which the workflow view does not carry.
+            api.audit(id).then((trail) => {
+              if (alive && trail.ok) setAudit(trail.body ?? []);
+            });
+            return;
+          }
+          if (settled(next)) return;
+        }
+        if (pollExhausted(startedAt, Date.now())) {
+          setGaveUp(true);
+          return;
+        }
+        timer = window.setTimeout(ask, pollDelay(failures));
+      });
+    };
+
+    timer = window.setTimeout(ask, pollDelay(0));
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [me, id, outcome, gaveUp]);
+
   useEffect(() => {
     document.title = workflow ? `Signing ${workflow.documentName}` : "SignFlow";
   }, [workflow]);
@@ -182,6 +266,96 @@ export default function Open() {
 
   const appName = app?.appName ?? "SignFlow";
   const working = phase === "asking" || phase === "opening";
+
+  // Signed. Terminal, and the only screen that offers the document back.
+  if (outcome === "signed" && workflow) {
+    const when = signedAt(audit);
+    return (
+      <AppShell me={me} narrow>
+        <SectionCard className="text-center">
+          <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-success/10">
+            <CheckCircle2 aria-hidden="true" className="size-7 text-success-strong" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl" tabIndex={-1} ref={successHeading}>
+              Signed
+            </h1>
+            <p className="break-words text-base font-medium">{workflow.documentName}</p>
+          </div>
+          <p role="status" aria-live="polite" className="sr-only">
+            The document is signed and ready to download.
+          </p>
+
+          <dl className="mx-auto max-w-sm space-y-2 text-left text-sm">
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Signed by</dt>
+              <dd className="font-medium">{me.displayName}</dd>
+            </div>
+            {when ? (
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">When</dt>
+                <dd className="font-medium">{new Date(when).toLocaleString()}</dd>
+              </div>
+            ) : null}
+            <div className="flex justify-between gap-4">
+              <dt className="text-muted-foreground">Signatures</dt>
+              <dd className="font-medium">
+                {workflow.completedSignatures} of {workflow.totalSignatures}
+              </dd>
+            </div>
+          </dl>
+
+          {/* Finding F-01 is open: the server checks the signature over the
+              bytes and the certificate bound to the slot, but validates that
+              certificate against no trust anchor and sends this page no
+              verdict. So this says what is true and claims nothing more. */}
+          <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <FileCheck2 aria-hidden="true" className="size-4" />
+            {TRUST_WORDS}
+          </p>
+
+          <Button asChild size="lg" className="w-full">
+            <a href={api.downloadUrl(workflow.workflowId)} download>
+              <Download aria-hidden="true" />
+              Download the signed PDF
+            </a>
+          </Button>
+          <Links>
+            <TextLink href="/send">Sign another document</TextLink>
+            <TextLink href="/documents">My documents</TextLink>
+          </Links>
+        </SectionCard>
+      </AppShell>
+    );
+  }
+
+  // Terminal and not a signature: cancelled, or stopped by an error.
+  if (outcome === "stopped" && workflow) {
+    return (
+      <AppShell me={me} narrow>
+        <SectionCard className="text-center">
+          <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-muted">
+            <CircleSlash aria-hidden="true" className="size-7 text-muted-foreground" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl" tabIndex={-1} ref={successHeading}>
+              {workflow.status === "CANCELLED" ? "This document was cancelled" : "Signing stopped"}
+            </h1>
+            <p className="break-words text-base font-medium">{workflow.documentName}</p>
+            {workflow.blockedReason ? (
+              <p role="alert" className="text-base text-muted-foreground">
+                {workflow.blockedReason}
+              </p>
+            ) : null}
+          </div>
+          <Links>
+            <TextLink href="/send">Sign another document</TextLink>
+            <TextLink href="/documents">My documents</TextLink>
+          </Links>
+        </SectionCard>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell me={me} narrow>
@@ -314,6 +488,17 @@ export default function Open() {
               </Button>
             ) : null}
           </>
+        ) : null}
+
+        {gaveUp ? (
+          <Alert role="alert">
+            <AlertTitle>Still nothing after ten minutes</AlertTitle>
+            <AlertDescription>
+              This page has stopped checking. If you signed in the {appName}
+              app the document is safe — open it from My documents to see
+              where it stands.
+            </AlertDescription>
+          </Alert>
         ) : null}
 
         <NoteAlert note={note} />
