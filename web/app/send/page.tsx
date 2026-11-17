@@ -246,7 +246,9 @@ export default function Send() {
             <FileText aria-hidden="true" className="size-5 shrink-0" />
             <div className="min-w-0">
               <p className="truncate font-medium">{documentNameFor(file.name)}</p>
-              <p className="text-sm text-muted-foreground">
+              {/* The size changes with every file chosen, so it is the one
+                  number here that visibly re-renders in place. */}
+              <p className="text-sm tabular-nums text-muted-foreground">
                 {readableSize(file.size)}
                 {previewUrl ? (
                   <>

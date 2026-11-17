@@ -295,7 +295,11 @@ export default function Open() {
             The document is signed and ready to download.
           </p>
 
-          <dl className="mx-auto max-w-sm space-y-2 text-left text-sm">
+          {/* `tabular-nums`: the date and the signature count are figures in
+              a two-column list, and proportional digits make a column of them
+              look ragged. Names in the same list are unaffected — the setting
+              only reaches digits. */}
+          <dl className="mx-auto max-w-sm space-y-2 text-left text-sm tabular-nums">
             <div className="flex justify-between gap-4">
               <dt className="text-muted-foreground">Signed by</dt>
               <dd className="font-medium">{me.displayName}</dd>
